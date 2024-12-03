@@ -1,0 +1,220 @@
+import matplotlib.pyplot as plt
+import torch
+import os
+import time
+import argparse
+import sys
+import datetime
+import torch
+import torch.utils.data as data
+import torchvision
+import numpy as np
+# from Dataset.MNIST_encoder import EncodedMNIST
+from src.ff_snn_net import Net
+from spikingjelly.activation_based import encoding, functional
+import torch.nn.functional as F
+def get_y_neg(y,device):
+    y_neg = y.clone()
+    for idx, y_samp in enumerate(y):
+        allowed_indices = list(range(10))
+        # print("allowed_indices:", allowed_indices)
+        # print("y_samp:", y_samp.item())
+        allowed_indices.remove(y_samp.item())
+        y_neg[idx] = torch.tensor(allowed_indices)[
+            torch.randint(len(allowed_indices), size=(1,))
+        ].item()
+    return y_neg.to(device)
+
+def overlay_y_on_x(x, y,classes=10):
+    """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]
+    """
+    x_ = x.clone()  # 创建一个 x 的副本，避免修改原始数据
+    batch_size = x.shape[0]  # 获取批量大小
+    x_[:, 0, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
+    # 遍历每个样本
+    for i in range(batch_size):
+        # 获取当前样本的标签
+        label = y[i].item()  # y[i]是该样本的标签
+        # 确保标签在0到9之间（根据设置的 classes）
+        if 0 <= label < classes:
+            # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
+            x_[i, 0, label, 0] = x_.max()  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
+    return x_
+
+def visualize_sample(data, name='', idx=0):
+    reshaped = data[idx].cpu().sum(dim=0) #.reshape(1, 28, 28)
+    plt.figure(figsize=(4, 4))
+    plt.title(name)
+    plt.imshow(reshaped, cmap="gray")
+    plt.show()
+
+def main():
+    parser = argparse.ArgumentParser(description='LIF MNIST Training')
+    parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
+    parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
+    parser.add_argument('-device', default='cuda:0', help='device')
+    parser.add_argument('-b', default=250, type=int, help='batch size')
+    parser.add_argument('-epochs', default=10, type=int, metavar='N',
+                        help='number of total epochs to run')
+    parser.add_argument('-j', default=8, type=int, metavar='N',
+                        help='number of data loading workers (default: 4)')
+    parser.add_argument('-data-dir', default='./data',type=str, help='root dir of MNIST dataset')
+    parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
+    parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
+    parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
+    parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
+    parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
+
+    parser.add_argument('-lr', default=0.0002, type=float, help='learning rate')
+    parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
+    parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
+    parser.add_argument('-save-model', action='store_true', help='save the model or not')
+
+    args = parser.parse_args()
+###########################################################################################
+####################################前向学习的代码结构######################################
+    # 初始化数据加载器
+    train_dataset = torchvision.datasets.MNIST(
+        root=args.data_dir,
+        train=True,
+        transform=torchvision.transforms.ToTensor(),
+        download=True
+    )
+    test_dataset = torchvision.datasets.MNIST(
+        root=args.data_dir,
+        train=False,
+        transform=torchvision.transforms.ToTensor(),
+        download=True
+    )
+
+    train_data_loader = data.DataLoader(
+        dataset=train_dataset,
+        batch_size=args.b,
+        shuffle=True,
+        drop_last=True,
+        num_workers=args.j,
+        pin_memory=True
+    )
+    test_data_loader = data.DataLoader(
+        dataset=test_dataset,
+        batch_size=args.b,
+        shuffle=False,
+        drop_last=False,
+        num_workers=args.j,
+        pin_memory=True
+    )
+    device = torch.device("cuda")
+    out_dir = os.path.join(os.path.join(args.out_dir, f'T{args.T}_b{args.b}_{args.opt}_lr{args.lr}'),datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+        print(f'Mkdir {out_dir}.')
+    with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
+        args_txt.write(str(args))
+        args_txt.write('\n')
+        args_txt.write(' '.join(sys.argv))
+    net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,v_threshold=args.v_threshold, opt=args.opt)
+    # x, y = next(iter(train_data_loader))
+    # 初始化存储训练精度的列表
+    train_acc = 0
+    train_acc_list = []
+    start_time = time.time()
+    batch_samples = 0
+    max_tran_acc = 0
+    for x, y in train_data_loader:
+        batch_samples += 1
+        x, y = x.to(device), y.to(device)
+        x, y = x.to(device), y.to(device)
+        label_onehot = F.one_hot(y, 10).float()
+    #先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
+        x_pos = overlay_y_on_x(x, y)
+        y_neg = get_y_neg(y,device)
+        x_neg = overlay_y_on_x(x, y_neg)
+    # x_pos_encoded = encoder(x_pos)
+    # x_neg_encoded = encoder(x_neg)
+        net.train(x_pos, x_neg, label_onehot)
+        if batch_samples % 10:
+            train_acc = 100 * net.predict(x).eq(y).cpu().float().mean().item()
+            train_acc_list.append(train_acc)
+            print(f"Train Acc:  {train_acc:.2f}%")
+            if train_acc > max_tran_acc:
+                max_acc_model = net.state_dict()
+                max_tran_acc = train_acc
+        torch.cuda.empty_cache()
+        if train_acc > 98:
+            break
+    end_time = time.time()
+    total_time = end_time - start_time
+    hours, rem = divmod(total_time, 3600)
+    minutes, seconds = divmod(rem, 60)
+    print(f"Training completed. Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
+    # 绘制训练精度曲线
+    plt.figure(figsize=(8, 6))
+    plt.plot(range(1, len(train_acc_list) + 1), train_acc_list, marker='o', label='Train Accuracy')
+    plt.xlabel('Batches')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Training Accuracy Curve')
+    plt.legend()
+    plt.grid(True)
+    # 保存曲线到本地
+    plt.savefig(os.path.join(out_dir,'training_accuracy_curve.png'), dpi=300)
+    # plt.show()
+
+    test_acc = 0
+    test_samples = 0
+    test_count = 0
+    net.load_state_dict(max_acc_model)
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            test_samples += y_te.numel()
+            test_count += 1
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+            torch.cuda.empty_cache()
+            if(x_te.shape[0] != args.b or test_samples >= args.b):
+                break
+    print("test Acc:", 100 * test_acc / test_count, "%")
+
+    checkpoint = {
+        'net': net.state_dict(),
+        'arg': args
+    }
+    save = True
+    if save or args.save_model:
+        torch.save(checkpoint, os.path.join(out_dir, 'checkpoint_max.pth'))
+
+    print(args)
+    print(out_dir)
+    # print(f'epoch ={epoch}, train_loss ={train_loss: .4f}, train_acc ={train_acc: .4f}, test_loss ={test_loss: .4f}, test_acc ={test_acc: .4f}, max_test_acc ={max_test_acc: .4f}')
+    # print(f'train speed ={train_speed: .4f} images/s, test speed ={test_speed: .4f} images/s')
+    # print(f'escape time = {(datetime.datetime.now() + datetime.timedelta(seconds=(time.time() - start_time) * (args.epochs - epoch))).strftime("%Y-%m-%d %H:%M:%S")}\n')
+
+    # 保存绘图用数据
+    # net.eval()
+    # 注册钩子
+    # output_layer = net.layers[-1] # 输出层
+    # output_layer.v_seq = []
+    # output_layer.s_seq = []
+    # def save_hook(m, x, y):
+    #     m.v_seq.append(m.v.unsqueeze(0))
+    #     m.s_seq.append(y.unsqueeze(0))
+
+    # output_layer.register_forward_hook(save_hook)
+    # # 此部分有bug
+    # with torch.no_grad():
+    #     img, label = test_dataset[0]
+    #     img = img.to(args.device)
+    #     for i, layer in enumerate(net.layers):
+    #         img = layer.predict(img)
+    #     out_spikes_counter_frequency = img.cpu().detach().numpy()
+    #     print(f'Firing rate: {out_spikes_counter_frequency}')
+
+    #     output_layer.v_seq = torch.cat(output_layer.v_seq)
+    #     output_layer.s_seq = torch.cat(output_layer.s_seq)
+    #     v_t_array = output_layer.v_seq.cpu().numpy().squeeze()  # v_t_array[i][j]表示神经元i在j时刻的电压值
+    #     np.save(os.path.join(out_dir, "v_t_array.npy"),v_t_array)
+    #     s_t_array = output_layer.s_seq.cpu().numpy().squeeze()  # s_t_array[i][j]表示神经元i在j时刻释放的脉冲，为0或1
+    #     np.save(os.path.join(out_dir, "s_t_array.npy"),s_t_array)
+    
+if __name__ == "__main__":
+    main()
+
