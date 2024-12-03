@@ -135,3 +135,7 @@ dmypy.json
 logs/
 data/
 assets/
+.gitignore
+.git/
+images/
+SNN-FF.md
