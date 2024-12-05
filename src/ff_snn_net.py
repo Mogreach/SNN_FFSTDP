@@ -29,13 +29,14 @@ class IFNode_Non_T(neuron.IFNode):
         self.v = self.v.detach() + x
 
 class Net(torch.nn.Module):
-    def __init__(self, dims, tau, epoch, T, lr, v_threshold,opt):
+    def __init__(self, dims, tau, epoch, T, lr, v_threshold, opt, loss_threshold):
         super().__init__()
         self.T = T
         self.layers = []
+        self.loss_threshold = loss_threshold
         for d in range(len(dims) - 1):
             self.layers += [Layer(in_features = dims[d], out_features = dims[d + 1], epoch=epoch, T=T, lr=lr,
-                                  v_threshold = v_threshold, tau = tau).cuda()]
+                                  v_threshold = v_threshold, tau = tau, loss_threshold = loss_threshold).cuda()]
     # 通过goodness计算预测结果
     def predict(self, x):
         goodness_per_label = []   
@@ -62,15 +63,21 @@ class Net(torch.nn.Module):
     #         goodness_per_label += h
     #     return goodness_per_label.argmax(1)
 
-    def train(self, x_pos, x_neg, y):
+    def train(self, x_pos, x_neg, y, layer_idx):
         h_pos, h_neg = x_pos, x_neg
         for i, layer in enumerate(self.layers):
-            print('training layer', i, '...')
-            h_pos, h_neg = layer.train(h_pos, h_neg, y)
+            if i == layer_idx:
+                train_mode = True
+                h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
+                break
+            else:
+                train_mode = False
+                h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
+        return loss  
 
 
 class Layer(nn.Module):
-    def __init__(self, in_features, out_features, epoch, T, lr, v_threshold, tau):
+    def __init__(self, in_features, out_features, epoch, T, lr, v_threshold, tau, loss_threshold):
         super().__init__()
         self.layer = nn.Sequential(
             layer.Flatten(),
@@ -83,7 +90,7 @@ class Layer(nn.Module):
         self.out_features = out_features
         self.num_epochs = epoch
         self.T = T
-        self.threshold = 0.35
+        self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
         self.visible = False
@@ -108,18 +115,23 @@ class Layer(nn.Module):
         return self.layer(x_direction)
 
 
-    def train(self, x_pos, x_neg, y):
-        for i in tqdm(range(self.num_epochs)):
-            g_pos, g_neg = torch.zeros(x_pos.shape[0],self.out_features).cuda(),torch.zeros(x_pos.shape[0],self.out_features).cuda() 
-            for t in  range(self.T):
-                x_pos_encoded = self.encoder(x_pos)
-                x_neg_encoded = self.encoder(x_neg)
-                g_pos += self.forward(x_pos_encoded)
-                g_neg += self.forward(x_neg_encoded)
-
+    def train(self, x_pos, x_neg, y, train_mode):
+        # for i in tqdm(range(self.num_epochs)):
+        # if i % 100 == 0:
+        # print("\nLoss: ", loss.item())
+        g_pos, g_neg = torch.zeros(x_pos.shape[0],self.out_features).cuda(),torch.zeros(x_pos.shape[0],self.out_features).cuda() 
+        for t in  range(self.T):
+            x_pos_encoded = self.encoder(x_pos)
+            x_neg_encoded = self.encoder(x_neg)
+            g_pos += self.forward(x_pos_encoded)
+            g_neg += self.forward(x_neg_encoded)
+        functional.reset_net(self.layer)
+        g_pos_freq = g_pos / self.T
+        g_neg_freq = g_neg / self.T
+        if (train_mode):
             # 计算单位时间内平均频率的均方和
-            g_pos_loss = (g_pos / self.T).pow(2).mean(1)
-            g_neg_loss = (g_neg / self.T).pow(2).mean(1)
+            g_pos_loss = g_pos_freq.pow(2).mean(1)
+            g_neg_loss = g_neg_freq.pow(2).mean(1)
             # 计算单位时间内平均频率的平均值
             # g_pos_loss = (g_pos / self.T).mean(1)
             # g_neg_loss = (g_neg / self.T).mean(1)
@@ -139,11 +151,10 @@ class Layer(nn.Module):
             # this backward just compute the derivative and hence is not considered backpropagation.
             loss.backward()
             self.opt.step()
-            if i % 100 == 0:
-                print("\nLoss: ", loss.item())
-            functional.reset_net(self.layer)
             # torch.cuda.empty_cache()
-        return (g_pos / self.T).detach(), (g_neg / self.T).detach()
+            return g_pos_freq.detach(), g_neg_freq.detach(), loss.item()
+        else:
+            return g_pos_freq.detach(), g_neg_freq.detach(), 0
     def predict(self, x):
         h = x
         g = 0
@@ -152,10 +163,10 @@ class Layer(nn.Module):
             spike_out = self.forward(h_encoded)
             g += spike_out
             # 用于观察输出层脉冲发放情况
-            if (self.out_features==10):
+            # if (self.out_features==10):
                 # if(g[0].sum() > 0):
                     # print(1)
-                self.visualize_spike_in_timestep(spike_out)
+                # self.visualize_spike_in_timestep(spike_out)
         functional.reset_net(self.layer)
 
         return g / self.T

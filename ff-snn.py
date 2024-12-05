@@ -9,7 +9,7 @@ import torch
 import torch.utils.data as data
 import torchvision
 import numpy as np
-# from Dataset.MNIST_encoder import EncodedMNIST
+from tqdm import tqdm
 from src.ff_snn_net import Net
 from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
@@ -53,8 +53,8 @@ def main():
     parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
     parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
-    parser.add_argument('-b', default=250, type=int, help='batch size')
-    parser.add_argument('-epochs', default=10, type=int, metavar='N',
+    parser.add_argument('-b', default=800, type=int, help='batch size')
+    parser.add_argument('-epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-j', default=8, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -65,15 +65,18 @@ def main():
     parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
     parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
 
-    parser.add_argument('-lr', default=0.0002, type=float, help='learning rate')
+    parser.add_argument('-lr', default=0.0005, type=float, help='learning rate')
     parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
     parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
+    parser.add_argument('-loss_threshold', default=0.35, type=float, help='threshold of loss function')
     parser.add_argument('-save-model', action='store_true', help='save the model or not')
 
     args = parser.parse_args()
 ###########################################################################################
 ####################################前向学习的代码结构######################################
     # 初始化数据加载器
+
+    # 加载训练集和测试集
     train_dataset = torchvision.datasets.MNIST(
         root=args.data_dir,
         train=True,
@@ -87,6 +90,12 @@ def main():
         download=True
     )
 
+    # 划分训练集和验证集
+    train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
+    val_size = len(train_dataset) - train_size  # 20% 用于验证
+    train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+
+    # 创建 DataLoader
     train_data_loader = data.DataLoader(
         dataset=train_dataset,
         batch_size=args.b,
@@ -95,6 +104,16 @@ def main():
         num_workers=args.j,
         pin_memory=True
     )
+
+    val_data_loader = data.DataLoader(
+        dataset=val_dataset,
+        batch_size=args.b,
+        shuffle=False,
+        drop_last=False,
+        num_workers=args.j,
+        pin_memory=True
+    )
+
     test_data_loader = data.DataLoader(
         dataset=test_dataset,
         batch_size=args.b,
@@ -112,36 +131,45 @@ def main():
         args_txt.write(str(args))
         args_txt.write('\n')
         args_txt.write(' '.join(sys.argv))
-    net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,v_threshold=args.v_threshold, opt=args.opt)
+    net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,
+              v_threshold=args.v_threshold, opt=args.opt, loss_threshold=args.loss_threshold)
     # x, y = next(iter(train_data_loader))
     # 初始化存储训练精度的列表
+    epochs = args.epochs
     train_acc = 0
     train_acc_list = []
     start_time = time.time()
-    batch_samples = 0
     max_tran_acc = 0
-    for x, y in train_data_loader:
-        batch_samples += 1
-        x, y = x.to(device), y.to(device)
-        x, y = x.to(device), y.to(device)
-        label_onehot = F.one_hot(y, 10).float()
-    #先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
-        x_pos = overlay_y_on_x(x, y)
-        y_neg = get_y_neg(y,device)
-        x_neg = overlay_y_on_x(x, y_neg)
-    # x_pos_encoded = encoder(x_pos)
-    # x_neg_encoded = encoder(x_neg)
-        net.train(x_pos, x_neg, label_onehot)
-        if batch_samples % 10:
-            train_acc = 100 * net.predict(x).eq(y).cpu().float().mean().item()
-            train_acc_list.append(train_acc)
-            print(f"Train Acc:  {train_acc:.2f}%")
-            if train_acc > max_tran_acc:
-                max_acc_model = net.state_dict()
-                max_tran_acc = train_acc
-        torch.cuda.empty_cache()
-        if train_acc > 98:
-            break
+    loss_of_layer_list = [[] for _ in range(len(net.layers))]
+    for layer_idx in range(len(net.layers)):
+        print('training layer', layer_idx+1, '...')
+        for i in tqdm(range(epochs)):
+            torch.cuda.empty_cache()
+            batch_samples = 0
+            val_samples = 0
+            loss = 0
+            val_acc = 0
+            for x, y in train_data_loader:
+                batch_samples += 1
+                x, y = x.to(device), y.to(device)
+                label_onehot = F.one_hot(y, 10).float()
+            #先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
+                x_pos = overlay_y_on_x(x, y)
+                y_neg = get_y_neg(y,device)
+                x_neg = overlay_y_on_x(x, y_neg)
+                loss += net.train(x_pos, x_neg, label_onehot, layer_idx)
+            loss_of_layer_list[layer_idx].append(loss / batch_samples)
+            if layer_idx == (len(net.layers) - 1):
+                for x_val, y_val in val_data_loader:
+                    val_samples += 1
+                    x_val, y_val = x_val.to(device), y_val.to(device)
+                    val_acc += net.predict(x_val).eq(y_val).cpu().float().mean().item()
+                train_acc = 100 * (val_acc / val_samples)
+                train_acc_list.append(train_acc)
+                print(f"Train Acc:  {train_acc:.2f}%")
+                if train_acc >= max_tran_acc:
+                    max_acc_model = net.state_dict()
+                    max_tran_acc = train_acc
     end_time = time.time()
     total_time = end_time - start_time
     hours, rem = divmod(total_time, 3600)
@@ -150,9 +178,9 @@ def main():
     # 绘制训练精度曲线
     plt.figure(figsize=(8, 6))
     plt.plot(range(1, len(train_acc_list) + 1), train_acc_list, marker='o', label='Train Accuracy')
-    plt.xlabel('Batches')
+    plt.xlabel('Epochs')
     plt.ylabel('Accuracy (%)')
-    plt.title('Training Accuracy Curve')
+    plt.title('Training Accuracy Curve when training last layer')
     plt.legend()
     plt.grid(True)
     # 保存曲线到本地
