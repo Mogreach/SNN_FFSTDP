@@ -48,13 +48,36 @@ def visualize_sample(data, name='', idx=0):
     plt.imshow(reshaped, cmap="gray")
     plt.show()
 
+def plot_loss(loss_of_layer_list, save_path):
+    # 获取层数和每层的损失数据
+    num_layers = len(loss_of_layer_list)
+    
+    # 创建一个图形
+    plt.figure(figsize=(10, 6))  # 设置图像大小
+    
+    # 绘制每一层的损失随 epoch 变化的曲线
+    for layer_idx in range(num_layers):
+        plt.plot(loss_of_layer_list[layer_idx], 'o-', label=f'Layer {layer_idx + 1}')
+    
+    # 设置图形的标签和标题
+    plt.xlabel('Epochs')  # x轴标签
+    plt.ylabel('Loss')    # y轴标签
+    plt.title('Loss vs Epoch for Each Layer')  # 图形标题
+    
+    # 显示图例和网格
+    plt.legend()  # 显示图例，标识不同的层
+    plt.grid(True)  # 显示网格
+    
+    # 保存图像到文件
+    plt.savefig(save_path)
+    print(f"Loss plot saved to {save_path}")
 def main():
     parser = argparse.ArgumentParser(description='LIF MNIST Training')
     parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
     parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
     parser.add_argument('-b', default=800, type=int, help='batch size')
-    parser.add_argument('-epochs', default=50, type=int, metavar='N',
+    parser.add_argument('-epochs', default=15, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-j', default=8, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -65,7 +88,7 @@ def main():
     parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
     parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
 
-    parser.add_argument('-lr', default=0.0005, type=float, help='learning rate')
+    parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
     parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
     parser.add_argument('-loss_threshold', default=0.35, type=float, help='threshold of loss function')
@@ -75,7 +98,6 @@ def main():
 ###########################################################################################
 ####################################前向学习的代码结构######################################
     # 初始化数据加载器
-
     # 加载训练集和测试集
     train_dataset = torchvision.datasets.MNIST(
         root=args.data_dir,
@@ -185,7 +207,7 @@ def main():
     plt.grid(True)
     # 保存曲线到本地
     plt.savefig(os.path.join(out_dir,'training_accuracy_curve.png'), dpi=300)
-    # plt.show()
+    plot_loss( loss_of_layer_list, os.path.join(out_dir,'loss_of_each_layer.png'))
 
     test_acc = 0
     test_samples = 0
@@ -212,36 +234,6 @@ def main():
 
     print(args)
     print(out_dir)
-    # print(f'epoch ={epoch}, train_loss ={train_loss: .4f}, train_acc ={train_acc: .4f}, test_loss ={test_loss: .4f}, test_acc ={test_acc: .4f}, max_test_acc ={max_test_acc: .4f}')
-    # print(f'train speed ={train_speed: .4f} images/s, test speed ={test_speed: .4f} images/s')
-    # print(f'escape time = {(datetime.datetime.now() + datetime.timedelta(seconds=(time.time() - start_time) * (args.epochs - epoch))).strftime("%Y-%m-%d %H:%M:%S")}\n')
-
-    # 保存绘图用数据
-    # net.eval()
-    # 注册钩子
-    # output_layer = net.layers[-1] # 输出层
-    # output_layer.v_seq = []
-    # output_layer.s_seq = []
-    # def save_hook(m, x, y):
-    #     m.v_seq.append(m.v.unsqueeze(0))
-    #     m.s_seq.append(y.unsqueeze(0))
-
-    # output_layer.register_forward_hook(save_hook)
-    # # 此部分有bug
-    # with torch.no_grad():
-    #     img, label = test_dataset[0]
-    #     img = img.to(args.device)
-    #     for i, layer in enumerate(net.layers):
-    #         img = layer.predict(img)
-    #     out_spikes_counter_frequency = img.cpu().detach().numpy()
-    #     print(f'Firing rate: {out_spikes_counter_frequency}')
-
-    #     output_layer.v_seq = torch.cat(output_layer.v_seq)
-    #     output_layer.s_seq = torch.cat(output_layer.s_seq)
-    #     v_t_array = output_layer.v_seq.cpu().numpy().squeeze()  # v_t_array[i][j]表示神经元i在j时刻的电压值
-    #     np.save(os.path.join(out_dir, "v_t_array.npy"),v_t_array)
-    #     s_t_array = output_layer.s_seq.cpu().numpy().squeeze()  # s_t_array[i][j]表示神经元i在j时刻释放的脉冲，为0或1
-    #     np.save(os.path.join(out_dir, "s_t_array.npy"),s_t_array)
     
 if __name__ == "__main__":
     main()
