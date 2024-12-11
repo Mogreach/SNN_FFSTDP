@@ -73,11 +73,11 @@ def plot_loss(loss_of_layer_list, save_path):
     print(f"Loss plot saved to {save_path}")
 def main():
     parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
+    parser.add_argument('-dims', default=[784,2000,2000,2000], help='dimension of the network')
     parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
     parser.add_argument('-b', default=800, type=int, help='batch size')
-    parser.add_argument('-epochs', default=15, type=int, metavar='N',
+    parser.add_argument('-epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-j', default=8, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -88,7 +88,7 @@ def main():
     parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
     parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
 
-    parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
+    parser.add_argument('-lr', default=0.0005, type=float, help='learning rate')
     parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
     parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
     parser.add_argument('-loss_threshold', default=0.35, type=float, help='threshold of loss function')

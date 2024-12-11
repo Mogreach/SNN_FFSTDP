@@ -16,6 +16,30 @@ from tqdm import tqdm
 from src.ff_snn_net import Net
 from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
+from functools import partial
+parser = argparse.ArgumentParser(description='LIF MNIST Training')
+parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
+parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
+parser.add_argument('-device', default='cuda:0', help='device')
+parser.add_argument('-b', default=800, type=int, help='batch size')
+parser.add_argument('-epochs', default=15, type=int, metavar='N',
+                    help='number of total epochs to run')
+parser.add_argument('-j', default=8, type=int, metavar='N',
+                    help='number of data loading workers (default: 4)')
+parser.add_argument('-data-dir', default='./data',type=str, help='root dir of MNIST dataset')
+parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
+parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
+parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
+parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
+parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
+
+parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
+parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
+parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
+parser.add_argument('-loss_threshold', default=0.3, type=float, help='threshold of loss function')
+parser.add_argument('-save-model', action='store_true', help='save the model or not')
+
+args = parser.parse_args()
 def get_y_neg(y,device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -43,7 +67,7 @@ def overlay_y_on_x(x, y,classes=10):
             # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
             x_[i, 0, label, 0] = x_.max()  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
     return x_
-def eval_model(args, T, batch_size, epochs, lr, v_threshold, loss_threshold):
+def eval_model(T, batch_size, epochs, lr, v_threshold, loss_threshold):
     # 加载训练集和测试集
     train_dataset = torchvision.datasets.MNIST(
         root=args.data_dir,
@@ -51,7 +75,7 @@ def eval_model(args, T, batch_size, epochs, lr, v_threshold, loss_threshold):
         transform=torchvision.transforms.ToTensor(),
         download=True
     )
-    
+    batch_size = int(batch_size)
     # 划分训练集和验证集
     train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
     val_size = len(train_dataset) - train_size  # 20% 用于验证
@@ -104,32 +128,11 @@ def eval_model(args, T, batch_size, epochs, lr, v_threshold, loss_threshold):
     return minimize
 
 
+
 def main():
-    parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
-    parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
-    parser.add_argument('-device', default='cuda:0', help='device')
-    parser.add_argument('-b', default=800, type=int, help='batch size')
-    parser.add_argument('-epochs', default=15, type=int, metavar='N',
-                        help='number of total epochs to run')
-    parser.add_argument('-j', default=8, type=int, metavar='N',
-                        help='number of data loading workers (default: 4)')
-    parser.add_argument('-data-dir', default='./data',type=str, help='root dir of MNIST dataset')
-    parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
-    parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
-    parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
-    parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
-    parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
-
-    parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
-    parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
-    parser.add_argument('-loss_threshold', default=0.3, type=float, help='threshold of loss function')
-    parser.add_argument('-save-model', action='store_true', help='save the model or not')
-
-    args = parser.parse_args()
 ###########################################################################################
 ####################################超参数寻优代码######################################
+    # define the function used to evaluate a given configuration
 
     # 定义超参数的搜索空间
     space  = [
@@ -140,10 +143,20 @@ def main():
     Real(0.1, 1.8, name='v_threshold'),    # 脉冲电压阈值
     Real(0.0, 1, name='loss_threshold')   # 损失函数阈值
     ]
+    @use_named_args(space)
+    def evaluate_model_pack(**params):
+        # configure the model with specific hyperparameters
+        # 打印所有参数及其对应的值
+        print("Hyperparameters:", params)
+        for param_name, param_value in params.items():
+            print(f"{param_name}: {param_value}")
+        minimize = eval_model(**params)
+        return minimize
+
     start_time = time.time()
     # 使用gp_minimize进行优化
     result = gp_minimize(
-        func=eval_model,   # 目标函数
+        func=evaluate_model_pack,   # 目标函数
         dimensions=space,      # 超参数空间
         n_calls=50,            # 迭代次数
         random_state=42        # 随机种子
