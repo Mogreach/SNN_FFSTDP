@@ -130,20 +130,22 @@ class Layer(nn.Module):
         g_neg_freq = g_neg / self.T
         if (train_mode):
             # 计算单位时间内平均频率的均方和
-            g_pos_loss = g_pos_freq.pow(2).mean(1)
-            g_neg_loss = g_neg_freq.pow(2).mean(1)
+            g_pos_loss = self.T * g_pos_freq.pow(2).mean(1)
+            g_neg_loss = self.T * g_neg_freq.pow(2).mean(1)
+            # g_pos_loss = g_pos.mean(1) / self.T
+            # g_neg_loss = g_neg.mean(1) / self.T
             # 计算单位时间内平均频率的平均值
-            # g_pos_loss = (g_pos / self.T).mean(1)
-            # g_neg_loss = (g_neg / self.T).mean(1)
+            # g_pos_loss = g_pos_freq.mean(1)
+            # g_neg_loss = g_neg_freq.mean(1)
 
             # The following loss pushes pos (neg) samples to values larger (smaller) than the self.threshold.
             if (self.out_features == 10):
                 # loss = F.mse_loss(g_pos/self.T, y)
-                loss = torch.log1p(1 + torch.exp(torch.cat([
+                loss = torch.log(1 + torch.exp(torch.cat([
                 -g_pos_loss + self.threshold,
                 g_neg_loss - self.threshold]))).mean()
             else:
-                loss = torch.log1p(1 + torch.exp(torch.cat([
+                loss = torch.log(1 + torch.exp(torch.cat([
                 -g_pos_loss + self.threshold,
                 g_neg_loss - self.threshold]))).mean()
 
