@@ -116,9 +116,6 @@ class Layer(nn.Module):
 
 
     def train(self, x_pos, x_neg, y, train_mode):
-        # for i in tqdm(range(self.num_epochs)):
-        # if i % 100 == 0:
-        # print("\nLoss: ", loss.item())
         g_pos, g_neg = torch.zeros(x_pos.shape[0],self.out_features).cuda(),torch.zeros(x_pos.shape[0],self.out_features).cuda() 
         for t in  range(self.T):
             x_pos_encoded = self.encoder(x_pos)
