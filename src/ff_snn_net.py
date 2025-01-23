@@ -136,16 +136,15 @@ class Layer(nn.Module):
             # g_neg_loss = g_neg_freq.mean(1)
 
             # The following loss pushes pos (neg) samples to values larger (smaller) than the self.threshold.
-            if (self.out_features == 10):
+            # if (self.out_features == 10):
                 # loss = F.mse_loss(g_pos/self.T, y)
-                loss = torch.log(1 + torch.exp(torch.cat([
-                -g_pos_loss + self.threshold,
-                g_neg_loss - self.threshold]))).mean()
-            else:
-                loss = torch.log(1 + torch.exp(torch.cat([
-                -g_pos_loss + self.threshold,
-                g_neg_loss - self.threshold]))).mean()
-
+            #     loss = torch.log(1 + torch.exp(torch.cat([
+            #     -g_pos_loss + self.threshold,
+            #     g_neg_loss - self.threshold]))).mean()
+            # else:
+            loss = torch.log(1 + torch.exp(torch.cat([
+            -g_pos_loss + self.threshold,
+            g_neg_loss - self.threshold]))).mean()
             self.opt.zero_grad()
             # this backward just compute the derivative and hence is not considered backpropagation.
             loss.backward()
