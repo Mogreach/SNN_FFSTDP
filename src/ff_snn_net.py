@@ -1,14 +1,25 @@
 import matplotlib.pyplot as plt
+import torch.autograd as autograd
 import torch
-from tqdm import tqdm
-from torch.optim import Adam
 import torch
 import torch.nn as nn
 import numpy as np
-from spikingjelly.activation_based import neuron, encoding, functional, surrogate, layer
 import torch.nn.functional as F
-
-
+from tqdm import tqdm
+from torch.optim import Adam
+from src.loss import Frequency_FF_Loss
+from spikingjelly.activation_based import neuron, encoding, functional, surrogate, layer
+class CustomFunction(autograd.Function):
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)  # 保存输入以供反向传播使用
+        return input.clamp(min=0)  # 实现 ReLU 操作
+ 
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors  # 获取保存的输入张量
+        grad_input = grad_output.clone()
+        grad_input[input < 0] = 0  # ReLU 的导数是 0 或 1
 def overlay_y_on_x(x, y,classes=10):
     """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]
     """
@@ -95,7 +106,7 @@ class Layer(nn.Module):
         self.opt = Adam(self.parameters(), lr=lr)
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
-
+        self.loss = Frequency_FF_Loss
     def visualize_spike_in_timestep(self,layer_forward_out):
         self.spike_vis = torch.cat((self.spike_vis,layer_forward_out[0].cpu().flatten().unsqueeze(1)),dim=1)
         if (self.visible and self.spike_vis.shape[1] == self.T):
@@ -126,31 +137,16 @@ class Layer(nn.Module):
         g_pos_freq = g_pos / self.T
         g_neg_freq = g_neg / self.T
         if (train_mode):
-            # 计算单位时间内平均频率的均方和
-            g_pos_loss = self.T * g_pos_freq.pow(2).mean(1)
-            g_neg_loss = self.T * g_neg_freq.pow(2).mean(1)
-            # g_pos_loss = g_pos.mean(1) / self.T
-            # g_neg_loss = g_neg.mean(1) / self.T
-            # 计算单位时间内平均频率的平均值
-            # g_pos_loss = g_pos_freq.mean(1)
-            # g_neg_loss = g_neg_freq.mean(1)
-
-            # The following loss pushes pos (neg) samples to values larger (smaller) than the self.threshold.
-            # if (self.out_features == 10):
-                # loss = F.mse_loss(g_pos/self.T, y)
-            #     loss = torch.log(1 + torch.exp(torch.cat([
-            #     -g_pos_loss + self.threshold,
-            #     g_neg_loss - self.threshold]))).mean()
-            # else:
-            loss = torch.log(1 + torch.exp(torch.cat([
-            -g_pos_loss + self.threshold,
-            g_neg_loss - self.threshold]))).mean()
             self.opt.zero_grad()
+            loss, grad = self.loss(self.in_features, self.out_features, self.T, self.threshold, x_pos, x_neg, g_pos_freq, g_neg_freq)
+            for param in self.layer.parameters():
+                if param.requires_grad:
+                    # 使用优化器更新权重
+                    param.grad = grad
             # this backward just compute the derivative and hence is not considered backpropagation.
-            loss.backward()
+            # loss.backward()
             self.opt.step()
-            # torch.cuda.empty_cache()
-            return g_pos_freq.detach(), g_neg_freq.detach(), loss.item()
+            return g_pos_freq.detach(), g_neg_freq.detach(), loss
         else:
             return g_pos_freq.detach(), g_neg_freq.detach(), 0
     def predict(self, x):
