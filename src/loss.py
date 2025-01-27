@@ -21,7 +21,7 @@ def compute_f_in_to_grad_function():
     # 设置参数
     T = 128  # 总时间步
     x = torch.arange(-0.2, 1.2, 0.04)  # 输入值范围
-    f_in_values = np.linspace(0, 1, 50)  # f_in 的取值范围
+    f_in_values = np.linspace(0, 1, 100)  # f_in 的取值范围
     if_node = neuron.IFNode(v_reset=None)  # 定义脉冲神经元
 
     # 创建网格
@@ -51,8 +51,8 @@ def compute_f_in_to_grad_function():
     return grad_interpolator
 def Frequency_FF_Loss(in_features, out_features, T, threshold, in_pos_freq, in_neg_freq, out_pos_freq, out_neg_freq):
 # 假设 param 是一个权重矩阵 w (形状: [out_features, in_features])
-    pos_goodness =  T * out_pos_freq.pow(2).mean(1)
-    neg_goodness =  T * out_neg_freq.pow(2).mean(1)
+    pos_goodness = out_pos_freq.pow(2).mean(1)
+    neg_goodness = out_neg_freq.pow(2).mean(1)
     loss = torch.log(1 + torch.exp(torch.cat([
         -pos_goodness + threshold,
         neg_goodness - threshold]))).mean()
@@ -73,9 +73,9 @@ def Frequency_FF_Loss(in_features, out_features, T, threshold, in_pos_freq, in_n
 # 公式为 ∂f/∂x，f是损失，x是输入总电流
     f_in_grad_pos = torch.tensor(approximate_grad(in_pos_freq.detach().cpu().numpy()),device=in_pos_freq.device).to(dtype=torch.float32)
     f_in_grad_neg = torch.tensor(approximate_grad(in_neg_freq.detach().cpu().numpy()),device=in_neg_freq.device).to(dtype=torch.float32)
-    pos_grad = (fr_grad_pos.view(out_features,1)) @ (((f_in_grad_pos * in_pos_freq).mean(0)).view(1,in_features))
-    neg_grad = (fr_grad_neg.view(out_features,1)) @ (((f_in_grad_neg * in_neg_freq).mean(0)).view(1,in_features))
-    grad = pos_grad + neg_grad
+    pos_grad = (fr_grad_pos.view(out_features,1)) @ (((f_in_grad_pos*in_pos_freq).mean(0)).view(1,in_features))
+    neg_grad = (fr_grad_neg.view(out_features,1)) @ (((f_in_grad_neg*in_neg_freq).mean(0)).view(1,in_features))
+    grad = 20*( pos_grad + neg_grad)
     return loss.item(), grad
 
 

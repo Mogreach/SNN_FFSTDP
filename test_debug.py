@@ -1,17 +1,12 @@
 import matplotlib.pyplot as plt
 import torch
 import os
-import time
 import argparse
 import sys
-import datetime
 import torch
 import torch.utils.data as data
 import torchvision
-import numpy as np
-from tqdm import tqdm
 from src.ff_snn_net import Net
-from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
 def get_y_neg(y,device):
     y_neg = y.clone()
@@ -73,10 +68,10 @@ def plot_loss(loss_of_layer_list, save_path):
     print(f"Loss plot saved to {save_path}")
 def main():
     parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,100], help='dimension of the network')
+    parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
     parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
-    parser.add_argument('-b', default=1000, type=int, help='batch size')
+    parser.add_argument('-b', default=100, type=int, help='batch size')
     parser.add_argument('-epochs', default=5, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-j', default=8, type=int, metavar='N',
@@ -91,7 +86,7 @@ def main():
     parser.add_argument('-lr', default=0.1, type=float, help='learning rate')
     parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
     parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
-    parser.add_argument('-loss_threshold', default=1, type=float, help='threshold of loss function')
+    parser.add_argument('-loss_threshold', default=1.2, type=float, help='threshold of loss function')
     parser.add_argument('-save-model', action='store_true', help='save the model or not')
 
     args = parser.parse_args()
@@ -138,103 +133,29 @@ def main():
 
     test_data_loader = data.DataLoader(
         dataset=test_dataset,
-        batch_size=100,
+        batch_size=args.b,
         shuffle=False,
         drop_last=False,
         num_workers=args.j,
         pin_memory=True
     )
     device = torch.device("cuda")
-    out_dir = os.path.join(os.path.join(args.out_dir, f'T{args.T}_b{args.b}_{args.opt}_lr{args.lr}'),datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-        print(f'Mkdir {out_dir}.')
-    with open(os.path.join(out_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
-        args_txt.write(str(args))
-        args_txt.write('\n')
-        args_txt.write(' '.join(sys.argv))
     net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,
               v_threshold=args.v_threshold, opt=args.opt, loss_threshold=args.loss_threshold)
-    # x, y = next(iter(train_data_loader))
-    # 初始化存储训练精度的列表
-    epochs = args.epochs
-    train_acc = 0
-    train_acc_list = []
-    start_time = time.time()
-    max_tran_acc = 0
-    loss_of_layer_list = [[] for _ in range(len(net.layers))]
-    # 定义输出文件路径
-    log_file_path = os.path.join(out_dir,"output_log.txt")
-    # 保存原始标准输出
-    original_stdout = sys.stdout
-    with open(log_file_path, "w") as f:
-        sys.stdout = f  # 替换标准输出
-        for layer_idx in range(len(net.layers)):
-            print('training layer', layer_idx+1, '...')
-            for i in tqdm(range(epochs)):
-                torch.cuda.empty_cache()
-                batch_samples = 0
-                val_samples = 0
-                loss = 0
-                val_acc = 0
-                for x, y in train_data_loader:
-                    batch_samples += 1
-                    x, y = x.to(device), y.to(device)
-                    label_onehot = F.one_hot(y, 10).float()
-                #先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
-                    x_pos = overlay_y_on_x(x, y)
-                    y_neg = get_y_neg(y,device)
-                    x_neg = overlay_y_on_x(x, y_neg)
-                    loss += net.train(x_pos, x_neg, label_onehot, layer_idx)
-                loss_of_layer_list[layer_idx].append(loss / batch_samples)
-                print(f"Epoch: {i+1}/{epochs}, Loss: {loss / batch_samples:.4f}")
-                if layer_idx == (len(net.layers) - 1):
-                    with torch.no_grad():
-                        for x_val, y_val in val_data_loader:
-                            val_samples += 1
-                            x_val, y_val = x_val.to(device), y_val.to(device)
-                            val_acc += net.predict(x_val).eq(y_val).cpu().float().mean().item()
-                        train_acc = 100 * (val_acc / val_samples)
-                        train_acc_list.append(train_acc)
-                        print(f"Train Acc:  {train_acc:.2f}%")
-                        if train_acc >= max_tran_acc:
-                            net.save(args, os.path.join(out_dir, 'checkpoint_max.pth'))
-                            max_tran_acc = train_acc
-        end_time = time.time()
-        total_time = end_time - start_time
-        hours, rem = divmod(total_time, 3600)
-        minutes, seconds = divmod(rem, 60)
-        print(f"Training completed. Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
-        # 绘制训练精度曲线
-        plt.figure(figsize=(8, 6))
-        plt.plot(range(1, len(train_acc_list) + 1), train_acc_list, marker='o', label='Train Accuracy')
-        plt.xlabel('Epochs')
-        plt.ylabel('Accuracy (%)')
-        plt.title('Training Accuracy Curve when training last layer')
-        plt.legend()
-        plt.grid(True)
-        # 保存曲线到本地
-        plt.savefig(os.path.join(out_dir,'training_accuracy_curve.png'), dpi=300)
-        plot_loss( loss_of_layer_list, os.path.join(out_dir,'loss_of_each_layer.png'))
-
-        test_acc = 0
-        test_samples = 0
-        test_count = 0
-        with torch.no_grad():
-            for x_te, y_te in test_data_loader:
-                test_samples += y_te.numel()
-                test_count += 1
-                x_te, y_te = x_te.to(device), y_te.to(device)
-                test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+    net.load("logs/T100_b100_adam_lr0.0001/checkpoint_max_model.pth")
+    test_acc = 0
+    test_samples = 0
+    test_count = 0
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            test_samples += y_te.numel()
+            test_count += 1
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+            torch.cuda.empty_cache()
+            # if(x_te.shape[0] != args.b or test_samples >= args.b):
+            #     break
         print("test Acc:", 100 * test_acc / test_count, "%")
-        save = True
-        if save or args.save_model:
-            net.save(args, os.path.join(out_dir, 'checkpoint_last.pth'))
-        print(args)
-        print(out_dir)
-    # 恢复标准输出
-    sys.stdout = original_stdout
-    print("Back to console.")
     
 if __name__ == "__main__":
     main()

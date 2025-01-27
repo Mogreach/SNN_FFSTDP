@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 from tqdm import tqdm
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from src.loss import Frequency_FF_Loss
 from spikingjelly.activation_based import neuron, encoding, functional, surrogate, layer
 class CustomFunction(autograd.Function):
@@ -46,8 +46,8 @@ class Net(torch.nn.Module):
         self.layers = []
         self.loss_threshold = loss_threshold
         for d in range(len(dims) - 1):
-            self.layers += [Layer(in_features = dims[d], out_features = dims[d + 1], epoch=epoch, T=T, lr=lr,
-                                  v_threshold = v_threshold, tau = tau, loss_threshold = loss_threshold).cuda()]
+            self.layers += nn.ModuleList([Layer(in_features = dims[d], out_features = dims[d + 1], epoch=epoch, T=T, lr=lr,
+                                  v_threshold = v_threshold, tau = tau, loss_threshold = loss_threshold).cuda()])
     # 通过goodness计算预测结果
     def predict(self, x):
         goodness_per_label = []   
@@ -85,6 +85,20 @@ class Net(torch.nn.Module):
                 train_mode = False
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss  
+    def save(self, args, path):
+        check_point = {
+            "net": {f"layer_{i}": layer.state_dict() for i, layer in enumerate(self.layers)},
+            "args": args
+        }
+        torch.save(check_point, path)
+    def load(self, path):
+        check_point = torch.load(path)
+        # 加载每一层的参数
+        for i, layer in enumerate(self.layers):
+            layer.load_state_dict(check_point["net"][f"layer_{i}"])
+        # 打印加载的超参数
+        print(check_point["args"])
+
 
 
 class Layer(nn.Module):
@@ -103,7 +117,8 @@ class Layer(nn.Module):
         self.T = T
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
-        self.opt = Adam(self.parameters(), lr=lr)
+        # self.opt = Adam(self.parameters(), lr=lr)
+        self.opt = SGD(self.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
         self.loss = Frequency_FF_Loss
@@ -133,7 +148,6 @@ class Layer(nn.Module):
             x_neg_encoded = self.encoder(x_neg)
             g_pos += self.forward(x_pos_encoded)
             g_neg += self.forward(x_neg_encoded)
-        functional.reset_net(self.layer)
         g_pos_freq = g_pos / self.T
         g_neg_freq = g_neg / self.T
         if (train_mode):
@@ -146,8 +160,10 @@ class Layer(nn.Module):
             # this backward just compute the derivative and hence is not considered backpropagation.
             # loss.backward()
             self.opt.step()
+            functional.reset_net(self.layer)
             return g_pos_freq.detach(), g_neg_freq.detach(), loss
         else:
+            functional.reset_net(self.layer)
             return g_pos_freq.detach(), g_neg_freq.detach(), 0
     def predict(self, x):
         h = x
