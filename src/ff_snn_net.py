@@ -58,7 +58,7 @@ class Net(torch.nn.Module):
             h = overlay_y_on_x(x, label)
             for i, layer in enumerate(self.layers):
                 h = layer.predict(h)
-                goodness = goodness + [h.pow(2).mean(1)]
+                goodness = goodness + self.T*[h.pow(2).mean(1)]
             goodness_per_label += [sum(goodness).unsqueeze(1)]
         goodness_per_label = torch.cat(goodness_per_label, 1)
         return goodness_per_label.argmax(1)
@@ -117,8 +117,8 @@ class Layer(nn.Module):
         self.T = T
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
-        # self.opt = Adam(self.parameters(), lr=lr)
-        self.opt = SGD(self.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+        self.opt = Adam(self.parameters(), lr=lr)
+        # self.opt = SGD(self.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
         self.loss = Frequency_FF_Loss
@@ -140,19 +140,23 @@ class Layer(nn.Module):
         x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
         return self.layer(x_direction)
 
-
     def train(self, x_pos, x_neg, y, train_mode):
-        g_pos, g_neg = torch.zeros(x_pos.shape[0],self.out_features).cuda(),torch.zeros(x_pos.shape[0],self.out_features).cuda() 
+        g_pos = torch.zeros(self.T,x_pos.shape[0],self.out_features).cuda()
+        g_neg = torch.zeros(self.T,x_pos.shape[0],self.out_features).cuda()
+        v_pos = torch.zeros(self.T,x_pos.shape[0],self.out_features).cuda()
+        v_neg = torch.zeros(self.T,x_pos.shape[0],self.out_features).cuda()  
         for t in  range(self.T):
             x_pos_encoded = self.encoder(x_pos)
             x_neg_encoded = self.encoder(x_neg)
-            g_pos += self.forward(x_pos_encoded)
-            g_neg += self.forward(x_neg_encoded)
-        g_pos_freq = g_pos / self.T
-        g_neg_freq = g_neg / self.T
+            g_pos[t] += self.forward(x_pos_encoded)
+            v_pos[t] += self.layer[2].v
+            g_neg[t] += self.forward(x_neg_encoded)
+            v_neg[t] += self.layer[2].v
+        g_pos_freq = g_pos.mean(0)
+        g_neg_freq = g_neg.mean(0)
         if (train_mode):
             self.opt.zero_grad()
-            loss, grad = self.loss(self.in_features, self.out_features, self.T, self.threshold, x_pos, x_neg, g_pos_freq, g_neg_freq)
+            loss, grad = self.loss(g_pos,g_neg,v_pos,v_neg,self.in_features, self.out_features, self.T, self.threshold, x_pos, x_neg, g_pos_freq, g_neg_freq)
             for param in self.layer.parameters():
                 if param.requires_grad:
                     # 使用优化器更新权重

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch
-from spikingjelly.activation_based import neuron
+from spikingjelly.activation_based import neuron, surrogate
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 def plot_grad(grad):
@@ -49,7 +49,7 @@ def compute_f_in_to_grad_function():
     grad_interpolator = interp1d(f_in_values, Z_grad, kind='cubic', fill_value="extrapolate")
 
     return grad_interpolator
-def Frequency_FF_Loss(in_features, out_features, T, threshold, in_pos_freq, in_neg_freq, out_pos_freq, out_neg_freq):
+def Frequency_FF_Loss(g_pos,g_neg,v_pos,v_neg,in_features, out_features, T, threshold, in_pos_freq, in_neg_freq, out_pos_freq, out_neg_freq):
 # 假设 param 是一个权重矩阵 w (形状: [out_features, in_features])
     pos_goodness = out_pos_freq.pow(2).mean(1)
     neg_goodness = out_neg_freq.pow(2).mean(1)
@@ -70,12 +70,20 @@ def Frequency_FF_Loss(in_features, out_features, T, threshold, in_pos_freq, in_n
         create_graph=False
     )[0].sum(0)
     approximate_grad = compute_f_in_to_grad_function()
+    surrogate_function = surrogate.ATan(alpha=3, spiking=False)
+    sf_pos_grad = (surrogate_function(v_pos)*g_pos).sum(0).sum(0)
+    sf_neg_grad = (surrogate_function(v_neg)*g_neg).sum(0).sum(0)
+
 # 公式为 ∂f/∂x，f是损失，x是输入总电流
     f_in_grad_pos = torch.tensor(approximate_grad(in_pos_freq.detach().cpu().numpy()),device=in_pos_freq.device).to(dtype=torch.float32)
     f_in_grad_neg = torch.tensor(approximate_grad(in_neg_freq.detach().cpu().numpy()),device=in_neg_freq.device).to(dtype=torch.float32)
-    pos_grad = (fr_grad_pos.view(out_features,1)) @ (((f_in_grad_pos*in_pos_freq).mean(0)).view(1,in_features))
-    neg_grad = (fr_grad_neg.view(out_features,1)) @ (((f_in_grad_neg*in_neg_freq).mean(0)).view(1,in_features))
-    grad = 20*( pos_grad + neg_grad)
+    # pos_grad = (fr_grad_pos.view(out_features,1)) @ (((f_in_grad_pos*in_pos_freq).mean(0)).view(1,in_features))
+    # neg_grad = (fr_grad_neg.view(out_features,1)) @ (((f_in_grad_neg*in_neg_freq).mean(0)).view(1,in_features))
+    
+    pos_grad = ((fr_grad_pos * sf_pos_grad).view(out_features,1)) @ (((in_pos_freq).mean(0)).view(1,in_features))
+    neg_grad = ((fr_grad_neg * sf_neg_grad).view(out_features,1)) @ (((in_neg_freq).mean(0)).view(1,in_features))
+    
+    grad = ( pos_grad + neg_grad)
     return loss.item(), grad
 
 

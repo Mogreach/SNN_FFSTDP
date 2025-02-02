@@ -68,7 +68,7 @@ def plot_loss(loss_of_layer_list, save_path):
     print(f"Loss plot saved to {save_path}")
 def main():
     parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,500,500], help='dimension of the network')
+    parser.add_argument('-dims', default=[784,500], help='dimension of the network')
     parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
     parser.add_argument('-device', default='cuda:0', help='device')
     parser.add_argument('-b', default=100, type=int, help='batch size')
@@ -142,7 +142,7 @@ def main():
     device = torch.device("cuda")
     net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,
               v_threshold=args.v_threshold, opt=args.opt, loss_threshold=args.loss_threshold)
-    net.load("logs/T100_b100_adam_lr0.0001/checkpoint_max_model.pth")
+    net.load("logs\T100_b1000_adam_lr0.0001\\2025-01-27_22-19-51\checkpoint_max.pth")
     test_acc = 0
     test_samples = 0
     test_count = 0
@@ -152,7 +152,6 @@ def main():
             test_count += 1
             x_te, y_te = x_te.to(device), y_te.to(device)
             test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
-            torch.cuda.empty_cache()
             # if(x_te.shape[0] != args.b or test_samples >= args.b):
             #     break
         print("test Acc:", 100 * test_acc / test_count, "%")
