@@ -942,8 +942,8 @@
 			  NEXT_SAMPLE: begin
 			  		ERROR <= train_finish_reg;
 			  		IS_POS <= ~IS_POS;
-					// IS_TRAIN <= (sample_count < TOTAL_TRAIN_SIZE)? 1'b1 : 1'b0;
-					IS_TRAIN <= 1'b0;
+					IS_TRAIN <= (sample_count < TOTAL_TRAIN_SIZE)? 1'b1 : 1'b0;
+					// IS_TRAIN <= 1'b0;
 			  end                                                                                             
 	          default :                                                                                         
 	            begin                                                                                                                                                       

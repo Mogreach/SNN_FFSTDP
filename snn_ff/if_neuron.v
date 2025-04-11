@@ -33,7 +33,8 @@ module if_neuron (
 
     assign post_spike_cnt_next = post_spike_cnt_next_i;
     // 权重S2.5对齐膜电位S5.6
-    assign syn_weight_ext  = syn_weight[7] ? {4'hF,syn_weight[6:5],syn_weight[4:0],1'b0} : {4'h0,syn_weight[6:5],syn_weight[4:0],1'b0};
+    // assign syn_weight_ext  = syn_weight[7] ? {4'hF,syn_weight[6:5],syn_weight[4:0],1'b0} : {4'h0,syn_weight[6:5],syn_weight[4:0],1'b0};
+    assign syn_weight_ext  = syn_weight[7] ? {3'hF,syn_weight[6:4],syn_weight[3:0],2'b0} : {3'h0,syn_weight[6:4],syn_weight[3:0],2'b0};
     assign state_syn = state_core + syn_weight_ext;
     // if_neur_mem_adder u_if_neur_mem_adder (
     // .A(state_core),  // input wire [11 : 0] A
