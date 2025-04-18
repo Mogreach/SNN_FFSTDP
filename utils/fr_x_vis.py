@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from spikingjelly.activation_based import neuron
+from spikingjelly.activation_based import neuron,surrogate
 from spikingjelly import visualizing
 def plot_x():
     plt.rcParams['figure.dpi'] = 200
@@ -122,8 +122,9 @@ def plot_f_in_vs_gd():
     # 设置参数
     T = 128  # 总时间步
     x = torch.arange(-0.2, 1.2, 0.04)  # 输入值范围
-    f_in_values = np.linspace(0, 1, 50)  # f_in 的取值范围
-    if_node = neuron.IFNode(v_reset=None)  # 定义脉冲神经元
+    f_in_values = np.linspace(0, 1, 128)  # f_in 的取值范围
+    # if_node = neuron.IFNode(v_reset=None)  # 定义脉冲神经元
+    if_node = neuron.IFNode(v_reset= None, v_threshold= 0.5, surrogate_function=surrogate.ATan())
 
     # 创建网格
     X, F_IN = np.meshgrid(x, f_in_values)
@@ -136,6 +137,7 @@ def plot_f_in_vs_gd():
         for t in range(T):
             if t < active_steps:  # 有效时间步，使用输入 x
                 s_list.append(if_node(torch.tensor(X[i, :], dtype=torch.float32)).unsqueeze(0))
+
             else:  # 非有效时间步，输入为 0
                 s_list.append(if_node(torch.zeros_like(torch.tensor(X[i, :]))).unsqueeze(0))
         

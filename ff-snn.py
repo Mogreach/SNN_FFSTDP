@@ -1,3 +1,16 @@
+"""
+====================================================================
+File          : ff-snn.py
+Description   : SNN-FF训练代码
+Author        : Morgreach
+Version       : 1.0.0
+Date          : 2025-04-18
+contact       : 1245598043@qq.com
+License       : MIT
+====================================================================
+"""
+
+
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -10,9 +23,10 @@ import torch.utils.data as data
 import torchvision
 import numpy as np
 from tqdm import tqdm
-from src.ff_snn_net import Net
 from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
+from src.ff_snn_net import Net
+from config import ConfigParser
 def get_y_neg(y,device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -72,29 +86,8 @@ def plot_loss(loss_of_layer_list, save_path):
     plt.savefig(save_path)
     print(f"Loss plot saved to {save_path}")
 def main():
-    parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,500], help='dimension of the network')
-    parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
-    parser.add_argument('-device', default='cuda:0', help='device')
-    parser.add_argument('-b', default=1000, type=int, help='batch size')
-    parser.add_argument('-epochs', default=5, type=int, metavar='N',
-                        help='number of total epochs to run')
-    parser.add_argument('-j', default=8, type=int, metavar='N',
-                        help='number of data loading workers (default: 4)')
-    parser.add_argument('-data-dir', default='./data',type=str, help='root dir of MNIST dataset')
-    parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
-    parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
-    parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
-    parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
-    parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
-
-    parser.add_argument('-lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
-    parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
-    parser.add_argument('-loss_threshold', default=1.25, type=float, help='threshold of loss function')
-    parser.add_argument('-save-model', action='store_true', help='save the model or not')
-
-    args = parser.parse_args()
+    config = ConfigParser()
+    args = config.parse()
 ###########################################################################################
 ####################################前向学习的代码结构######################################
     # 初始化数据加载器
@@ -160,13 +153,14 @@ def main():
     epochs = args.epochs
     train_acc = 0
     train_acc_list = []
-    start_time = time.time()
+
     max_tran_acc = 0
     loss_of_layer_list = [[] for _ in range(len(net.layers))]
     # 定义输出文件路径
     log_file_path = os.path.join(out_dir,"output_log.txt")
     # 保存原始标准输出
     original_stdout = sys.stdout
+    start_time = time.time()
     with open(log_file_path, "w") as f:
         sys.stdout = f  # 替换标准输出
         for layer_idx in range(len(net.layers)):
@@ -220,13 +214,19 @@ def main():
         test_acc = 0
         test_samples = 0
         test_count = 0
+        start_time = time.time()
         with torch.no_grad():
             for x_te, y_te in test_data_loader:
                 test_samples += y_te.numel()
                 test_count += 1
                 x_te, y_te = x_te.to(device), y_te.to(device)
                 test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+        end_time = time.time()
+        total_time = end_time - start_time
+        hours, rem = divmod(total_time, 3600)
+        minutes, seconds = divmod(rem, 60)
         print("test Acc:", 100 * test_acc / test_count, "%")
+        print(f"Testing completed. Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
         save = True
         if save or args.save_model:
             net.save(args, os.path.join(out_dir, 'checkpoint_last.pth'))

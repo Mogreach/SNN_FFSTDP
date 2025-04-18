@@ -1,3 +1,16 @@
+"""
+====================================================================
+File          : test_debug.py
+Description   : SNN-FF测试代码
+Author        : Morgreach
+Version       : 1.0.0
+Date          : 2025-04-18
+contact       : 1245598043@qq.com
+License       : MIT
+====================================================================
+"""
+
+
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -8,6 +21,7 @@ import torch.utils.data as data
 import torchvision
 from src.ff_snn_net import Net
 import torch.nn.functional as F
+from config import ConfigParser
 def get_y_neg(y,device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -67,29 +81,8 @@ def plot_loss(loss_of_layer_list, save_path):
     plt.savefig(save_path)
     print(f"Loss plot saved to {save_path}")
 def main():
-    parser = argparse.ArgumentParser(description='LIF MNIST Training')
-    parser.add_argument('-dims', default=[784,500], help='dimension of the network')
-    parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
-    parser.add_argument('-device', default='cuda:0', help='device')
-    parser.add_argument('-b', default=100, type=int, help='batch size')
-    parser.add_argument('-epochs', default=5, type=int, metavar='N',
-                        help='number of total epochs to run')
-    parser.add_argument('-j', default=8, type=int, metavar='N',
-                        help='number of data loading workers (default: 4)')
-    parser.add_argument('-data-dir', default='./data',type=str, help='root dir of MNIST dataset')
-    parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
-    parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
-    parser.add_argument('-amp', action='store_true', help='automatic mixed precision training')
-    parser.add_argument('-opt', type=str, choices=['sgd', 'adam'], default='adam', help='use which optimizer. SGD or Adam')
-    parser.add_argument('-momentum', default=0.9, type=float, help='momentum for SGD')
-
-    parser.add_argument('-lr', default=0.1, type=float, help='learning rate')
-    parser.add_argument('-tau', default=2.0, type=float, help='parameter tau of LIF neuron')
-    parser.add_argument('-v_threshold', default=1.2, type=float, help='V_threshold of LIF neuron')
-    parser.add_argument('-loss_threshold', default=1.2, type=float, help='threshold of loss function')
-    parser.add_argument('-save-model', action='store_true', help='save the model or not')
-
-    args = parser.parse_args()
+    config = ConfigParser()
+    args = config.parse()
 ###########################################################################################
 ####################################前向学习的代码结构######################################
     # 初始化数据加载器
