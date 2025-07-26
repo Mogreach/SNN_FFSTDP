@@ -12,7 +12,7 @@ License       : MIT
 ====================================================================
 """
 
-
+from visualization_debug import vis_weight_feature
 import matplotlib.pyplot as plt
 import torch.autograd as autograd
 import torch
@@ -30,22 +30,41 @@ from spikingjelly.activation_based import (
     surrogate,
     layer,
     monitor,
+    learning,
 )
 
-Custom_Loss = Custom_Loss()
+def pos_derivative(x, theta):
+    """
+    计算 log(1 + exp(-x + theta)) 关于 x 的导数。
 
+    参数:
+        x (np.ndarray): 输入值。
+        theta (float): 参数 theta。
 
-class CustomFunction(autograd.Function):
-    @staticmethod
-    def forward(ctx, input):
-        ctx.save_for_backward(input)  # 保存输入以供反向传播使用
-        return input.clamp(min=0)  # 实现 ReLU 操作
+    返回:
+        np.ndarray: 导数值。
+    """
+    # 计算 Sigmoid 函数
+    sigmoid = -1 / (1 + torch.exp(x - theta))
+    
+    # 返回导数
+    return sigmoid
+def neg_derivative(y, theta):
+    """
+    计算 log(1 + exp(y - theta)) 关于 y 的导数。
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        (input,) = ctx.saved_tensors  # 获取保存的输入张量
-        grad_input = grad_output.clone()
-        grad_input[input < 0] = 0  # ReLU 的导数是 0 或 1
+    参数:
+        y (np.ndarray): 输入值。
+        theta (float): 参数 theta。
+
+    返回:
+        np.ndarray: 导数值。
+    """
+    # 计算 Sigmoid 函数
+    sigmoid = 1 / (1 + torch.exp(theta - y))
+    
+    # 返回导数
+    return sigmoid
 
 
 def overlay_y_on_x(x, y, classes=10):
@@ -58,13 +77,34 @@ def overlay_y_on_x(x, y, classes=10):
         # 获取当前样本的标签
         label = y[i].item()  # y[i]是该样本的标签
         # 确保标签在0到9之间（根据设置的 classes）
-        if 0 <= label < classes:
-            # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
-            x_[i, 0, label, 0] = (
-                x_.max()
-            )  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
+        # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
+        x_[i, 0, 0, label] = (
+            x_.max()
+        )  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
     return x_
 
+def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
+    """
+    将图像编码为 T 步脉冲序列。
+    
+    参数:
+        images: torch.Tensor，形状为 [B, C, H, W]，像素值范围为 [0,1]
+        T: int，总的时间步数
+        
+    返回:
+        spike_train: torch.Tensor，形状为 [T, B, C, H, W]，脉冲序列（0 或 1）
+    """
+    B, C, H, W = images.shape
+    spike_train = torch.zeros((T, B, C, H, W), device=images.device)
+    v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
+
+    for t in range(T):
+        v_mem += images  # 每步累加像素值
+        spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
+        spike_train[t] = spike
+        v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
+
+    return spike_train  # 形状为 [T, B, C, H, W]
 
 class IFNode_Non_T(neuron.IFNode):
     def neuronal_charge(self, x: torch.Tensor):
@@ -77,6 +117,7 @@ class Net(torch.nn.Module):
         self.T = T
         self.layers = []
         self.loss_threshold = loss_threshold
+        self.encoder = encoding.PoissonEncoder()
         for d in range(len(dims) - 1):
             self.layers += nn.ModuleList(
                 [
@@ -92,7 +133,6 @@ class Net(torch.nn.Module):
                     ).cuda()
                 ]
             )
-
     # 通过goodness计算预测结果
     def predict(self, x):
         goodness_per_label = []
@@ -101,23 +141,21 @@ class Net(torch.nn.Module):
             goodness = []
             label = torch.full((x.shape[0],), label)
             h = overlay_y_on_x(x, label)
+            # Possion编码
+            # h_encoded = torch.zeros(self.T, h.shape[0], h.flatten(1).shape[1]).cuda()
+            # for t in range(self.T):
+            #     h_encoded[t] += self.encoder(h).flatten(1)
+            # h = h_encoded
+            # 频率编码
+            h = spike_encoder(h, self.T)
+            h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
             for i, layer in enumerate(self.layers):
                 h = layer.predict(h)
-                goodness = goodness + [layer.cal_goodness(h)]
-            goodness_per_label += [sum(goodness).unsqueeze(1)]
-        goodness_per_label = torch.cat(goodness_per_label, 1)
-        return goodness_per_label.argmax(1)
-
-    # 根据输出层，选择最大输出频率的作为预测结果
-    # def predict(self, x):
-    #     goodness_per_label = 0  # 选择输出频率最大
-    #     for label in range(10):
-    #         label = torch.full((x.shape[0],),label)
-    #         h = overlay_y_on_x(x, label)
-    #         for i, layer in enumerate(self.layers):
-    #             h = layer.predict(h)
-    #         goodness_per_label += h
-    #     return goodness_per_label.argmax(1)
+                freq = h.mean(0)  # 计算每层的平均频率
+                goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
+            goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
+        goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
+        return goodness_of_all_label.argmax(1)
 
     def train(self, x_pos, x_neg, y, layer_idx):
         h_pos, h_neg = x_pos, x_neg
@@ -130,6 +168,32 @@ class Net(torch.nn.Module):
                 train_mode = False
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss
+    def train_ff_stdp(self, x_pos, x_neg):
+        x_pos_encoded = spike_encoder(x_pos, self.T)
+        x_neg_encoded = spike_encoder(x_neg, self.T)
+        in_pos = x_pos_encoded.flatten(2)
+        in_neg = x_neg_encoded.flatten(2)
+
+        # in_pos = torch.zeros(self.T, x_pos.shape[0], x_pos.flatten(1).shape[1]).cuda()
+        # in_neg = torch.zeros(self.T, x_pos.shape[0], x_neg.flatten(1).shape[1]).cuda()
+        # for t in range(self.T):
+        #     x_pos_encoded = self.encoder(x_pos)
+        #     x_neg_encoded = self.encoder(x_neg)
+        #     in_pos[t] += x_pos_encoded.flatten(1)
+        #     in_neg[t] += x_neg_encoded.flatten(1)
+
+        spike_input_pos = in_pos
+        spike_input_neg = in_neg
+
+        goodness_pos = self.train_ff_stdp_step(spike_input_pos, True)
+        goodness_neg = self.train_ff_stdp_step(spike_input_neg, False)
+        
+        return goodness_pos, goodness_neg
+    def train_ff_stdp_step(self, input, is_pos):
+        spike_input  = input
+        for i, layer in enumerate(self.layers):
+            spike_input, goodness = layer.train_ff_stdp(spike_input, is_pos)
+        return goodness
 
     def save(self, args, path):
         check_point = {
@@ -166,6 +230,7 @@ class Layer(nn.Module):
                 step_mode="s",
             ),
         )
+        self.lr = lr
         self.spike_input_rate = 0
         self.in_features = in_features
         self.out_features = out_features
@@ -196,13 +261,13 @@ class Layer(nn.Module):
             self.spike_vis = torch.zeros(self.out_features).unsqueeze(1)
 
     def cal_goodness(self, freq):
-        goodness = self.T * freq.pow(2).mean(1)
+        goodness = self.T * freq.pow(2)
         return goodness
 
     def forward(self, x):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
-        x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
-        return self.layer(x_direction)
+        # x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
+        return self.layer(x)
 
     def train(self, x_pos, x_neg, y, train_mode):
         g_pos = torch.zeros(self.T, x_pos.shape[0], self.out_features).cuda()
@@ -249,21 +314,43 @@ class Layer(nn.Module):
         else:
             functional.reset_net(self.layer)
             return g_pos_freq.detach(), g_neg_freq.detach(), 0
-
+    def train_ff_stdp(self,x_encoded,is_pos):
+        N = x_encoded.shape[1]
+        input_spike_sum = x_encoded.sum(0)
+        output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+        for t in range(self.T):
+            output_spike[t] += self.forward(x_encoded[t])
+        out_freq = output_spike.mean(0).transpose(0,1)
+        self.opt.zero_grad()
+        goodness = self.cal_goodness(out_freq)
+        if is_pos:
+            L_to_s_grad = 2*out_freq*pos_derivative(goodness,self.threshold)
+        else:
+            L_to_s_grad = 2*out_freq*neg_derivative(goodness,self.threshold)
+        weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
+        with torch.no_grad():
+            for param in self.layer.parameters():
+                    # 使用优化器更新权重      
+                    # param.grad = weight_grad      
+                    param += self.lr * weight_grad
+                    # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
+        # self.opt.step()
+        functional.reset_net(self.layer)
+        return output_spike.detach(), goodness.detach().sum(1).cpu()
     def predict(self, x):
         h = x
-        g = 0
-        self.spike_input_rate = 0
+        g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()
+        # self.spike_input_rate = 0
+        # h_encoded = spike_encoder(h, self.T)
         for t in range(self.T):
-            h_encoded = self.encoder(h)
-            self.spike_input_rate += h_encoded.mean().detach().cpu() / self.T
-            spike_out = self.forward(h_encoded)
-            g += spike_out
+            # h_encoded = self.encoder(h)
+            # self.spike_input_rate += h_encoded.mean().detach().cpu() / self.T
+            spike_out = self.forward(h[t])
+            g[t] += spike_out
             # 用于观察输出层脉冲发放情况
             # if (self.out_features==10):
             # if(g[0].sum() > 0):
             # print(1)
             # self.visualize_spike_in_timestep(spike_out)
         functional.reset_net(self.layer)
-        torch.cuda.empty_cache()
-        return g / self.T
+        return g
