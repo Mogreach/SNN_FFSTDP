@@ -28,19 +28,8 @@ class SNNEnergyCost:
         self.input_feature = input_feature if input_feature is not None else input_size * channel_in
         self.output_feature = output_feature if output_feature is not None else output_size * channel_out
 
-    def Rd_Input_memory_access(self, spike_in_count):
-        """
-        计算SNN的输入变量内存访问成本(FC和Conv层相同)
-        :return: 输入内存访问次数
-        """
-        return spike_in_count
 
-    def Wr_output_memory_access(self, spike_out_count):
-        """
-        计算SNN的输出变量内存访问成本(FC和Conv层相同)
-        :return: 输出内存访问次数
-        """
-        return spike_out_count
+
 
     def operational_cost_Conv(self, channel_out, kernel_size, output_size, stride, timesteps, spike_in_count, spike_out_count):
         """
@@ -61,47 +50,65 @@ class SNNEnergyCost:
         acc = spike_in_count  * output_feature + timesteps * output_feature
         return mac, acc
 
-    def Rd_Param_memory_access_Conv(self, channel_out, kernel_size, output_size, spike_in_count):
+    def Rd_Input_memory_access(self, spike_in_count):
+        """
+        计算SNN的输入变量内存访问成本(FC和Conv层相同)
+        :return: 输入内存访问次数
+        """
+        return spike_in_count
+    
+    def Rd_Param_memory_access_Conv(self, channel_out, kernel_size, output_size, spike_in_count, channel_in):
         """
         计算SNN卷积层的参数变量内存访问成本
         :return: 参数内存访问次数
         """
-        return spike_in_count * channel_out * kernel_size * kernel_size + channel_out * output_size
+        return channel_in * channel_out * kernel_size * kernel_size + channel_out * output_size
+        # return   spike_in_count * channel_out * kernel_size * kernel_size + channel_out * output_size
 
     def Rd_Param_memory_access_FC(self, output_feature, spike_in_count):
         """
         计算SNN全连接层的参数变量内存访问成本
         :return: 参数内存访问次数
         """
-        return spike_in_count * output_feature + output_feature
+        # return output_feature + output_feature
+        return   spike_in_count * output_feature + output_feature
 
-    def Rd_mem_memory_access_Conv(self, spike_in_count, channel_out, kernel_size, output_size):
+    def Rd_mem_memory_access_Conv(self, spike_in_count, channel_out, kernel_size, output_size, timesteps):
         """
         计算SNN卷积层的膜电位内存访问成本
         :return: 内存访问次数
         """
-        return spike_in_count * channel_out * kernel_size * kernel_size + channel_out * output_size
+        return timesteps * channel_out * output_size
+        # return (spike_in_count * channel_out * kernel_size * kernel_size)/2 + channel_out * output_size
 
-    def Rd_mem_memory_access_FC(self, spike_in_count, output_feature):
+    def Rd_mem_memory_access_FC(self, spike_in_count, output_feature, timesteps):
         """
         计算SNN全连接层的膜电位内存访问成本
         :return: 内存访问次数
         """
-        return (spike_in_count + 1) * output_feature
-
-    def Wr_mem_memory_access_Conv(self, channel_out, kernel_size, output_size, spike_in_count):
+        return timesteps * output_feature
+        # return spike_in_count * output_feature + output_feature
+    def Wr_output_memory_access(self, spike_out_count):
+        """
+        计算SNN的输出变量内存访问成本(FC和Conv层相同)
+        :return: 输出内存访问次数
+        """
+        return spike_out_count
+    def Wr_mem_memory_access_Conv(self, channel_out, kernel_size, output_size, spike_in_count, timesteps):
         """
         计算SNN卷积层的膜电位输出内存访问成本
         :return: 内存访问次数
         """
-        return spike_in_count * channel_out * kernel_size * kernel_size + channel_out * output_size
+        return timesteps * channel_out * output_size
+        # return (spike_in_count * channel_out * kernel_size * kernel_size)/2 + channel_out * output_size
 
-    def Wr_mem_memory_access_FC(self, output_feature, spike_in_count):
+    def Wr_mem_memory_access_FC(self, output_feature, spike_in_count, timesteps):
         """
         计算SNN全连接层膜电位输出内存访问成本
         :return: 内存访问次数
         """
-        return spike_in_count * output_feature + output_feature
+        return timesteps * output_feature
+        # return spike_in_count * output_feature + output_feature
 
     def Addressing_cost_Conv(self, channel_out, kernel_size, spike_in_count):
         """
@@ -123,28 +130,45 @@ class SNNEnergyCost:
     def calculate_cost(self, layer_type):
         if layer_type == 'conv':
             Rd_count = self.Rd_Input_memory_access(self.spike_in_count) + \
-                        self.Rd_Param_memory_access_Conv(self.channel_out, self.kernel_size, self.output_size, self.spike_in_count) + \
-                        self.Rd_mem_memory_access_Conv(self.spike_in_count, self.channel_out, self.kernel_size, self.output_size)
+                        self.Rd_Param_memory_access_Conv(self.channel_out, self.kernel_size, self.output_size, self.spike_in_count, self.channel_in) + \
+                        self.Rd_mem_memory_access_Conv(self.spike_in_count, self.channel_out, self.kernel_size, self.output_size, self.timesteps)
             Wr_count = self.Wr_output_memory_access(self.spike_out_count) + \
-                        self.Wr_mem_memory_access_Conv(self.channel_out, self.kernel_size, self.output_size, self.spike_in_count)
+                        self.Wr_mem_memory_access_Conv(self.channel_out, self.kernel_size, self.output_size, self.spike_in_count, self.timesteps)
             
             op_mac, op_acc = self.operational_cost_Conv(self.channel_out, self.kernel_size, self.output_size, self.stride, self.timesteps, self.spike_in_count, self.spike_out_count)
             addr_mac, addr_acc = self.Addressing_cost_Conv(self.channel_out, self.kernel_size, self.spike_in_count)
         elif layer_type == 'fc':
             Rd_count = self.Rd_Input_memory_access(self.spike_in_count) + \
                         self.Rd_Param_memory_access_FC(self.output_feature, self.spike_in_count) + \
-                        self.Rd_mem_memory_access_FC(self.spike_in_count, self.output_feature)
+                        self.Rd_mem_memory_access_FC(self.spike_in_count, self.output_feature, self.timesteps)
             Wr_count = self.Wr_output_memory_access(self.spike_out_count) + \
-                        self.Wr_mem_memory_access_FC(self.output_feature, self.spike_in_count)
+                        self.Wr_mem_memory_access_FC(self.output_feature, self.spike_in_count, self.timesteps)
             
             op_mac, op_acc = self.operational_cost_FC(self.input_feature, self.output_feature, self.timesteps, self.spike_in_count)
             addr_mac, addr_acc = self.Addressing_cost_FC(self.output_feature, self.spike_in_count)
         else:
             raise ValueError('Invalid layer type')
         # 假设单次读写的内存访问成本相同
-        # Rd_count 、 Wr_count 是内存访问次数，单次访问8bit即1Byte
-        memory_access_cost = INTERP_FUNC((Rd_count + Wr_count)/1000)  # 转换为KB
-        mac_cost = (op_mac + addr_mac) * ENERGY_PER_MAC
-        acc_cost = (op_acc + addr_acc) * ENERGY_PER_ADD
+        # Rd_count 、 Wr_count 是内存访问次数，单次访问SRAM_SIZE的SRAM
+        memory_access_cost =(Rd_count + Wr_count) * INTERP_FUNC(SRAM_SIZE) #单位pJ
+        print(f"SNN:{Rd_count, Wr_count}")
+        print(f"SNN:{op_mac, op_acc, addr_mac, addr_acc}")
+        mac_cost = (op_mac + addr_mac) * ENERGY_PER_MAC #单位pJ
+        acc_cost = (op_acc + addr_acc) * ENERGY_PER_ADD #单位pJ
         total_cost = memory_access_cost + mac_cost + acc_cost
-        return ((mac_cost+acc_cost)/1000000000, memory_access_cost/1000000000)  # 转换为mJ
+        return ((mac_cost+acc_cost)*1e-9, memory_access_cost*1e-9)  # 转换为mJ
+
+
+        class C3(nn.Module):
+    # CSP Bottleneck with 3 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
+        self.cv3 = Conv(2 * c_, c2, 1)  # optional act=FReLU(c2)
+        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+

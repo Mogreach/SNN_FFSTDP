@@ -36,12 +36,13 @@ class FNNEnergyCost:
         mac = input_feature * output_feature
         acc = output_feature
         return mac, acc
-    def Rd_Input_memory_access_Conv(self, channel_in, channel_out, output_size, kernel_size):
+    def Rd_Input_memory_access_Conv(self, channel_in, channel_out, output_size, kernel_size, input_size):
         """
         计算FNN卷积层的输入变量内存访问成本
         :return: 输入内存访问次数
         """
-        return channel_in * channel_out * output_size * kernel_size * kernel_size
+        # return channel_in * channel_out * output_size * kernel_size * kernel_size
+        return channel_in * input_size
     def Rd_Input_memory_access_FC(self, input_feature):
         """
         计算FNN全连接层的输入变量内存访问成本
@@ -53,7 +54,7 @@ class FNNEnergyCost:
         计算FNN卷积层的参数变量内存访问成本
         :return: 参数内存访问次数
         """
-        return (channel_in * kernel_size * kernel_size + 1) * channel_out * output_size
+        return (channel_in * kernel_size * kernel_size + 1) * channel_out
 
     def Rd_Param_memory_access_FC(self, input_feature, output_feature):
         """
@@ -92,7 +93,7 @@ class FNNEnergyCost:
         return mac, acc
     def calculate_cost(self, layer_type):
         if layer_type == 'conv':
-            Rd_count = self.Rd_Input_memory_access_Conv(self.channel_in, self.channel_out, self.output_size, self.kernel_size) + \
+            Rd_count = self.Rd_Input_memory_access_Conv(self.channel_in, self.channel_out, self.output_size, self.kernel_size, self.input_size) + \
                         self.Rd_Param_memory_access_Conv(self.channel_in, self.channel_out, self.kernel_size, self.output_size)
             Wr_count = self.Wr_output_memory_access_Conv(self.channel_out, self.output_size)
             op_mac, op_acc = self.operational_cost_Conv(self.channel_in, self.channel_out, self.kernel_size, self.output_size)
@@ -106,9 +107,11 @@ class FNNEnergyCost:
         else:
             raise ValueError('Invalid layer type')
         # 假设单次读写的内存访问成本相同
-        # Rd_count 、 Wr_count 是内存访问次数，单次访问8bit即1Byte
-        memory_access_cost = INTERP_FUNC((Rd_count + Wr_count)/1000)  # 转换为KB
-        mac_cost = (op_mac + addr_mac) * ENERGY_PER_MAC
-        acc_cost = (op_acc + addr_acc) * ENERGY_PER_ADD
+        # Rd_count 、 Wr_count 是内存访问次数，单次访问SRAM_SIZE的SRAM
+        memory_access_cost =(Rd_count + Wr_count) * INTERP_FUNC(SRAM_SIZE) #单位pJ
+        print(f"ANN:{Rd_count, Wr_count}")
+        print(f"ANN:{op_mac, op_acc, addr_mac, addr_acc}")
+        mac_cost = (op_mac + addr_mac) * ENERGY_PER_MAC #单位pJ
+        acc_cost = (op_acc + addr_acc) * ENERGY_PER_ADD #单位pJ
         total_cost = memory_access_cost + mac_cost + acc_cost
-        return ((mac_cost+acc_cost)/1000000000, memory_access_cost/1000000000)  # 转换为mJ
+        return ((mac_cost+acc_cost)*1e-9, memory_access_cost*1e-9)  # 转换为mJ

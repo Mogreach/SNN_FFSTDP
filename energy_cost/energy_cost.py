@@ -4,7 +4,7 @@ File          : energy_cost.py
 Description   : 计算SNN、ANN的推理能耗。目前支持卷积层和全连接层的推理计算能耗，修改NETWORK可以添加更多层。
                 主函数代码根据network_config计算相同结构下ANN和SNN的能耗，输出结果。
 Author        : Morgreach
-Version       : 1.0.0
+Version       : 1.2.0
 Date          : 2025-06-03
 contact       : 1245598043@qq.com
 License       : 
@@ -21,7 +21,33 @@ def conv_output_size(input_size, kernel_size, stride, padding):
     o = math.floor((h - kernel_size + 2 * padding) / stride) + 1
     return o**2
 
-def main():
+def plot(model_name, energy_ann_list, energy_snn_list, layer_names, spike_out_rate_list):
+    # 提取总能耗
+    energy_ann_vals = [sum(v) for v in energy_ann_list]
+    energy_snn_vals = [sum(v) for v in energy_snn_list]
+    # 绘图
+    fig, ax1 = plt.subplots(figsize=(10, 5))
+
+    # 能耗条形图
+    width = 0.35
+    x = range(len(layer_names))
+    ax1.bar([i - width/2 for i in x], energy_ann_vals, width, label='ANN Energy', color='skyblue')
+    ax1.bar([i + width/2 for i in x], energy_snn_vals, width, label='SNN Energy', color='salmon')
+    ax1.set_ylabel("Energy (mJ)")
+    ax1.set_title(f"ANN vs SNN Energy per Layer ({model_name})")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(layer_names)
+    ax1.legend(loc='upper left')
+
+    # 添加右侧平均脉冲率折线图
+    ax2 = ax1.twinx()
+    ax2.plot(x, spike_out_rate_list, color='green', marker='o', label='Output Spike Rate')
+    ax2.set_ylabel("Spike Rate (Avg per Neuron)")
+    ax2.legend(loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+def main2():
     layer_names = []
     spike_in_rate_list = []
     spike_out_rate_list = []
@@ -31,8 +57,10 @@ def main():
     print("===== 各层详细能耗分析 =====")
     prev_output_size = None
     prev_out_channels = None
+    compare_model = ["VGG-16","SymBa","Ghader","Ororbia","CaFo","CwComp","CSNN"]
+    network = NETWORK["SymBa"]
 
-    for i, layer in enumerate(NETWORK):
+    for i, layer in enumerate(network):
         layer_type = layer['type']
         in_channels = layer.get('in_channels')
         out_channels = layer.get('out_channels')
@@ -41,11 +69,21 @@ def main():
         padding = layer.get('padding')
         input_size = layer.get('input_size', prev_output_size)
         output_size = conv_output_size(input_size, kernel_size, stride, padding) if layer_type == 'conv' else layer.get('output_size')
-        input_feature = layer.get('in_features')
-        output_feature = layer.get('out_features')
-        timesteps = layer.get('timesteps') * 3
-        spike_in_count = layer.get('spike_in_count')
-        spike_out_count = layer.get('spike_out_count')
+        input_feature = layer.get('input_feature')
+        output_feature = layer.get('output_feature')
+        timesteps = layer.get('timesteps')
+        # spike_in_count = layer.get('spike_in_count')
+        # spike_out_count = layer.get('spike_out_count')
+        if layer_type == 'conv':
+            if i != 0:
+                spike_in_count = input_size * timesteps * in_channels * spike_rate
+                spike_out_count = output_size * timesteps * out_channels * spike_rate
+            else:
+                spike_in_count = 0
+                spike_out_count = output_size * timesteps * out_channels * spike_rate
+        else:
+            spike_in_count = input_feature * timesteps * spike_rate
+            spike_out_count = output_feature * timesteps * spike_rate
         weight_shape = (out_channels, in_channels, kernel_size, kernel_size) if layer_type == 'conv' else (output_feature, input_feature)
         # 自动推导卷积层到全连接层的输入输出特征
         if input_feature is None and layer_type == 'fc':
@@ -116,33 +154,8 @@ def main():
         # ANN、SNN 访存、计算能耗
         energy_ann_list.append(energy_ann)
         energy_snn_list.append(energy_snn)
-        # 提取总能耗
-        energy_ann_vals = [sum(v) for v in energy_ann_list]
-        energy_snn_vals = [sum(v) for v in energy_snn_list]
 
-
-    # 绘图
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-
-    # 能耗条形图
-    width = 0.35
-    x = range(len(layer_names))
-    ax1.bar([i - width/2 for i in x], energy_ann_vals, width, label='ANN Energy', color='skyblue')
-    ax1.bar([i + width/2 for i in x], energy_snn_vals, width, label='SNN Energy', color='salmon')
-    ax1.set_ylabel("Energy (mJ)")
-    ax1.set_title("ANN vs SNN Energy per Layer")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(layer_names)
-    ax1.legend(loc='upper left')
-
-    # 添加右侧平均脉冲率折线图
-    ax2 = ax1.twinx()
-    ax2.plot(x, spike_out_rate_list, color='green', marker='o', label='Output Spike Rate')
-    ax2.set_ylabel("Spike Rate (Avg per Neuron)")
-    ax2.legend(loc='upper right')
-
-    plt.tight_layout()
-    plt.show()
+    plot(energy_ann_list, energy_snn_list, layer_names, spike_out_rate_list)
 
     # 保存每层参数总量、访存能耗、计算总能耗
     layer_energy_data = []
@@ -154,7 +167,7 @@ def main():
     total_energy_ann = 0
     total_energy_snn = 0
 
-    for i, layer in enumerate(NETWORK):
+    for i, layer in enumerate(network):
         layer_type = layer["type"]
         layer_name = layer["name"]
         weight_shape = layer.get("weight_shape")
@@ -202,16 +215,145 @@ def main():
     # ===== 打印汇总信息 =====
     print("\n===== 网络总能耗统计 =====")
     print(f"总参数量：{total_params:,} 个")
-    print(f"ANN 访存能耗：{total_memory_energy_ann:.2f} mJ")
-    print(f"ANN 计算能耗：{total_comp_energy_ann:.2f} mJ")
-    print(f"ANN 总推理能耗：{total_energy_ann:.2f} mJ")
+    print(f"ANN 访存能耗：{total_memory_energy_ann:.4f} mJ")
+    print(f"ANN 计算能耗：{total_comp_energy_ann:.4f} mJ")
+    print(f"ANN 总推理能耗：{total_energy_ann:.4f} mJ")
 
-    print(f"SNN 访存能耗：{total_memory_energy_snn:.2f} mJ")
-    print(f"SNN 计算能耗：{total_comp_energy_snn:.2f} mJ")
-    print(f"SNN 总推理能耗：{total_energy_snn:.2f} mJ")
+    print(f"SNN 访存能耗：{total_memory_energy_snn:.4f} mJ")
+    print(f"SNN 计算能耗：{total_comp_energy_snn:.4f} mJ")
+    print(f"SNN 总推理能耗：{total_energy_snn:.4f} mJ")
     print(f"已写入结果至：{csv_file}")
 
     print("\n===== 统计分析完成 =====")
+
+def main():
+    model_type = ["ANN", "SNN"]
+    
+    compare_model = ["VGG-16","FF", "SymBa", "Ghader", "Ororbia", "CaFo", "CwComp", "CSNN"]
+    model_flags = {
+    'VGG-16': "SNN",
+    'FF': "ANN",
+    'SymBa': "ANN",
+    'Ghader': "SNN",
+    'Ororbia': "SNN",
+    'CaFo': "ANN",
+    'CwComp': "ANN",
+    'CSNN': "SNN"
+    }
+
+    csv_file = "energy_summary_report.csv"
+    with open(csv_file, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["model", "type", "total_spike_out_count", "total_params", "comp_energy_mJ", "memory_energy_mJ", "total_energy_mJ"])
+
+        for model in compare_model:
+            network = NETWORK[model]
+            energy_ann_list = []
+            energy_snn_list = []
+            for mtype in model_type:
+                total_params = 0
+                total_comp_energy = 0
+                total_memory_energy = 0
+                total_energy = 0
+                total_spike_out_count = 0
+                spike_out_rate_list = []
+                layer_names = []
+
+                for i, layer in enumerate(network):
+                    layer_type = layer['type']
+                    in_channels = layer.get('in_channels')
+                    out_channels = layer.get('out_channels')
+                    kernel_size = layer.get('kernel_size')
+                    stride = layer.get('stride')
+                    padding = layer.get('padding')
+                    input_size = layer.get('input_size')
+                    output_size = conv_output_size(input_size, kernel_size, stride, padding) if layer_type == 'conv' else layer.get('output_size')
+                    input_feature = layer.get('input_feature')
+                    output_feature = layer.get('output_feature')
+                    # timesteps = layer.get('timesteps')
+
+                    if layer_type == 'conv':
+                        if i != 0:
+                            spike_in_count = input_size * timesteps * in_channels * spike_rate
+                            spike_out_count = output_size * timesteps * out_channels * spike_rate
+                        else:
+                            spike_in_count = 0
+                            spike_out_count = output_size * timesteps * out_channels * spike_rate
+                    else:
+                        spike_in_count = input_feature * timesteps * spike_rate
+                        spike_out_count = output_feature * timesteps * spike_rate
+
+                    weight_shape = (out_channels, in_channels, kernel_size, kernel_size) if layer_type == 'conv' else (output_feature, input_feature)
+
+                    # 自动推导 input_size/output_size
+                    if layer_type == 'conv':
+                        spike_out_rate = spike_out_count / (output_size * timesteps * out_channels)
+                        print(f"\n--- Layer {layer['name']} (Conv) ---")
+                        print(f"Input: {input_size}x{input_size}, Output: {output_size}x{output_size}")
+                        print(f"Channels: in={layer['in_channels']}, out={layer['out_channels']}")
+                        print(f"Spikes: in={spike_in_count}, out={spike_out_count}")
+
+                    elif layer_type == 'fc':
+                        spike_out_rate = spike_out_count / (output_feature * timesteps)
+                        print(f"\n--- Layer {layer['name']} (FC) ---")
+                        print(f"Input: {input_feature}, Output: {output_feature}")
+                        print(f"Spikes: in={spike_in_count}, out={spike_out_count}")
+
+                    else:
+                        print(f"\n跳过暂不支持的层类型: {layer['type']}")
+                        continue
+
+                    param_count = np.prod(weight_shape)
+                    total_params += param_count
+
+                    if mtype == "ANN":
+                        ann_estimator = FNNEnergyCost(
+                            input_size=input_size,
+                            output_size=output_size,
+                            channel_in=in_channels,
+                            channel_out=out_channels,
+                            kernel_size=kernel_size,
+                            input_feature=input_feature,
+                            output_feature=output_feature
+                        )
+                        energy = ann_estimator.calculate_cost(layer_type)
+                        energy_ann_list.append(energy)
+                    elif mtype == "SNN":
+                        snn_estimator = SNNEnergyCost(
+                            input_size=input_size,
+                            output_size=output_size,
+                            channel_in=in_channels,
+                            channel_out=out_channels,
+                            kernel_size=kernel_size,
+                            stride=stride,
+                            timesteps=timesteps,
+                            spike_in_count=spike_in_count,
+                            spike_out_count=spike_out_count,
+                            input_feature=input_feature,
+                            output_feature=output_feature
+                        )
+                        energy = snn_estimator.calculate_cost(layer_type)
+                        energy_snn_list.append(energy)
+                    else:
+                        raise ValueError(f"未知模型类型: {mtype}")
+                    
+                    layer_names.append(layer["name"])
+                    spike_out_rate_list.append(spike_out_rate)
+                    # ANN、SNN 访存、计算能耗
+                    total_comp_energy += energy[0]
+                    total_memory_energy += energy[1]
+                    total_energy += sum(energy)
+                    total_spike_out_count += spike_out_count
+                
+                print(f"\nModel: {model}, Type: {mtype}")
+                print(f"总参数量：{int(total_params):,} 个")
+                print(f"计算能耗：{total_comp_energy:.4f} mJ")
+                print(f"访存能耗：{total_memory_energy:.4f} mJ")
+                print(f"总推理能耗：{total_energy:.4f} mJ")
+                if model_flags[model] == mtype:
+                    writer.writerow([model, mtype, total_spike_out_count, int(total_params), f"{total_comp_energy:.4f}", f"{total_memory_energy:.4f}", f"{total_energy:.4f}"])
+            plot(model, energy_ann_list, energy_snn_list, layer_names, spike_out_rate_list)
+    print(f"\n=== 所有模型能耗数据写入至: {csv_file} ===")
 if __name__ == "__main__":
     main()
 

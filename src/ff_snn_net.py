@@ -191,8 +191,10 @@ class Net(torch.nn.Module):
         return goodness_pos, goodness_neg
     def train_ff_stdp_step(self, input, is_pos):
         spike_input  = input
+        goodness = 0
         for i, layer in enumerate(self.layers):
-            spike_input, goodness = layer.train_ff_stdp(spike_input, is_pos)
+            spike_input, g = layer.train_ff_stdp(spike_input, is_pos)
+            goodness += g
         return goodness
 
     def save(self, args, path):
@@ -336,7 +338,7 @@ class Layer(nn.Module):
                     # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
         # self.opt.step()
         functional.reset_net(self.layer)
-        return output_spike.detach(), goodness.detach().sum(1).cpu()
+        return output_spike.detach(), goodness.detach().mean(1).cpu()
     def predict(self, x):
         h = x
         g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()

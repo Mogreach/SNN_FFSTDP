@@ -27,7 +27,7 @@ import torch.nn.functional as F
 from src.ff_snn_net import Net
 from config import ConfigParser
 from src.dataset import GroupedSortedMNIST
-
+import logging
 def get_y_neg(y, device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -171,6 +171,13 @@ def main():
         args_txt.write(str(args))
         args_txt.write("\n")
         args_txt.write(" ".join(sys.argv))
+
+    # 配置 logger
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    # 记录超参数
+    logger.info(f"Training with batch size: {args.b}, epochs: {args.epochs}, lr: {args.lr}, dims: {args.dims}, T: {args.T}, opt: {args.opt}, loss_threshold: {args.loss_threshold}, out_dir: {out_dir}")
+    
     net = Net(
         dims=args.dims,
         tau=args.tau,
@@ -184,8 +191,7 @@ def main():
     # x, y = next(iter(train_data_loader))
     # 初始化存储训练精度的列表
     epochs = args.epochs
-    goodness_pos_sum = 0
-    goodness_neg_sum = 0
+
     train_acc = 0
     train_acc_list = []
 
@@ -200,10 +206,16 @@ def main():
         sys.stdout = f  # 替换标准输出
         for i in tqdm(range(epochs)):
             # torch.cuda.empty_cache()
+            # if i >= epochs // 2:
+            #     for layer in net.layers:
+            #         layer.lr = layer.lr * 0.1
+
             batch_samples = 0
             val_samples = 0
             loss = 0
             val_acc = 0
+            goodness_pos_sum = 0
+            goodness_neg_sum = 0
             for x, y in grouped_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
@@ -217,6 +229,7 @@ def main():
                 goodness_neg_sum += goodness_neg.mean()
             loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
             print(f"Epoch: {i+1}/{epochs}, Loss: {loss:.4f}")
+            
             with torch.no_grad():
                 for x_val, y_val in val_data_loader:
                     val_samples += 1
@@ -228,6 +241,7 @@ def main():
                 if train_acc >= max_tran_acc:
                     net.save(args, os.path.join(out_dir, "checkpoint_max.pth"))
                     max_tran_acc = train_acc
+            logger.info(f"Epoch {i+1}: Train Loss = {loss:.4f} Train Acc = {train_acc:.2f}%")
         end_time = time.time()
         total_time = end_time - start_time
         hours, rem = divmod(total_time, 3600)
@@ -251,6 +265,7 @@ def main():
         # 保存曲线到本地
         plt.savefig(os.path.join(out_dir, "training_accuracy_curve.png"), dpi=300)
         plot_loss(loss_of_layer_list, os.path.join(out_dir, "loss_of_each_layer.png"))
+        logger.info(f"Training completed in Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
 
         test_acc = 0
         test_samples = 0
@@ -275,6 +290,13 @@ def main():
             net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
         print(args)
         print(out_dir)
+    logger.info(f"Test Acc: {100 * test_acc / test_count}%")
+    logging.basicConfig(
+        filename="./logs/training.log",
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        filemode='a' # 文件模式：'a'为追加模式，'w'为覆盖模式
+    )
     # 恢复标准输出
     sys.stdout = original_stdout
     print("Back to console.")
