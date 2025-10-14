@@ -185,17 +185,19 @@ class Net(torch.nn.Module):
         spike_input_pos = in_pos
         spike_input_neg = in_neg
 
-        goodness_pos = self.train_ff_stdp_step(spike_input_pos, True)
-        goodness_neg = self.train_ff_stdp_step(spike_input_neg, False)
+        goodness_pos, cos_pos = self.train_ff_stdp_step(spike_input_pos, True)
+        goodness_neg, cos_neg = self.train_ff_stdp_step(spike_input_neg, False)
         
-        return goodness_pos, goodness_neg
+        return goodness_pos, goodness_neg, cos_pos, cos_neg
     def train_ff_stdp_step(self, input, is_pos):
         spike_input  = input
-        goodness = 0
+        goodness_per_layer = []
+        cos_sim_per_layer = []
         for i, layer in enumerate(self.layers):
-            spike_input, g = layer.train_ff_stdp(spike_input, is_pos)
-            goodness += g
-        return goodness
+            spike_input, g ,cos_sim = layer.train_ff_stdp(spike_input, is_pos)
+            goodness_per_layer.append(g.mean().item())
+            cos_sim_per_layer.append(cos_sim)
+        return goodness_per_layer, cos_sim_per_layer
 
     def save(self, args, path):
         check_point = {
@@ -325,20 +327,29 @@ class Layer(nn.Module):
         out_freq = output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         goodness = self.cal_goodness(out_freq)
+
+
         if is_pos:
-            L_to_s_grad = 2*out_freq*pos_derivative(goodness,self.threshold)
+            L_to_s_grad = 2*out_freq*self.T*pos_derivative(goodness,self.threshold)
+            loss = torch.log(1 + torch.exp(-goodness + self.threshold)).mean()
         else:
-            L_to_s_grad = 2*out_freq*neg_derivative(goodness,self.threshold)
+            L_to_s_grad = 2*out_freq*self.T*neg_derivative(goodness,self.threshold)
+            loss = torch.log(1 + torch.exp(goodness - self.threshold)).mean()
         weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
+        # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
+        loss.backward()
         with torch.no_grad():
             for param in self.layer.parameters():
                     # 使用优化器更新权重      
                     # param.grad = weight_grad      
                     param += self.lr * weight_grad
+                    cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*weight_grad.flatten(),dim=0)
+                    # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
                     # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
         # self.opt.step()
+        
         functional.reset_net(self.layer)
-        return output_spike.detach(), goodness.detach().mean(1).cpu()
+        return output_spike.detach(), goodness.detach().mean(1).cpu(),cos_sim.detach().cpu().item()
     def predict(self, x):
         h = x
         g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()

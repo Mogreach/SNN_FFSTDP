@@ -90,7 +90,52 @@ def plot_loss(loss_of_layer_list, save_path):
     plt.savefig(save_path)
     print(f"Loss plot saved to {save_path}")
 
+def plot_cos_sim(cos_sim_of_layer_list,is_pos, save_path):
+    # 获取层数和每层的损失数据
+    num_layers = len(cos_sim_of_layer_list)
+    label = "Positive" if is_pos else "Negative"
+    # 创建一个图形
+    plt.figure(figsize=(10, 6))  # 设置图像大小
 
+    # 绘制每一层的损失随 epoch 变化的曲线
+    for layer_idx in range(num_layers):
+        plt.plot(cos_sim_of_layer_list[layer_idx], "o-", label=f"Layer {layer_idx + 1}")
+
+    # 设置图形的标签和标题
+    plt.xlabel("Epochs")  # x轴标签
+    plt.ylabel(f"{label} Cosine similarity")  # y轴标签
+    plt.title(f"{label} Cosine similarity vs Epoch for Each Layer")  # 图形标题
+
+    # 显示图例和网格
+    plt.legend()  # 显示图例，标识不同的层
+    plt.grid(True)  # 显示网格
+
+    # 保存图像到文件
+    plt.savefig(save_path)
+    print(f"{label} Cosine similarity plot saved to {save_path}")
+def plot_goodness(goodness_of_layer_list,is_pos, save_path):
+    # 获取层数和每层的损失数据
+    num_layers = len(goodness_of_layer_list)
+    label = "Positive" if is_pos else "Negative"
+    # 创建一个图形
+    plt.figure(figsize=(10, 6))  # 设置图像大小
+
+    # 绘制每一层的损失随 epoch 变化的曲线
+    for layer_idx in range(num_layers):
+        plt.plot(goodness_of_layer_list[layer_idx], "o-", label=f"Layer {layer_idx + 1}")
+
+    # 设置图形的标签和标题
+    plt.xlabel("Epochs")  # x轴标签
+    plt.ylabel(f"{label} Goodness")  # y轴标签
+    plt.title(f"{label} Goodness vs Epoch for Each Layer")  # 图形标题
+
+    # 显示图例和网格
+    plt.legend()  # 显示图例，标识不同的层
+    plt.grid(True)  # 显示网格
+
+    # 保存图像到文件
+    plt.savefig(save_path)
+    print(f"{label} Goodness plot saved to {save_path}")
 def main():
     config = ConfigParser()
     args = config.parse()
@@ -99,18 +144,18 @@ def main():
     # 初始化数据加载器
     # 加载训练集和测试集
     # 数据路径（你保存的 .pt 文件）
-    grouped_path = "./data/MNIST_train_grouped_sorted.pt"
+    # grouped_path = "./data/MNIST_train_grouped_sorted.pt"
 
-    # 实例化 Dataset
-    grouped_dataset = GroupedSortedMNIST(grouped_path, transform=None)
-    # 构建 DataLoader
-    grouped_loader = data.DataLoader(
-        grouped_dataset,
-        batch_size=args.b,
-        shuffle=False,    # 注意：保持顺序，不打乱
-        num_workers=args.j,
-        pin_memory=True
-    )
+    # # 实例化 Dataset
+    # grouped_dataset = GroupedSortedMNIST(grouped_path, transform=None)
+    # # 构建 DataLoader
+    # grouped_loader = data.DataLoader(
+    #     grouped_dataset,
+    #     batch_size=args.b,
+    #     shuffle=False,    # 注意：保持顺序，不打乱
+    #     num_workers=args.j,
+    #     pin_memory=True
+    # )
 
     train_dataset = torchvision.datasets.MNIST(
         root=args.data_dir,
@@ -188,6 +233,8 @@ def main():
         opt=args.opt,
         loss_threshold=args.loss_threshold,
     )
+
+    # net.load("logs/T8_b1000_adam_lr0.015625/2025-10-13_13-45-53/checkpoint_last.pth")
     # x, y = next(iter(train_data_loader))
     # 初始化存储训练精度的列表
     epochs = args.epochs
@@ -197,6 +244,10 @@ def main():
 
     max_tran_acc = 0
     loss_of_layer_list = [[] for _ in range(len(net.layers))]
+    goodness_pos_of_layer_list = [[] for _ in range(len(net.layers))]
+    goodness_neg_of_layer_list = [[] for _ in range(len(net.layers))]
+    cos_pos_of_layer_list = [[] for _ in range(len(net.layers))]
+    cos_neg_of_layer_list = [[] for _ in range(len(net.layers))]
     # 定义输出文件路径
     log_file_path = os.path.join(out_dir, "output_log.txt")
     # 保存原始标准输出
@@ -216,7 +267,9 @@ def main():
             val_acc = 0
             goodness_pos_sum = 0
             goodness_neg_sum = 0
-            for x, y in grouped_loader:
+            cos_pos_sum = 0
+            cos_neg_sum = 0
+            for x, y in train_data_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
                 label_onehot = F.one_hot(y, 10).float()
@@ -224,12 +277,27 @@ def main():
                 x_pos = overlay_y_on_x(x, y)
                 y_neg = get_y_neg(y, device)
                 x_neg = overlay_y_on_x(x, y_neg)
-                goodness_pos, goodness_neg = net.train_ff_stdp(x_pos, x_neg)
-                goodness_pos_sum += goodness_pos.mean()
-                goodness_neg_sum += goodness_neg.mean()
+                goodness_pos, goodness_neg, cos_pos, cos_neg = net.train_ff_stdp(x_pos, x_neg)
+                # 单个batch获取所有层的平均余弦相似度以及优度值
+                goodness_pos = torch.tensor(goodness_pos)
+                goodness_neg = torch.tensor(goodness_neg)
+                cos_pos = torch.tensor(cos_pos)
+                cos_neg = torch.tensor(cos_neg)
+
+                goodness_pos_sum += goodness_pos
+                goodness_neg_sum += goodness_neg
+                cos_pos_sum += cos_pos
+                cos_neg_sum += cos_neg
+            # 累加的goodness先求所有层的平均值，在求batch的平均值计算loss
             loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
-            print(f"Epoch: {i+1}/{epochs}, Loss: {loss:.4f}")
-            
+            print(f"Epoch: {i+1}/{epochs}, Loss: {loss.mean():.4f}")
+            for l in range(len(net.layers)):
+                goodness_pos_of_layer_list[l].append(goodness_pos_sum[l]/batch_samples)
+                goodness_neg_of_layer_list[l].append(goodness_neg_sum[l]/batch_samples)
+                cos_pos_of_layer_list[l].append(cos_pos_sum[l]/batch_samples)
+                cos_neg_of_layer_list[l].append(cos_neg_sum[l]/batch_samples)
+                loss_of_layer_list[l].append(loss[l])
+
             with torch.no_grad():
                 for x_val, y_val in val_data_loader:
                     val_samples += 1
@@ -241,7 +309,7 @@ def main():
                 if train_acc >= max_tran_acc:
                     net.save(args, os.path.join(out_dir, "checkpoint_max.pth"))
                     max_tran_acc = train_acc
-            logger.info(f"Epoch {i+1}: Train Loss = {loss:.4f} Train Acc = {train_acc:.2f}%")
+            logger.info(f"Epoch {i+1}: Train Loss = {loss.mean():.4f} Train Acc = {train_acc:.2f}%")
         end_time = time.time()
         total_time = end_time - start_time
         hours, rem = divmod(total_time, 3600)
@@ -265,6 +333,10 @@ def main():
         # 保存曲线到本地
         plt.savefig(os.path.join(out_dir, "training_accuracy_curve.png"), dpi=300)
         plot_loss(loss_of_layer_list, os.path.join(out_dir, "loss_of_each_layer.png"))
+        plot_cos_sim(cos_pos_of_layer_list, True, os.path.join(out_dir, "cosine_similarity_positive.png"))
+        plot_cos_sim(cos_neg_of_layer_list, False, os.path.join(out_dir, "cosine_similarity_negative.png"))
+        plot_goodness(goodness_pos_of_layer_list, True, os.path.join(out_dir, "goodness_positive.png"))
+        plot_goodness(goodness_neg_of_layer_list, False, os.path.join(out_dir, "goodness_negative.png"))
         logger.info(f"Training completed in Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
 
         test_acc = 0
