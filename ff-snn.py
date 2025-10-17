@@ -45,14 +45,14 @@ def overlay_y_on_x(x, y, classes=10):
     """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]"""
     x_ = x.clone()  # 创建一个 x 的副本，避免修改原始数据
     batch_size = x.shape[0]  # 获取批量大小
-    # x_[:, 0, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
+    x_[:, :, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
     # 遍历每个样本
     for i in range(batch_size):
         # 获取当前样本的标签
         label = y[i].item()  # y[i]是该样本的标签
         # 确保标签在0到9之间（根据设置的 classes）
         # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
-        x_[i, 0, 0, label] = (
+        x_[i, :, 0, label] = (
             x_.max()
         )  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
     return x_
@@ -144,31 +144,48 @@ def main():
     # 初始化数据加载器
     # 加载训练集和测试集
     # 数据路径（你保存的 .pt 文件）
-    # grouped_path = "./data/MNIST_train_grouped_sorted.pt"
+    grouped_path = "./data/MNIST_train_grouped_sorted.pt"
 
     # # 实例化 Dataset
-    # grouped_dataset = GroupedSortedMNIST(grouped_path, transform=None)
+    grouped_dataset = GroupedSortedMNIST(grouped_path, transform=None)
     # # 构建 DataLoader
-    # grouped_loader = data.DataLoader(
-    #     grouped_dataset,
-    #     batch_size=args.b,
-    #     shuffle=False,    # 注意：保持顺序，不打乱
-    #     num_workers=args.j,
-    #     pin_memory=True
-    # )
+    grouped_loader = data.DataLoader(
+        grouped_dataset,
+        batch_size=args.b,
+        shuffle=False,    # 注意：保持顺序，不打乱
+        num_workers=args.j,
+        pin_memory=True
+    )
+    if args.dataset == "MNIST":
+    
+        train_dataset = torchvision.datasets.MNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.MNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    elif args.dataset == "CIFAR10":
 
-    train_dataset = torchvision.datasets.MNIST(
-        root=args.data_dir,
-        train=True,
-        transform=torchvision.transforms.ToTensor(),
-        download=True,
-    )
-    test_dataset = torchvision.datasets.MNIST(
-        root=args.data_dir,
-        train=False,
-        transform=torchvision.transforms.ToTensor(),
-        download=True,
-    )
+        train_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    else:
+        raise ValueError("Unsupported dataset. Please choose either 'MNIST' or 'CIFAR10'.")
 
     # 划分训练集和验证集
     train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
@@ -206,9 +223,10 @@ def main():
     )
     device = torch.device("cuda")
     out_dir = os.path.join(
-        os.path.join(args.out_dir, f"T{args.T}_b{args.b}_{args.opt}_lr{args.lr}"),
-        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-    )
+                os.path.join(
+                    os.path.join(args.out_dir,args.dataset),f"T{args.T}_b{args.b}_{args.opt}_lr{args.lr}"
+                            ), datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                        )           
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
         print(f"Mkdir {out_dir}.")
@@ -233,7 +251,8 @@ def main():
         opt=args.opt,
         loss_threshold=args.loss_threshold,
     )
-
+    # for layer in net.layers:
+    #     layer.initialize()
     # net.load("logs/T8_b1000_adam_lr0.015625/2025-10-13_13-45-53/checkpoint_last.pth")
     # x, y = next(iter(train_data_loader))
     # 初始化存储训练精度的列表
