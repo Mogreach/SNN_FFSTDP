@@ -9,7 +9,6 @@ contact       : 1245598043@qq.com
 License       : MIT
 ====================================================================
 """
-
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -28,6 +27,7 @@ from src.ff_snn_net import Net
 from config import ConfigParser
 from src.dataset import GroupedSortedMNIST
 import logging
+from spikingjelly.datasets.n_mnist import NMNIST
 def get_y_neg(y, device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -170,6 +170,33 @@ def main():
             transform=torchvision.transforms.ToTensor(),
             download=True,
         )
+    elif args.dataset == "N-MNIST":
+        train_dataset = NMNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+
+        test_dataset = NMNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    elif args.dataset == "FashionMNIST":
+        train_dataset = torchvision.datasets.FashionMNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.FashionMNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
     elif args.dataset == "CIFAR10":
 
         train_dataset = torchvision.datasets.CIFAR10(
@@ -251,6 +278,7 @@ def main():
         opt=args.opt,
         loss_threshold=args.loss_threshold,
     )
+
     # for layer in net.layers:
     #     layer.initialize()
     # net.load("logs/T8_b1000_adam_lr0.015625/2025-10-13_13-45-53/checkpoint_last.pth")

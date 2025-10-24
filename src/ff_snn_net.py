@@ -346,10 +346,10 @@ class Layer(nn.Module):
         loss.backward()
         with torch.no_grad():
             for param in self.layer.parameters():
-                    # 使用优化器更新权重      
-                    # param.grad = weight_grad      
+                    # 使用优化器更新权重           
                     param += self.lr * weight_grad
                     cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*weight_grad.flatten(),dim=0)
+                    # param.grad = weight_grad
                     # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
                     # 可视化梯度分布
                     # plt.figure(figsize=(8, 6))
@@ -361,7 +361,6 @@ class Layer(nn.Module):
                     # plt.show()
                     # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
         # self.opt.step()
-        
         functional.reset_net(self.layer)
         return output_spike.detach(), goodness.detach().mean(1).cpu(),cos_sim.detach().cpu().item()
     def predict(self, x):

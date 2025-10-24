@@ -14,20 +14,20 @@ class ConfigParser:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="FF-STDP Training")
         self.parser.add_argument(
-            "-dataset", default="CIFAR10", type=str, help="Train dataset"
+            "-dataset", default="MNIST", type=str, help="Train dataset"
         )
         self.parser.add_argument(
             "-dims",
-            default=[3072, 1024],
+            default=[784, 256],
             help="dimension of the network",
             type=int,
             nargs="+",
         )
         self.parser.add_argument(
-            "-T", default=16, type=int, help="simulating time-steps"
+            "-T", default=8, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
-        self.parser.add_argument("-b", default=1000,type=int, help="batch size")
+        self.parser.add_argument("-b", default=1,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
             default=5,
@@ -68,7 +68,7 @@ class ConfigParser:
             "-momentum", default=0.9, type=float, help="momentum for SGD"
         )
         self.parser.add_argument(
-            "-lr", default=0.001, type=float, help="learning rate"
+            "-lr", default=0.0015625/32, type=float, help="learning rate"
         )
         self.parser.add_argument(
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
@@ -78,7 +78,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-loss_threshold",
-            default=0.75,
+            default=0.25,
             type=float,
             help="threshold of loss function",
         )

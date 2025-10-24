@@ -17,7 +17,7 @@ def neg_derivative(y, theta):
 
 # 参数设置
 T = 16  # 时间步数
-theta = 6.2  # 参数 theta
+theta = 1.8  # 参数 theta
 
 # 生成 T 个整数向量并归一化
 y = torch.arange(0,T,step=0.01)
