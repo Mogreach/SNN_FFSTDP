@@ -14,6 +14,7 @@ License       : MIT
 import matplotlib.pyplot as plt
 import torch
 import os
+import seaborn as sns
 import argparse
 import sys
 import torch
@@ -80,6 +81,134 @@ def plot_loss(loss_of_layer_list, save_path):
     # 保存图像到文件
     plt.savefig(save_path)
     print(f"Loss plot saved to {save_path}")
+def visualize_goodness(goodness_label_layer_goodness, save_path=None):
+    # goodness_label_layer_goodness: [10, num_layers, batch_size]
+    data = goodness_label_layer_goodness[:, :, 0].cpu().numpy()
+    num_labels, num_layers = data.shape
+
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(data, annot=True, fmt=".2f", cmap="viridis",
+                xticklabels=[f"Layer {i}" for i in range(num_layers)],
+                yticklabels=[f"Label {i}" for i in range(num_labels)])
+    plt.xlabel("Layer")
+    plt.ylabel("Label")
+    plt.title("Goodness Distribution per Label and Layer")
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+def visualize_freq(freq_label_layer_freq, label_id, save_path=None):
+    # freq_label_layer_freq: [10, num_layers, batch_size, 1000]
+    freq_data = freq_label_layer_freq[label_id, :, 0, :].cpu().numpy()
+    num_layers, num_neurons = freq_data.shape
+
+    plt.figure(figsize=(12, 2 * num_layers))
+    for i in range(num_layers):
+        plt.subplot(num_layers, 1, i + 1)
+        plt.plot(freq_data[i], color='blue')
+        plt.title(f"Label {label_id} - Layer {i}")
+        plt.xlabel("Neuron index")
+        plt.ylabel("Firing frequency")
+        plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def visualize_layer_weights(net):
+    """
+    在同一张图中绘制每层权重的分布直方图和二维热力图
+    """
+    num_layers = len(net.layers)
+    fig, axes = plt.subplots(num_layers, 2, figsize=(10, 3 * num_layers))
+    if num_layers == 1:
+        axes = axes.reshape(1, 2)  # 兼容单层情况
+
+    for layer_idx, layer in enumerate(net.layers):
+        # 遍历命名子模块，找到真正的可学习层（你模型中 name=="layer" 的模块）
+        for name, module in layer.named_modules():
+            if name == "layer":
+                for p_name, param in module[1].named_parameters():
+                    w = param.detach().cpu().numpy()
+
+                    # ------------------------
+                    # 1️⃣ 权重分布直方图
+                    # ------------------------
+                    axes[layer_idx, 0].hist(w.flatten(), bins=50, color='steelblue', alpha=0.7)
+                    axes[layer_idx, 0].set_title(f"Layer {layer_idx} - {p_name} weight distribution")
+                    axes[layer_idx, 0].set_xlabel("Weight value")
+                    axes[layer_idx, 0].set_ylabel("Count")
+
+                    # ------------------------
+                    # 2️⃣ 二维权重热力图
+                    # ------------------------
+                    # 如果是高维卷积权重，取第一输出通道可视化
+                    if w.ndim > 2:
+                        w2d = w[0, 0, :, :]  # 只取第一组卷积核
+                    else:
+                        w2d = w
+
+                    sns.heatmap(w2d, ax=axes[layer_idx, 1], cmap="coolwarm", cbar=True)
+                    axes[layer_idx, 1].set_title(f"Layer {layer_idx} - {p_name} heatmap")
+
+    plt.tight_layout()
+    plt.show()
+def visualize_goodness_mean(net, test_data_loader, device):
+    """
+    统计所有预测正确样本的各类别平均 goodness，并绘制热力图
+    """
+    num_labels = 10
+    num_layers = len(net.layers)
+
+    # 累计各类 goodness 总和与计数
+    goodness_sum = torch.zeros(num_labels, num_layers).to(device)
+    goodness_count = torch.zeros(num_labels).to(device)
+
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            predict_result, goodness, _ = net.predict_analyze(x_te)  
+            goodness = goodness.to(device)
+            # goodness: [10, num_layers, batch_size]
+
+            # 获取每个样本是否预测正确
+            correct_mask = predict_result.eq(y_te)
+            for idx in range(x_te.shape[0]):
+                label = y_te[idx].item()
+                if correct_mask[idx]:
+                    # 取该样本下对应标签的goodness: [num_layers]
+                    sample_goodness = goodness[label, :, idx]
+                    goodness_sum[label] += sample_goodness
+                    goodness_count[label] += 1
+
+    # 避免除以0
+    goodness_mean = torch.zeros_like(goodness_sum)
+    for l in range(num_labels):
+        if goodness_count[l] > 0:
+            goodness_mean[l] = goodness_sum[l] / goodness_count[l]
+
+    # 转CPU并numpy化
+    goodness_mean = goodness_mean.cpu().numpy()
+
+    # ===============================
+    # 绘制热力图
+    # ===============================
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(
+        goodness_mean,
+        annot=True, fmt=".2f", cmap="viridis",
+        xticklabels=[f"Layer {i}" for i in range(num_layers)],
+        yticklabels=[f"Label {i}" for i in range(num_labels)]
+    )
+    plt.xlabel("Layer")
+    plt.ylabel("Label")
+    plt.title("Average Goodness per Label and Layer (Correct Predictions Only)")
+    plt.tight_layout()
+    plt.show()
+
+    return goodness_mean
 def main():
     config = ConfigParser()
     args = config.parse()
@@ -126,29 +255,73 @@ def main():
 
     test_data_loader = data.DataLoader(
         dataset=test_dataset,
-        batch_size=args.b,
+        batch_size=1000,
         shuffle=False,
         drop_last=False,
         num_workers=args.j,
         pin_memory=True
     )
     device = torch.device("cuda")
-    net = Net(dims=args.dims,tau=args.tau, epoch=args.epochs, T=args.T, lr=args.lr,
-              v_threshold=args.v_threshold, opt=args.opt, loss_threshold=args.loss_threshold)
-    net.load("logs\T100_b1000_adam_lr0.0001\\2025-01-27_22-19-51\checkpoint_max.pth")
+    net = Net(dims=[784, 256, 128, 64],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+              v_threshold=1.2, opt=args.opt, loss_threshold=0.5)
+    net.load("logs\\analyze\checkpoint_last.pth")
     test_acc = 0
     test_samples = 0
     test_count = 0
+    goodness_mean = visualize_goodness_mean(net, test_data_loader, device)
     with torch.no_grad():
         for x_te, y_te in test_data_loader:
             test_samples += y_te.numel()
             test_count += 1
             x_te, y_te = x_te.to(device), y_te.to(device)
-            test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+            predict_result , goodness,freq = net.predict_analyze(x_te)
+            test_acc += predict_result.eq(y_te).cpu().float().mean().item()
             # if(x_te.shape[0] != args.b or test_samples >= args.b):
             #     break
         print("test Acc:", 100 * test_acc / test_count, "%")
     
+    # visualize_layer_weights(net)
+    # 查看标签0-9的goodness分布情况
+    # with torch.no_grad():
+    #     for l in range(10):
+    #         for x_te, y_te in test_data_loader:
+    #             if (l != y_te):
+    #                 continue
+    #             else:
+    #                 x_te, y_te = x_te.to(device), y_te.to(device)
+    #                 predict_result , goodness,freq = net.predict_analyze(x_te)
+    #                 test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+    #                 if test_acc == 1:
+    #                     print("test Acc:", 100 * test_acc / test_count, "%")
+    #                     visualize_goodness(goodness)
+    #                     break
+    with torch.no_grad():
+        for l in range(10):
+            for x_te, y_te in test_data_loader:
+                if (l != y_te):
+                    continue
+                else:
+                    x_te, y_te = x_te.to(device), y_te.to(device)
+                    predict_result , goodness,freq = net.predict_analyze(x_te)
+                    test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+                    if test_acc == 1:
+                        print("test Acc:", 100 * test_acc / test_count, "%")
+                        visualize_goodness(goodness)
+                        break
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            test_samples += y_te.numel()
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            predict_result , goodness,freq = net.predict_analyze(x_te)
+            test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+            if test_acc == 0:
+                test_count += 1
+            if (test_count == 10):
+                break
+        print("test Acc:", 100 * test_acc / test_count, "%")
+    visualize_goodness(goodness)
+    for label_id in range(10):
+        visualize_freq(freq, label_id)
 if __name__ == "__main__":
     main()
 

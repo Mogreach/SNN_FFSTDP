@@ -17,12 +17,12 @@ def neg_derivative(y, theta):
 
 # 参数设置
 T = 16  # 时间步数
-theta = 1.8  # 参数 theta
+theta = 5  # 参数 theta
 
 # 生成 T 个整数向量并归一化
 y = torch.arange(0,T,step=0.01)
 x = torch.arange(0, T, dtype=torch.float32) / T
-x = x**2 * T
+x = x**2
 # 计算 pos_derivative 和 neg_derivative
 pos_ideal = -pos_derivative(y, theta)
 neg_ideal = -neg_derivative(y, theta)
