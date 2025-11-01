@@ -324,7 +324,7 @@ def main():
                 x_pos = overlay_y_on_x(x, y)
                 y_neg = get_y_neg(y, device)
                 x_neg = overlay_y_on_x(x, y_neg)
-                goodness_pos, goodness_neg, cos_pos, cos_neg = net.train_ff_stdp(x_pos, x_neg)
+                goodness_pos, goodness_neg, cos_pos, cos_neg = net.train_ff_stdp(x_pos, x_neg, y)
                 # 单个batch获取所有层的平均余弦相似度以及优度值
                 goodness_pos = torch.tensor(goodness_pos)
                 goodness_neg = torch.tensor(goodness_neg)
@@ -338,7 +338,7 @@ def main():
             # 累加的goodness先求所有层的平均值，在求batch的平均值计算loss
             loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
             print(f"Epoch: {i+1}/{epochs}, Loss: {loss.mean():.4f}")
-            for l in range(len(net.layers)):
+            for l in range(len(net.layers)-1):
                 goodness_pos_of_layer_list[l].append(goodness_pos_sum[l]/batch_samples)
                 goodness_neg_of_layer_list[l].append(goodness_neg_sum[l]/batch_samples)
                 cos_pos_of_layer_list[l].append(cos_pos_sum[l]/batch_samples)
@@ -349,7 +349,7 @@ def main():
                 for x_val, y_val in val_data_loader:
                     val_samples += 1
                     x_val, y_val = x_val.to(device), y_val.to(device)
-                    val_acc += net.predict(x_val).eq(y_val).cpu().float().mean().item()
+                    val_acc += net.predict_winner(x_val).eq(y_val).cpu().float().mean().item()
                 train_acc = 100 * (val_acc / val_samples)
                 train_acc_list.append(train_acc)
                 print(f"Train Acc:  {train_acc:.2f}%")
@@ -395,7 +395,7 @@ def main():
                 test_samples += y_te.numel()
                 test_count += 1
                 x_te, y_te = x_te.to(device), y_te.to(device)
-                test_acc += net.predict(x_te).eq(y_te).cpu().float().mean().item()
+                test_acc += net.predict_winner(x_te).eq(y_te).cpu().float().mean().item()
         end_time = time.time()
         total_time = end_time - start_time
         hours, rem = divmod(total_time, 3600)

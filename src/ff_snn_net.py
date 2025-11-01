@@ -119,20 +119,36 @@ class Net(torch.nn.Module):
         self.loss_threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         for d in range(len(dims) - 1):
-            self.layers += nn.ModuleList(
-                [
-                    Layer(
-                        in_features=dims[d],
-                        out_features=dims[d + 1],
-                        epoch=epoch,
-                        T=T,
-                        lr=lr,
-                        v_threshold=v_threshold,
-                        tau=tau,
-                        loss_threshold=loss_threshold,
-                    ).cuda()
-                ]
-            )
+            if(d==len(dims)-2):
+                self.layers += nn.ModuleList(
+                    [
+                        OutputLayer(
+                            in_features=sum(dims[1:d+1]),
+                            out_features=dims[d + 1],
+                            epoch=epoch,
+                            T=T,
+                            lr=lr,
+                            v_threshold=v_threshold,
+                            tau=tau,
+                            loss_threshold=loss_threshold,
+                        ).cuda()
+                    ]
+                )
+            else:
+                self.layers += nn.ModuleList(
+                    [
+                        Layer(
+                            in_features=dims[d],
+                            out_features=dims[d + 1],
+                            epoch=epoch,
+                            T=T,
+                            lr=lr,
+                            v_threshold=v_threshold,
+                            tau=tau,
+                            loss_threshold=loss_threshold,
+                        ).cuda()
+                    ]
+                )
     # 通过goodness计算预测结果
     def predict(self, x):
         goodness_per_label = []
@@ -156,6 +172,22 @@ class Net(torch.nn.Module):
             goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
         goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
         return goodness_of_all_label.argmax(1)
+        # 通过goodness计算预测结果
+    def predict_winner(self, x):
+        label = torch.randint(0, 10, (x.shape[0],))
+        h = overlay_y_on_x(x, label)
+        # 频率编码
+        h = spike_encoder(x, self.T)
+        h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
+        empty_tensor = torch.empty((h.shape[0],h.shape[1],0)).cuda()
+        for i, layer in enumerate(self.layers):
+            if i == len(self.layers) - 1:
+                spike_out = layer.predict(spike_in_of_output_layer) 
+            else:
+                h = layer.predict(h)
+                spike_in_of_output_layer = torch.cat((empty_tensor,h),dim=2)
+        spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
+        return spike_out_sum.argmax(1)
     def predict_analyze(self, x):
         goodness_per_label = []
         goodness_label_layer_goodness = torch.zeros(10,len(self.layers),x.shape[0]).cuda()
@@ -187,7 +219,7 @@ class Net(torch.nn.Module):
                 train_mode = False
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss
-    def train_ff_stdp(self, x_pos, x_neg):
+    def train_ff_stdp(self, x_pos, x_neg, label):
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
         in_pos = x_pos_encoded.flatten(2)
@@ -204,19 +236,24 @@ class Net(torch.nn.Module):
         spike_input_pos = in_pos
         spike_input_neg = in_neg
 
-        goodness_pos, cos_pos = self.train_ff_stdp_step(spike_input_pos, True)
-        goodness_neg, cos_neg = self.train_ff_stdp_step(spike_input_neg, False)
+        goodness_pos, cos_pos, spike_out_pos = self.train_ff_stdp_step(spike_input_pos, True, label)
+        goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_neg, False, label)
         
         return goodness_pos, goodness_neg, cos_pos, cos_neg
-    def train_ff_stdp_step(self, input, is_pos):
+    def train_ff_stdp_step(self, input, is_pos, label):
         spike_input  = input
         goodness_per_layer = []
         cos_sim_per_layer = []
+        empty_tensor = torch.empty((spike_input.shape[0],spike_input.shape[1],0)).cuda()
         for i, layer in enumerate(self.layers):
-            spike_input, g ,cos_sim = layer.train_ff_stdp(spike_input, is_pos)
-            goodness_per_layer.append(g.mean().item())
-            cos_sim_per_layer.append(cos_sim)
-        return goodness_per_layer, cos_sim_per_layer
+            if i == len(self.layers) - 1:
+                spike_output = layer.train_bp_stdp(spike_in_of_output_layer, label)
+            else:
+                spike_input, g ,cos_sim = layer.train_ff_stdp(spike_input, is_pos)
+                goodness_per_layer.append(g.mean().item())
+                cos_sim_per_layer.append(cos_sim)
+                spike_in_of_output_layer = torch.cat((empty_tensor,spike_input),dim=2)
+        return goodness_per_layer, cos_sim_per_layer , spike_output
 
     def save(self, args, path):
         check_point = {
@@ -397,5 +434,66 @@ class Layer(nn.Module):
             # if(g[0].sum() > 0):
             # print(1)
             # self.visualize_spike_in_timestep(spike_out)
+        functional.reset_net(self.layer)
+        return g
+class OutputLayer(nn.Module):
+    def __init__(
+        self, in_features, out_features, epoch, T, lr, v_threshold, tau, loss_threshold
+    ):
+        super().__init__()
+        self.layer = nn.Sequential(
+            layer.Flatten(),
+            layer.Linear(in_features, out_features, bias=False),
+            neuron.IFNode(
+                v_reset=None,
+                v_threshold=v_threshold,
+                surrogate_function=surrogate.ATan(),
+                step_mode="s",
+            ),
+        )
+        self.lr = lr
+        self.spike_input_rate = 0
+        self.in_features = in_features
+        self.out_features = out_features
+        self.num_epochs = epoch
+        self.T = T
+        self.threshold = loss_threshold
+        self.encoder = encoding.PoissonEncoder()
+        self.opt = Adam(self.parameters(), lr=lr)
+        # self.opt = SGD(self.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
+        self.visible = False
+        self.spike_vis = torch.zeros(out_features).unsqueeze(1)
+    def forward(self, x):
+        # 对第1维度（通道维度）计算L2范数，然后进行归一化
+        # x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
+        return self.layer(x)
+    def train_bp_stdp(self,x_encoded, label):
+        N = x_encoded.shape[1]
+        input_spike_sum = x_encoded.sum(0).cuda()
+        output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+        ksi_output = torch.zeros(N,self.out_features).cuda() 
+        for t in range(self.T):
+            output_spike[t] += self.forward(x_encoded[t])
+        spike_sums = output_spike.sum(0)  # 对时间维度求和，形状为 [N, out_features]
+         # 创建一个布尔掩码，判断每个样本的每个输出神经元是否满足条件
+        neg_mask = (spike_sums >= 1) & (torch.arange(self.out_features).cuda() != label.unsqueeze(1))
+        pos_mask = (spike_sums == 0) & (torch.arange(self.out_features).cuda() == label.unsqueeze(1))
+        ksi_output[pos_mask] = 1
+        ksi_output[neg_mask] = -1
+        ksi_output = ksi_output.transpose(0,1)
+        self.opt.zero_grad()
+        weight_grad = ksi_output @ input_spike_sum / N
+        with torch.no_grad():
+            for param in self.layer.parameters():
+                    # 使用优化器更新权重           
+                    param += self.lr * weight_grad
+        functional.reset_net(self.layer)
+        return output_spike.detach()
+    def predict(self, x):
+        h = x
+        g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()
+        for t in range(self.T):
+            spike_out = self.forward(h[t])
+            g[t] += spike_out
         functional.reset_net(self.layer)
         return g

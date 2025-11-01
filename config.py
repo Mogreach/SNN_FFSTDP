@@ -18,7 +18,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-dims",
-            default=[784, 256],
+            default=[784, 256, 10],
             help="dimension of the network",
             type=int,
             nargs="+",
@@ -27,7 +27,7 @@ class ConfigParser:
             "-T", default=8, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
-        self.parser.add_argument("-b", default=1,type=int, help="batch size")
+        self.parser.add_argument("-b", default=1000,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
             default=5,
@@ -68,7 +68,7 @@ class ConfigParser:
             "-momentum", default=0.9, type=float, help="momentum for SGD"
         )
         self.parser.add_argument(
-            "-lr", default=0.0015625/32, type=float, help="learning rate"
+            "-lr", default=0.015625, type=float, help="learning rate"
         )
         self.parser.add_argument(
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
