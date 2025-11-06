@@ -109,10 +109,39 @@ def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
 class IFNode_Non_T(neuron.IFNode):
     def neuronal_charge(self, x: torch.Tensor):
         self.v = self.v.detach() + x
+class IFNode_multiple_threshold(neuron.IFNode):
+    def __init__(self, v_threshold_pos: float , v_threshold_neg: float):
+        super().__init__()
+        self.v_threshold_pos = v_threshold_pos
+        self.v_threshold_neg = v_threshold_neg
+    def neuronal_fire(self):
+        """
+        * :ref:`API in English <BaseNode.neuronal_fire-en>`
 
+        .. _BaseNode.neuronal_fire-cn:
+
+        根据当前神经元的电压、阈值，计算输出脉冲。
+
+        * :ref:`中文API <BaseNode.neuronal_fire-cn>`
+
+        .. _BaseNode.neuronal_fire-en:
+
+
+        Calculate out spikes of neurons by their current membrane potential and threshold voltage.
+        """
+        spike_pos = self.surrogate_function(self.v - self.v_threshold_pos)
+        spike_neg = -1 * self.surrogate_function(-self.v + self.v_threshold_neg)
+        return spike_pos + spike_neg
+    # def forward(self, x: torch.Tensor):
+    #     self.v = self.v + x
+    #     pos_spike = (self.v >= self.v_threshold_pos).to(x.dtype)
+    #     neg_spike = - (self.v <= self.v_threshold_neg).to(x.dtype)
+    #     self.v = self.v * (1.0 - pos_spike + neg_spike)
+    #     out = pos_spike + neg_spike
+    #     return out
 
 class Net(torch.nn.Module):
-    def __init__(self, dims, tau, epoch, T, lr, v_threshold, opt, loss_threshold):
+    def __init__(self, dims, tau, epoch, T, lr, v_threshold_pos, v_threshold_neg, opt, loss_threshold):
         super().__init__()
         self.T = T
         self.layers = []
@@ -128,7 +157,8 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold=v_threshold,
+                            v_threshold_pos=v_threshold_pos,
+                            v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
                         ).cuda()
@@ -143,7 +173,8 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold=v_threshold,
+                            v_threshold_pos=v_threshold_pos,
+                            v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
                         ).cuda()
@@ -179,13 +210,14 @@ class Net(torch.nn.Module):
         # 频率编码
         h = spike_encoder(x, self.T)
         h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
-        empty_tensor = torch.empty((h.shape[0],h.shape[1],0)).cuda()
+        spike_in_of_output_layer = torch.empty((h.shape[0],h.shape[1],0)).cuda()
+        # spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,h),dim=2)
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
                 spike_out = layer.predict(spike_in_of_output_layer) 
             else:
                 h = layer.predict(h)
-                spike_in_of_output_layer = torch.cat((empty_tensor,h),dim=2)
+                spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,h),dim=2)
         spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
         return spike_out_sum.argmax(1)
     def predict_analyze(self, x):
@@ -244,7 +276,8 @@ class Net(torch.nn.Module):
         spike_input  = input
         goodness_per_layer = []
         cos_sim_per_layer = []
-        empty_tensor = torch.empty((spike_input.shape[0],spike_input.shape[1],0)).cuda()
+        spike_in_of_output_layer = torch.empty((spike_input.shape[0],spike_input.shape[1],0)).cuda()
+        # spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_input),dim=2)
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
                 spike_output = layer.train_bp_stdp(spike_in_of_output_layer, label)
@@ -252,7 +285,7 @@ class Net(torch.nn.Module):
                 spike_input, g ,cos_sim = layer.train_ff_stdp(spike_input, is_pos)
                 goodness_per_layer.append(g.mean().item())
                 cos_sim_per_layer.append(cos_sim)
-                spike_in_of_output_layer = torch.cat((empty_tensor,spike_input),dim=2)
+                spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_input),dim=2)
         return goodness_per_layer, cos_sim_per_layer , spike_output
 
     def save(self, args, path):
@@ -275,7 +308,7 @@ class Net(torch.nn.Module):
 
 class Layer(nn.Module):
     def __init__(
-        self, in_features, out_features, epoch, T, lr, v_threshold, tau, loss_threshold
+        self, in_features, out_features, epoch, T, lr, v_threshold_pos, v_threshold_neg, tau, loss_threshold
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -283,11 +316,9 @@ class Layer(nn.Module):
             layer.Linear(in_features, out_features, bias=False),
             # neuron.LIFNode(tau=tau, v_threshold= v_threshold, surrogate_function=surrogate.ATan())
             # IFNode_Non_T(v_reset= None, v_threshold= v_threshold, surrogate_function=surrogate.ATan(), step_mode='s')
-            neuron.IFNode(
-                v_reset=None,
-                v_threshold=v_threshold,
-                surrogate_function=surrogate.ATan(),
-                step_mode="s",
+            IFNode_multiple_threshold(
+                v_threshold_pos=v_threshold_pos,
+                v_threshold_neg=v_threshold_neg
             ),
         )
         self.lr = lr
@@ -329,6 +360,7 @@ class Layer(nn.Module):
 
     def cal_goodness(self, freq):
         goodness = self.T * freq.pow(2)
+        # goodness = self.T * freq.abs().pow(2) * freq.sign()
         return goodness
 
     def forward(self, x):
@@ -438,17 +470,21 @@ class Layer(nn.Module):
         return g
 class OutputLayer(nn.Module):
     def __init__(
-        self, in_features, out_features, epoch, T, lr, v_threshold, tau, loss_threshold
+        self, in_features, out_features, epoch, T, lr, v_threshold_pos, v_threshold_neg, tau, loss_threshold
     ):
         super().__init__()
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            neuron.IFNode(
-                v_reset=None,
-                v_threshold=v_threshold,
-                surrogate_function=surrogate.ATan(),
-                step_mode="s",
+            # neuron.IFNode(
+            #     v_reset=None,
+            #     v_threshold=v_threshold_pos,
+            #     surrogate_function=surrogate.ATan(),
+            #     step_mode="s",
+            # ),
+            IFNode_multiple_threshold(
+                v_threshold_pos=v_threshold_pos,
+                v_threshold_neg=v_threshold_neg
             ),
         )
         self.lr = lr
@@ -477,7 +513,7 @@ class OutputLayer(nn.Module):
         spike_sums = output_spike.sum(0)  # 对时间维度求和，形状为 [N, out_features]
          # 创建一个布尔掩码，判断每个样本的每个输出神经元是否满足条件
         neg_mask = (spike_sums >= 1) & (torch.arange(self.out_features).cuda() != label.unsqueeze(1))
-        pos_mask = (spike_sums == 0) & (torch.arange(self.out_features).cuda() == label.unsqueeze(1))
+        pos_mask = (spike_sums <= (self.T/2)) & (torch.arange(self.out_features).cuda() == label.unsqueeze(1))
         ksi_output[pos_mask] = 1
         ksi_output[neg_mask] = -1
         ksi_output = ksi_output.transpose(0,1)

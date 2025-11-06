@@ -274,7 +274,8 @@ def main():
         epoch=args.epochs,
         T=args.T,
         lr=args.lr,
-        v_threshold=args.v_threshold,
+        v_threshold_pos=args.v_threshold_pos,
+        v_threshold_neg=args.v_threshold_neg,
         opt=args.opt,
         loss_threshold=args.loss_threshold,
     )
