@@ -197,6 +197,8 @@ class Net(torch.nn.Module):
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
             for i, layer in enumerate(self.layers):
+                if i == len(self.layers) - 1:
+                    break
                 h = layer.predict(h)
                 freq = h.mean(0)  # 计算每层的平均频率
                 goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
@@ -316,10 +318,16 @@ class Layer(nn.Module):
             layer.Linear(in_features, out_features, bias=False),
             # neuron.LIFNode(tau=tau, v_threshold= v_threshold, surrogate_function=surrogate.ATan())
             # IFNode_Non_T(v_reset= None, v_threshold= v_threshold, surrogate_function=surrogate.ATan(), step_mode='s')
-            IFNode_multiple_threshold(
-                v_threshold_pos=v_threshold_pos,
-                v_threshold_neg=v_threshold_neg
+            neuron.IFNode(
+                v_reset=None,
+                v_threshold=v_threshold_pos,
+                surrogate_function=surrogate.ATan(),
+                step_mode="s",
             ),
+            # IFNode_multiple_threshold(
+            #     v_threshold_pos=v_threshold_pos,
+            #     v_threshold_neg=v_threshold_neg
+            # ),
         )
         self.lr = lr
         self.spike_input_rate = 0
@@ -359,8 +367,8 @@ class Layer(nn.Module):
             self.spike_vis = torch.zeros(self.out_features).unsqueeze(1)
 
     def cal_goodness(self, freq):
-        goodness = self.T * freq.pow(2)
-        # goodness = self.T * freq.abs().pow(2) * freq.sign()
+        # goodness = self.T * freq.pow(2)
+        goodness = self.T * freq.abs().pow(2) * freq.sign()
         return goodness
 
     def forward(self, x):
