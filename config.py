@@ -30,7 +30,7 @@ class ConfigParser:
         self.parser.add_argument("-b", default=1000,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=200,
+            default=20,
             type=int,
             metavar="N",
             help="number of total epochs to run",
