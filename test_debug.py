@@ -262,9 +262,9 @@ def main():
         pin_memory=True
     )
     device = torch.device("cuda")
-    net = Net(dims=[784, 256, 128, 64],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("logs/analyze/checkpoint_last.pth")
+    net = Net(dims=[784, 512,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+              v_threshold_pos=1.0,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    net.load("logs/analyze/checkpoint_last_suprevised.pth")
     test_acc = 0
     test_samples = 0
     test_count = 0
@@ -280,48 +280,48 @@ def main():
             #     break
         print("test Acc:", 100 * test_acc / test_count, "%")
     
-    visualize_layer_weights(net)
-    # 查看标签0-9的goodness分布情况
-    with torch.no_grad():
-        for l in range(10):
-            for x_te, y_te in test_data_loader:
-                if (l != y_te):
-                    continue
-                else:
-                    x_te, y_te = x_te.to(device), y_te.to(device)
-                    predict_result , goodness,freq = net.predict_analyze(x_te)
-                    test_acc = predict_result.eq(y_te).cpu().float().mean().item()
-                    if test_acc == 1:
-                        print("test Acc:", 100 * test_acc / test_count, "%")
-                        visualize_goodness(goodness)
-                        break
-    with torch.no_grad():
-        for l in range(10):
-            for x_te, y_te in test_data_loader:
-                if (l != y_te):
-                    continue
-                else:
-                    x_te, y_te = x_te.to(device), y_te.to(device)
-                    predict_result , goodness,freq = net.predict_analyze(x_te)
-                    test_acc = predict_result.eq(y_te).cpu().float().mean().item()
-                    if test_acc == 1:
-                        print("test Acc:", 100 * test_acc / test_count, "%")
-                        visualize_goodness(goodness)
-                        break
-    with torch.no_grad():
-        for x_te, y_te in test_data_loader:
-            test_samples += y_te.numel()
-            x_te, y_te = x_te.to(device), y_te.to(device)
-            predict_result , goodness,freq = net.predict_analyze(x_te)
-            test_acc = predict_result.eq(y_te).cpu().float().mean().item()
-            if test_acc == 0:
-                test_count += 1
-            if (test_count == 10):
-                break
-        print("test Acc:", 100 * test_acc / test_count, "%")
-    visualize_goodness(goodness)
-    for label_id in range(10):
-        visualize_freq(freq, label_id)
+    # visualize_layer_weights(net)
+    # # 查看标签0-9的goodness分布情况
+    # with torch.no_grad():
+    #     for l in range(10):
+    #         for x_te, y_te in test_data_loader:
+    #             if (l != y_te):
+    #                 continue
+    #             else:
+    #                 x_te, y_te = x_te.to(device), y_te.to(device)
+    #                 predict_result , goodness,freq = net.predict_analyze(x_te)
+    #                 test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+    #                 if test_acc == 1:
+    #                     print("test Acc:", 100 * test_acc / test_count, "%")
+    #                     visualize_goodness(goodness)
+                        # break
+    # with torch.no_grad():
+    #     for l in range(10):
+    #         for x_te, y_te in test_data_loader:
+    #             if (l != y_te):
+    #                 continue
+    #             else:
+    #                 x_te, y_te = x_te.to(device), y_te.to(device)
+    #                 predict_result , goodness,freq = net.predict_analyze(x_te)
+    #                 test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+    #                 if test_acc == 1:
+    #                     print("test Acc:", 100 * test_acc / test_count, "%")
+    #                     visualize_goodness(goodness)
+    #                     break
+    # with torch.no_grad():
+    #     for x_te, y_te in test_data_loader:
+    #         test_samples += y_te.numel()
+    #         x_te, y_te = x_te.to(device), y_te.to(device)
+    #         predict_result , goodness,freq = net.predict_analyze(x_te)
+    #         test_acc = predict_result.eq(y_te).cpu().float().mean().item()
+    #         if test_acc == 0:
+    #             test_count += 1
+    #         if (test_count == 10):
+    #             break
+    #     print("test Acc:", 100 * test_acc / test_count, "%")
+    # visualize_goodness(goodness)
+    # for label_id in range(10):
+    #     visualize_freq(freq, label_id)
 if __name__ == "__main__":
     main()
 

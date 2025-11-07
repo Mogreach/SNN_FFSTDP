@@ -173,7 +173,7 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold_pos=v_threshold_pos,
+                            v_threshold_pos=v_threshold_pos + d *0.2,
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
@@ -189,7 +189,7 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold_pos=v_threshold_pos,
+                            v_threshold_pos=v_threshold_pos + d *0.2,
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
@@ -204,6 +204,7 @@ class Net(torch.nn.Module):
             goodness = []
             label = torch.full((x.shape[0],), label)
             h = overlay_y_on_x(x, label)
+            
             # Possion编码
             # h_encoded = torch.zeros(self.T, h.shape[0], h.flatten(1).shape[1]).cuda()
             # for t in range(self.T):
@@ -212,12 +213,14 @@ class Net(torch.nn.Module):
             # 频率编码
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
+            spike_in_of_label = h[:,:,0:10]
             for i, layer in enumerate(self.layers):
                 if i == len(self.layers) - 1:
                     break
                 h = layer.predict(h)
                 freq = h.mean(0)  # 计算每层的平均频率
                 goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
+                h = torch.cat((h, spike_in_of_label),dim=2)
             goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
         goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
         return goodness_of_all_label.argmax(1)
@@ -252,12 +255,16 @@ class Net(torch.nn.Module):
             # 频率编码
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
+            spike_in_of_label = h[:,:,0:10]
             for i, layer in enumerate(self.layers):
+                if i == len(self.layers) - 1:
+                    break
                 h = layer.predict(h)
                 freq = h.mean(0)  # 计算每层的平均频率
                 goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
                 goodness_label_layer_goodness[label,i,:] = layer.cal_goodness(freq).sum(1)
                 freq_label_layer_freq[label,i,:,0:freq.shape[1]] = freq
+                h = torch.cat((h, spike_in_of_label),dim=2)
             goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
         goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
         return goodness_of_all_label.argmax(1),goodness_label_layer_goodness.cpu(),freq_label_layer_freq
