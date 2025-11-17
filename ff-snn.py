@@ -307,9 +307,22 @@ def main():
                 x, y = x.to(device), y.to(device)
                 label_onehot = F.one_hot(y, 10).float()
                 # 先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
-                x_pos = overlay_y_on_x(x, y)
+                # 标签嵌入
+                # 传统方式：
+                # x_pos = overlay_y_on_x(x, y)
+                # y_neg = get_y_neg(y, device)
+                # x_neg = overlay_y_on_x(x, y_neg)
+                # 负样本独0码标签：
+                x_pos = overlay_label_on_x(x)
                 y_neg = get_y_neg(y, device)
                 x_neg = overlay_y_on_x(x, y_neg)
+                
+                # x_neg = overlay_zero_on_x(x,y)
+                # Mask掩码
+                # x_pos = x
+                # x_neg = generate_negative_samples_continuous(x_pos, y, train_dataset.dataset, device=device, visualize=False)
+                # x_pos = overlay_label_on_x(x_pos)
+                # x_neg = overlay_zero_on_x(x_neg,y)
                 goodness_pos, goodness_neg, cos_pos, cos_neg = net.train_ff_stdp(x_pos, x_neg, y)
                 # 单个batch获取所有层的平均余弦相似度以及优度值
                 goodness_pos = torch.tensor(goodness_pos)
