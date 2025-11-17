@@ -28,6 +28,7 @@ from config import ConfigParser
 from src.dataset import GroupedSortedMNIST
 import logging
 from spikingjelly.datasets.n_mnist import NMNIST
+from src.generate_neg_sample import *
 def get_y_neg(y, device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -40,22 +41,6 @@ def get_y_neg(y, device):
         ].item()
     return y_neg.to(device)
 
-
-def overlay_y_on_x(x, y, classes=10):
-    """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]"""
-    x_ = x.clone()  # 创建一个 x 的副本，避免修改原始数据
-    batch_size = x.shape[0]  # 获取批量大小
-    x_[:, :, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
-    # 遍历每个样本
-    for i in range(batch_size):
-        # 获取当前样本的标签
-        label = y[i].item()  # y[i]是该样本的标签
-        # 确保标签在0到9之间（根据设置的 classes）
-        # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
-        x_[i, :, 0, label] = (
-            x_.max()
-        )  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
-    return x_
 
 
 def visualize_sample(data, name="", idx=0):

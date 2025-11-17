@@ -32,7 +32,7 @@ from spikingjelly.activation_based import (
     monitor,
     learning,
 )
-
+from src.generate_neg_sample import *
 def pos_derivative(x, theta):
     """
     计算 log(1 + exp(-x + theta)) 关于 x 的导数。
@@ -66,22 +66,6 @@ def neg_derivative(y, theta):
     # 返回导数
     return sigmoid
 
-
-def overlay_y_on_x(x, y, classes=10):
-    """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]"""
-    x_ = x.clone()  # 创建一个 x 的副本，避免修改原始数据
-    batch_size = x.shape[0]  # 获取批量大小
-    x_[:, :, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
-    # 遍历每个样本
-    for i in range(batch_size):
-        # 获取当前样本的标签
-        label = y[i].item()  # y[i]是该样本的标签
-        # 确保标签在0到9之间（根据设置的 classes）
-        # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
-        x_[i, :, 0, label] = (
-            x_.max()
-        )  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
-    return x_
 
 def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
     """
