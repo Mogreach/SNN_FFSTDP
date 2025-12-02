@@ -47,6 +47,7 @@
 		output wire        [  11: 0]        AER_IN_ADDR                ,
     	output reg                          IS_POS                     ,
 		output reg   						IS_TRAIN                   ,
+		input wire  train_enable_txn,
 		// Debug
     	output wire        [   2: 0]        STATE                      ,
 		// User ports ends
@@ -55,9 +56,9 @@
 		// Initiate AXI transactions
 		input wire  INIT_AXI_TXN,
 		// Asserts when transaction is complete
-		output wire  TXN_DONE,
+		output reg  TRAIN_ENABLE_FLAG,
 		// Asserts when ERROR is detected
-		output reg  ERROR,
+		output reg  TRAIN_FINISH_FLAG,
 		// Global Clock Signal.
 		input wire  M_AXI_ACLK,
 		// Global Reset Singal. This Signal is Active Low
@@ -246,7 +247,6 @@
 	reg  	writes_done;
 	reg  	reads_done;
 	reg  	train_finish_reg;
-	reg  	compare_done;
 	reg  	read_mismatch;
 	reg  	burst_write_active;
 	reg  	burst_read_active;
@@ -258,8 +258,10 @@
 	wire  	rnext;
 	reg  	init_txn_ff;
 	reg  	init_txn_ff2;
-	reg  	init_txn_edge;
 	wire  	init_txn_pulse;
+	reg  	train_enable_txn_ff;
+	reg  	train_enable_txn_ff2;
+	wire  	train_enable_txn_pulse;
 
 	//用户自定义信号
     reg                [  15: 0]        sample_count                ;
@@ -321,11 +323,11 @@
 	//Read and Read Response (R)
 	assign M_AXI_RREADY	= axi_rready;
 	//Example design I/O
-	assign TXN_DONE	= compare_done;
 	//Burst size in bytes
 	assign read_burst_size_bytes	= C_M_AXI_READ_BURST_LEN * C_M_AXI_DATA_WIDTH/8;
 	assign write_burst_size_bytes	= C_M_AXI_WRITE_BURST_LEN * C_M_AXI_DATA_WIDTH/8;
 	assign init_txn_pulse	= (!init_txn_ff2) && init_txn_ff;
+	assign train_enable_txn_pulse	= (!train_enable_txn_ff2) && train_enable_txn_ff;
 
 	
 	assign  PROCESS_DONE_reg_negedge = PROCESS_DONE_reg[1] && (~PROCESS_DONE_reg[0]);        
@@ -338,12 +340,16 @@
 	    if (M_AXI_ARESETN == 0 )                                                   
 	      begin                                                                    
 	        init_txn_ff <= 1'b0;                                                   
-	        init_txn_ff2 <= 1'b0;                                                   
+	        init_txn_ff2 <= 1'b0;
+			train_enable_txn_ff <= 1'b0;                                                   
+	        train_enable_txn_ff2 <= 1'b0;                                                      
 	      end                                                                               
 	    else                                                                       
 	      begin  
 	        init_txn_ff <= INIT_AXI_TXN;
-	        init_txn_ff2 <= init_txn_ff;                                                                 
+	        init_txn_ff2 <= init_txn_ff;
+			train_enable_txn_ff <= train_enable_txn;
+	        train_enable_txn_ff2 <= train_enable_txn_ff;                                                                  
 	      end                                                                      
 	  end   
 	
@@ -887,23 +893,24 @@
 	always@(posedge M_AXI_ACLK) begin
 		if(M_AXI_ARESETN == 1'b0) begin
 			start_single_burst_write <= 1'b0;                                                                   
-	        start_single_burst_read  <= 1'b0;                                                                   
-	        compare_done      <= 1'b0;                                                                          
-	        ERROR <= 1'b0;
+	        start_single_burst_read  <= 1'b0;                                                                                                                                           
+	        TRAIN_FINISH_FLAG <= 1'b0;
 			sample_count <= 'd0;
 			IS_POS <= 1'b1;
-			IS_TRAIN <= 1'b1;
+			TRAIN_ENABLE_FLAG <= 1'b0;
+			IS_TRAIN <= 1'b0;
+			
 		end 
 		else
 			case(mst_exec_state)					//根据当前状态进行输出
 				INIT : begin
-					ERROR <= 1'b0;
-	                compare_done <= 1'b0;
 					sample_count <= 'd0;
-					IS_TRAIN <= 1'b1;
+					TRAIN_FINISH_FLAG <= 1'b0;
+					TRAIN_ENABLE_FLAG <= train_enable_txn_pulse ? !TRAIN_ENABLE_FLAG : TRAIN_ENABLE_FLAG;
+					IS_TRAIN <= TRAIN_ENABLE_FLAG;
+					// IS_TRAIN <= 1'b0;
 				end    
 				IDLE : begin
-					compare_done <= 1'b0;
 				end
 				READ_DATA : begin
 				// This state is responsible to issue start_single_read pulse to                                
@@ -936,13 +943,12 @@
 					end
 				end                                                                                                                                                                                                                                                                                                          
 	          DONE : begin                                                                                                                                                        
-	              compare_done <= 1'b1; 
 				  sample_count <= sample_count + 'd1;                                                                        
 	            end
 			  NEXT_SAMPLE: begin
-			  		ERROR <= train_finish_reg;
+			  		TRAIN_FINISH_FLAG <= train_finish_reg;
 			  		IS_POS <= ~IS_POS;
-					IS_TRAIN <= (sample_count < TOTAL_TRAIN_SIZE)? 1'b1 : 1'b0;
+					IS_TRAIN <= (sample_count < TOTAL_TRAIN_SIZE)? TRAIN_ENABLE_FLAG : 1'b0;
 					// IS_TRAIN <= 1'b0;
 			  end                                                                                             
 	          default :                                                                                         

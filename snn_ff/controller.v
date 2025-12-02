@@ -246,7 +246,7 @@ module controller #(
             POP_NEUR_OUT:   if      (~CTRL_SCHED_POP_N)                                                         nextstate =POP_TSTEP;
 							else					                                                            nextstate = POP_NEUR_OUT;
             POP_TSTEP :     if      (AEROUT_CTRL_FINISH)                                   
-                                if  ((T_step_cnt == 'd16))                                                      nextstate = TREF;
+                                if  ((T_step_cnt == 'd8))                                                      nextstate = TREF;
                                 else                                                                            nextstate = WAIT;
                             else                                                                                nextstate =POP_TSTEP;   
 			WAIT_SPIDN 	:   if      (~CTRL_PROG_EVENT_sync && ~CTRL_READBACK_EVENT_sync)                        nextstate = WAIT;

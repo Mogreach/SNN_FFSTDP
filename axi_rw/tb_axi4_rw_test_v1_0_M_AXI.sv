@@ -114,8 +114,8 @@ axi4_rw_test_v1_0#(
 // Do not modify the ports beyond this line
 // Ports of Axi Master Bus Interface M_AXI
     .m_axi_init_axi_txn                 (m_axi_init_axi_txn        ),
-    .m_axi_txn_done                     (m_axi_txn_done            ),
-    .m_axi_error                        (m_axi_error               ),
+    .TRAIN_ENABLE_FLAG                  (m_axi_txn_done            ),
+    .TRAIN_FINISH_FLAG                  (m_axi_error               ),
     .m_axi_aclk                         (m_axi_aclk                ),
     .m_axi_aresetn                      (m_axi_aresetn             ),
     .m_axi_awid                         (m_axi_awid                ),
@@ -168,7 +168,7 @@ Top_test u_Top_test(
     .AERIN_ADDR                         (AER_IN_ADDR                ),
     .AERIN_REQ                          (AER_IN_REQ                 ),
     .IS_POS                             (IS_POS                    ),
-    .IS_TRAIN                           (IS_TRAIN                  ),
+    .IS_TRAIN                           (1'b1                  ),
     .AERIN_ACK                          (AER_IN_ACK                 ),
     .GOODNESS                           (GOODNESS                  ),
     .PROCESS_DONE                       (PROCESS_DONE              )
@@ -182,23 +182,23 @@ Top_test u_Top_test(
       m_axi_rready_reg <= m_axi_rready;
     end
 
-parameter int N = 3000;   // 样本数
-parameter int T = 16;   // 时间步
-parameter int WIDTH = 784;  // 每个时间步的 bit 数
-parameter int RAM_DEPTH = (N * T * WIDTH) / 32;  // 计算 RAM 深度，每 32 位为一行
+parameter int N = 3000;   // 样本�?
+parameter int T = 16;   // 时间�?
+parameter int WIDTH = 784;  // 每个时间步的 bit �?
+parameter int RAM_DEPTH = (N * T * WIDTH) / 32;  // 计算 RAM 深度，每 32 位为�?�?
 integer file, byte_count;
-bit [7:0] spike_bytes [0:3]; // 存储 4 个字节
-bit [7:0]  ram [0:RAM_DEPTH-1]; // 定义 RAM 存储器
+bit [7:0] spike_bytes [0:3]; // 存储 4 个字�?
+bit [7:0]  ram [0:RAM_DEPTH-1]; // 定义 RAM 存储�?
 bit [31:0] rd_burst_data [0:3];
 integer bit_index = 0;
 integer ram_index = 0;
 integer i, block_index = 0;
 
     initial begin
-        // 读取 HEX 文件到 RAM
-        $readmemh("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.hex", ram);
+        // 读取 HEX 文件�? RAM
+        $readmemh("D:/OneDrive/SNN_FFSTBP/sim/python/all_spikes.hex", ram);
 
-        // 打印部分数据用于检查
+        // 打印部分数据用于�?�?
         for (i = 0; i < 16; i = i + 1) begin
             $display("RAM[%0d] = %h", i, ram[i]);
         end
@@ -220,10 +220,10 @@ integer i, block_index = 0;
     // logic [C_M_AXI_DATA_WIDTH-1:0] write_data[4] = '{32'hDEADBEEF, 32'h12345678, 32'h87654321, 32'hCAFEBABE};
     // logic [C_M_AXI_DATA_WIDTH-1:0] read_data[4];
 
-    // // 写入 AXI（地址 0x1000，突发长度 4）
+    // // 写入 AXI（地�? 0x1000，突发长�? 4�?
     // axi_write_task(32'h00001000, write_data, 4);
 
-    // // 读取 AXI（地址 0x1000，突发长度 4）
+    // // 读取 AXI（地�? 0x1000，突发长�? 4�?
     // axi_read_task(32'h00001000, 4, read_data);
     initial begin
     //   SNN_CLK = 0;
@@ -246,7 +246,7 @@ integer i, block_index = 0;
     end
     // 测试过程
     initial begin
-        // 初始化信号
+        // 初始化信�?
         m_axi_aclk = 1;
         m_axi_init_axi_txn = 0;
         m_axi_aresetn = 0;
@@ -270,9 +270,9 @@ integer i, block_index = 0;
         // fork
         //   auto_ack(.req(AER_IN_REQ), .ack(AER_IN_ACK), .addr(AER_IN_ADDR), .neur(aer_neur_spk), .verbose(auto_ack_verbose));
         // join_none
-        // 生成写事务
+        // 生成写事�?
 
-        // 生成读事务
+        // 生成读事�?
         // fork
         //     axi_slave_read_response();
         // join_none
@@ -291,7 +291,7 @@ integer i, block_index = 0;
         while(STATE != 3'b000) begin
           while(STATE != 3'b011) begin
                 for (i = 0; i < 4; i = i + 1) begin
-                // 按大端模式拼接 32 位数据
+                // 按大端模式拼�? 32 位数�?
                 rd_burst_data[i] = {ram[block_index * 16 + i * 4+3], 
                                ram[block_index * 16 + i * 4 + 2], 
                                ram[block_index * 16 + i * 4 + 1], 
@@ -312,23 +312,23 @@ integer i, block_index = 0;
 
         #100 $stop;
     end
-// ---------------- AXI 从机（Slave） 写响应 TASK ----------------
+// ---------------- AXI 从机（Slave�? 写响�? TASK ----------------
 // task axi_slave_write_response();
 //     int i;
     
-//     // 1. 等待写地址有效
+//     // 1. 等待写地�?有效
 //     wait (m_axi_awvalid);
-//     @(posedge m_axi_aclk) m_axi_awready <= 1; // 发送写地址握手信号
+//     @(posedge m_axi_aclk) m_axi_awready <= 1; // 发�?�写地址握手信号
 //     @(posedge m_axi_aclk) m_axi_awready <= 0; // 释放握手信号
 
-//     // 2. 等待写数据
-//     for (i = 0; i < m_axi_awlen + 1; i++) begin  // `awlen` 是 0-based 计数
+//     // 2. 等待写数�?
+//     for (i = 0; i < m_axi_awlen + 1; i++) begin  // `awlen` �? 0-based 计数
 //         wait (m_axi_wvalid);
-//         @(posedge m_axi_aclk) m_axi_wready <= 1; // 允许写数据
+//         @(posedge m_axi_aclk) m_axi_wready <= 1; // 允许写数�?
 //         @(posedge m_axi_aclk) m_axi_wready <= 0;
 //     end
 
-//     // 3. 发送写响应
+//     // 3. 发�?�写响应
 //     @(posedge m_axi_aclk) 
 //     begin
 //         m_axi_bvalid <= 1;
@@ -340,13 +340,13 @@ integer i, block_index = 0;
 // endtask
 
 
-// ---------------- AXI 从机（Slave） 读响应 TASK ----------------
+// ---------------- AXI 从机（Slave�? 读响�? TASK ----------------
 task axi_slave_read_response(
     input bit [31:0] ram_data [0:3]
 );
     int i;
     
-    // 1. 等待主机发送读地址
+    // 1. 等待主机发�?�读地址
     wait (m_axi_arvalid);
     @(posedge m_axi_aclk);
     #1;
@@ -354,7 +354,7 @@ task axi_slave_read_response(
     // @(posedge m_axi_aclk);
     // m_axi_arready = 0;
 
-    // 2. 发送读数据
+    // 2. 发�?�读数据
     for (i = 0; i <= m_axi_arlen; i++) begin
         // @(posedge m_axi_aclk);
         m_axi_rvalid = 1;

@@ -65,7 +65,7 @@ module ODIN_ffstdp_tb();
 
     // **读取 TXT 文件**
     parameter int N = 30;   // 样本数
-    parameter int T = 16;    // 时间步
+    parameter int T = 8;    // 时间步
     parameter int WIDTH = 784;  // 每个时间步的 bit 数
     
     bit spike_data_reshaped [0:N-1][0:T-1][0:WIDTH-1]; // 存储展开后的数据
@@ -75,7 +75,9 @@ module ODIN_ffstdp_tb();
     integer n_idx = 0, t_idx = 0, w_idx = 0;
   initial begin
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/simulation_spikes.bin", "rb"); // 以二进制方式读取
-      file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.bin", "rb"); // 以二进制方式读取
+      // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.bin", "rb"); // 以二进制方式读取
+      file = $fopen("D:/OneDrive/SNN-ForwardForward/hardware_sim/all_spikes.bin", "rb");
+      
       if (file == 0) begin
           $display("Error: Cannot open file!");
           $finish;
@@ -139,7 +141,7 @@ module ODIN_ffstdp_tb();
 
     // Stimulus
     #20;
-    IS_TRAIN = 1;
+    IS_TRAIN = 0;
     IS_POS = 1;
     
     // 重复调用 aer_send 任务

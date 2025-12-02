@@ -34,6 +34,8 @@
 		output wire        [  11: 0]        AER_IN_ADDR                ,
     	output wire                         IS_POS                     ,
 		output wire   						IS_TRAIN                   ,
+		input wire  m_axi_init_axi_txn,
+		input wire  train_enable_txn,
 		// Debug
 		output wire        [   2: 0]        STATE                      ,
 		
@@ -42,9 +44,9 @@
 
 
 		// Ports of Axi Master Bus Interface M_AXI
-		input wire  m_axi_init_axi_txn,
-		output wire  m_axi_txn_done,
-		output wire  m_axi_error,
+
+		output wire  TRAIN_ENABLE_FLAG,
+		output wire  TRAIN_FINISH_FLAG,
 		input wire  m_axi_aclk,
 		input wire  m_axi_aresetn,
 		output wire [C_M_AXI_ID_WIDTH-1 : 0] m_axi_awid,
@@ -119,12 +121,13 @@
 		.AER_IN_ADDR                        (AER_IN_ADDR               ),
 		.IS_POS                             (IS_POS                    ),
 		.IS_TRAIN                           (IS_TRAIN                  ),
+		.train_enable_txn                   (train_enable_txn          ),
 		// Debug
     	.STATE                              (STATE                     ),
 
 		.INIT_AXI_TXN(m_axi_init_axi_txn),
-		.TXN_DONE(m_axi_txn_done),
-		.ERROR(m_axi_error),
+		.TRAIN_ENABLE_FLAG(TRAIN_ENABLE_FLAG),
+		.TRAIN_FINISH_FLAG(TRAIN_FINISH_FLAG),
 		.M_AXI_ACLK(m_axi_aclk),
 		.M_AXI_ARESETN(m_axi_aresetn),
 		.M_AXI_AWID(m_axi_awid),

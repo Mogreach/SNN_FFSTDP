@@ -36,8 +36,8 @@ module Top_test(
     output wire                         PROCESS_DONE,
     output wire       [  3:0]                  ctrl_state
 );
-    parameter                           M                          = 12    ;
-    parameter                           N                          = 784   ;
+    parameter                           M                           = 12                   ;
+    parameter                           N                           = 784                  ;
 
     reg                                 SCK                         ;
     reg                                 MOSI                        ;

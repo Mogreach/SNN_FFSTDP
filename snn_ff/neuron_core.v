@@ -39,7 +39,9 @@ module neuron_core #(
     output wire [6:0] POST_NEUR_S_CNT_2,
     output wire [6:0] POST_NEUR_S_CNT_3
 );
-    localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
+    // localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
+    localparam  neuron_thresold= 12'b0000_0100_1101; // 神经元阈值S5.6: 1.2
+    // localparam  neuron_thresold= 12'b0_00001_000000; //神经元阈值S5.6: 1
     // Internal regs and wires definitions
     wire [7:0] pre_neuron_sram_out;
     wire [7:0] pre_neuron_sram_in;
