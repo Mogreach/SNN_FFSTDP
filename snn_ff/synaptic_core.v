@@ -1,6 +1,25 @@
 module synaptic_core #(
-    parameter N = 784,
-    parameter M = 8
+    parameter TIME_STEP = 8,
+    parameter INPUT_NEURON = 784,
+    parameter OUTPUT_NEURON = 256,
+    parameter AER_WIDTH = 12,
+
+    parameter PRE_NEUR_ADDR_WIDTH = 10,
+    parameter PRE_NEUR_WORD_ADDR_WIDTH= 10,
+    parameter PRE_NEUR_BYTE_ADDR_WIDTH = 0,
+
+    parameter POST_NEUR_ADDR_WIDTH = 10,
+    parameter POST_NEUR_WORD_ADDR_WIDTH= 8,
+    parameter POST_NEUR_BYTE_ADDR_WIDTH = 2,
+    parameter POST_NEUR_PARALLEL = 4,
+    
+    parameter PRE_NEUR_DATA_WIDTH = 8,
+    parameter POST_NEUR_DATA_WIDTH = 32,
+    parameter POST_NEUR_MEM_WIDTH = 12,
+    parameter POST_NEUR_SPIKE_CNT_WIDTH = 7,
+    parameter SYN_ARRAY_DATA_WIDTH = 32,
+    parameter SYN_ARRAY_ADDR_WIDTH = 16,
+    parameter WEIGHT_WIDTH = 8
 )(
     input wire IS_POS,
     input wire IS_TRAIN,
@@ -13,71 +32,63 @@ module synaptic_core #(
     // Inputs from controller ---------------------------------
     input wire CTRL_SYNARRAY_CS,
     input wire CTRL_SYNARRAY_WE,
-    input wire [15:0] CTRL_SYNARRAY_ADDR,
-    input wire [9:0]  CTRL_POST_NEURON_ADDRESS,
+    input wire [SYN_ARRAY_ADDR_WIDTH-1:0] CTRL_SYNARRAY_ADDR,
+    input wire [POST_NEUR_ADDR_WIDTH-1:0]  CTRL_POST_NEURON_ADDRESS,
 
     input wire CTRL_SYNA_WR_EVENT,
     input wire CTRL_SYNA_RD_EVENT,
-    input wire[7:0] CTRL_SYNA_PROG_DATA,
+    input wire[WEIGHT_WIDTH-1:0] CTRL_SYNA_PROG_DATA,
     
     input wire  CTRL_NEUR_EVENT,
     input wire  CTRL_TSTEP_EVENT,
     input wire  CTRL_TREF_EVENT,
     // Inputs from neurons ------------------------------------
-    input wire [7:0] PRE_NEUR_S_CNT,
-    input wire [6:0] POST_NEUR_S_CNT_0,
-    input wire [6:0] POST_NEUR_S_CNT_1,
-    input wire [6:0] POST_NEUR_S_CNT_2,
-    input wire [6:0] POST_NEUR_S_CNT_3,
+    input wire [PRE_NEUR_DATA_WIDTH-1:0] PRE_NEUR_S_CNT,
+    input wire [POST_NEUR_SPIKE_CNT_WIDTH * POST_NEUR_PARALLEL -1 :0] POST_NEUR_S_CNT,
     // Outputs ------------------------------------------------
-    output wire [   31:0] SYNARRAY_RDATA
+    output wire [SYN_ARRAY_DATA_WIDTH-1:0] SYNARRAY_RDATA
 );
-
+    localparam SYN_SRAM_DATA_WIDTH = POST_NEUR_PARALLEL * WEIGHT_WIDTH; 
     // Internal regs and wires definitions
-    wire [15:0]    synarray_addr;
-    wire [1:0]     post_neuron_byte_addr;
+    wire [SYN_ARRAY_ADDR_WIDTH-1:0]    synarray_addr;
+    wire [POST_NEUR_BYTE_ADDR_WIDTH-1:0]     post_neuron_byte_addr;
 
-    wire [   31:0] synarray_wdata;
-    wire [   31:0] synarray_wdata_int;
-    wire [  N-1:0] NEUR_V_UP_int, NEUR_V_DOWN_int;
-    wire [  N-2:0] syn_sign_dummy;
-    wire [6:0]  POST_NEUR_S_CNT[3:0];
+    wire [SYN_SRAM_DATA_WIDTH-1:0] synarray_wdata;
+    wire [WEIGHT_WIDTH-1:0] weight_orignal_array[0:POST_NEUR_PARALLEL-1];
+    wire [WEIGHT_WIDTH-1:0] weight_new_array[0:POST_NEUR_PARALLEL-1];
+
+    wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  POST_NEUR_S_CNT_array[0:POST_NEUR_PARALLEL-1];
 
     assign synarray_addr = CTRL_SYNARRAY_ADDR;
-    assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[1:0];
+    assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_BYTE_ADDR_WIDTH-1:0];
 
-    assign POST_NEUR_S_CNT[0] = POST_NEUR_S_CNT_0;
-    assign POST_NEUR_S_CNT[1] = POST_NEUR_S_CNT_1;
-    assign POST_NEUR_S_CNT[2] = POST_NEUR_S_CNT_2;
-    assign POST_NEUR_S_CNT[3] = POST_NEUR_S_CNT_3;
 
     genvar i;
     // SDSP update logic
     generate
-        for (i=0; i<4; i=i+1) begin
-        
-    ffstdp_update ffstdp_update_0(
-        // Inputs
-        // General
-        .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
-        .IS_POS(IS_POS),           
-        .IS_TRAIN(IS_TRAIN),
-        // From neuron 
-        .POST_SPIKE_CNT(POST_NEUR_S_CNT[i]),
-        .PRE_SPIKE_CNT(PRE_NEUR_S_CNT), 
-        // From SRAM
-        .WSYN_CURR(SYNARRAY_RDATA[(i*8)+7:(i*8)]),
-        // Output
-        .WSYN_NEW(synarray_wdata_int[(i*8)+7:(i*8)])
-    );
-        end
-    endgenerate
-    // Updated or configured weights to be written to the synaptic memory
-    generate
-        for (i=0; i<4; i=i+1) begin
-            // assign synarray_wdata[(i*8)+7:(i*8)] = SPI_GATE_ACTIVITY_sync? (i==post_neuron_byte_addr && CTRL_SYNA_WR_EVENT)? CTRL_SYNA_PROG_DATA : synarray_rdata[(i*8)+7:(i*8)]
-            //                                      : synarray_wdata_int[(i*8)+7:(i*8)];
-            assign synarray_wdata[(i*8)+7:(i*8)] = synarray_wdata_int[(i*8)+7:(i*8)];
+        for (i=0; i<POST_NEUR_PARALLEL; i=i+1) begin: gen_ffstdp_update
+        wire [WEIGHT_WIDTH-1:0] weight_orignal = SYNARRAY_RDATA[i*WEIGHT_WIDTH +: WEIGHT_WIDTH];
+        wire [WEIGHT_WIDTH-1:0] weight_new;
+        assign POST_NEUR_S_CNT_array[i] = POST_NEUR_S_CNT[i*POST_NEUR_SPIKE_CNT_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH];
+        assign weight_orignal_array[i] = weight_orignal;
+        assign weight_new_array[i] = weight_new;
+        // assign synarray_wdata[(i*8)+7:(i*8)] = SPI_GATE_ACTIVITY_sync? (i==post_neuron_byte_addr && CTRL_SYNA_WR_EVENT)? CTRL_SYNA_PROG_DATA : synarray_rdata[(i*8)+7:(i*8)]
+        //                                      : synarray_wdata_int[(i*8)+7:(i*8)];
+        assign synarray_wdata[i*WEIGHT_WIDTH +: WEIGHT_WIDTH] = weight_new_array[i];
+        ffstdp_update ffstdp_update_0(
+            // Inputs
+            // General
+            .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
+            .IS_POS(IS_POS),           
+            .IS_TRAIN(IS_TRAIN),
+            // From neuron 
+            .POST_SPIKE_CNT(POST_NEUR_S_CNT_array[i]),
+            .PRE_SPIKE_CNT(PRE_NEUR_S_CNT), 
+            // From SRAM
+            .WSYN_CURR(weight_orignal_array[i]),
+            // Output
+            .WSYN_NEW(weight_new)
+        );
         end
     endgenerate
     

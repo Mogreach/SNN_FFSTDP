@@ -36,14 +36,32 @@ module Top_test(
     output wire                         PROCESS_DONE,
     output wire       [  3:0]                  ctrl_state
 );
-    parameter                           M                           = 12                   ;
-    parameter                           N                           = 784                  ;
+    parameter TIME_STEP = 8;
+    parameter INPUT_NEURON = 784;
+    parameter OUTPUT_NEURON = 256;
+    parameter AER_WIDTH = 12;
 
+    parameter PRE_NEUR_ADDR_WIDTH = 10;
+    parameter PRE_NEUR_WORD_ADDR_WIDTH= 10;
+    parameter PRE_NEUR_BYTE_ADDR_WIDTH = 0;
+
+    parameter POST_NEUR_ADDR_WIDTH = 10;
+    parameter POST_NEUR_WORD_ADDR_WIDTH= 8;
+    parameter POST_NEUR_BYTE_ADDR_WIDTH = 2;
+    parameter POST_NEUR_PARALLEL = 4;
+    
+    parameter PRE_NEUR_DATA_WIDTH = 8;
+    parameter POST_NEUR_DATA_WIDTH = 32;
+    parameter POST_NEUR_MEM_WIDTH = 12;
+    parameter POST_NEUR_SPIKE_CNT_WIDTH = 7;
+    parameter SYN_ARRAY_DATA_WIDTH = 32;
+    parameter SYN_ARRAY_ADDR_WIDTH = 16;
+    parameter WEIGHT_WIDTH = 8;
     reg                                 SCK                         ;
     reg                                 MOSI                        ;
     wire                                MISO                        ;
 
-    wire               [ M-1: 0]        AEROUT_ADDR                 ;
+    wire               [AER_WIDTH-1: 0]        AEROUT_ADDR                 ;
     wire                                AEROUT_REQ                  ;
     wire                                AEROUT_ACK                  ;
     reg                                 AEROUT_ACK_reg              ;
@@ -54,8 +72,24 @@ module Top_test(
     
     assign PROCESS_DONE = ONE_SAMPLE_FINISH;
 ODIN_ffstdp#(
-   .N              (784            ),
-   .M              (10             )
+    .TIME_STEP                             (TIME_STEP          ),
+    .INPUT_NEURON                          (INPUT_NEURON       ),
+    .OUTPUT_NEURON                         (OUTPUT_NEURON      ),
+    .AER_WIDTH                             (AER_WIDTH          ),
+    .PRE_NEUR_ADDR_WIDTH                   (PRE_NEUR_ADDR_WIDTH),
+    .PRE_NEUR_WORD_ADDR_WIDTH              (PRE_NEUR_WORD_ADDR_WIDTH),
+    .PRE_NEUR_BYTE_ADDR_WIDTH              (PRE_NEUR_BYTE_ADDR_WIDTH),
+    .POST_NEUR_ADDR_WIDTH                  (POST_NEUR_ADDR_WIDTH),
+    .POST_NEUR_WORD_ADDR_WIDTH             (POST_NEUR_WORD_ADDR_WIDTH),
+    .POST_NEUR_BYTE_ADDR_WIDTH             (POST_NEUR_BYTE_ADDR_WIDTH),
+    .POST_NEUR_PARALLEL                    (POST_NEUR_PARALLEL ),
+    .PRE_NEUR_DATA_WIDTH                   (PRE_NEUR_DATA_WIDTH),
+    .POST_NEUR_DATA_WIDTH                  (POST_NEUR_DATA_WIDTH),
+    .POST_NEUR_MEM_WIDTH                   (POST_NEUR_MEM_WIDTH),
+    .POST_NEUR_SPIKE_CNT_WIDTH             (POST_NEUR_SPIKE_CNT_WIDTH),
+    .SYN_ARRAY_DATA_WIDTH                  (SYN_ARRAY_DATA_WIDTH),
+    .SYN_ARRAY_ADDR_WIDTH                  (SYN_ARRAY_ADDR_WIDTH),
+    .WEIGHT_WIDTH                          (WEIGHT_WIDTH       )  
 )
  u_ODIN_ffstdp(
 // Global input     -------------------------------
