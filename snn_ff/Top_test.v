@@ -41,22 +41,23 @@ module Top_test(
     parameter OUTPUT_NEURON = 256;
     parameter AER_WIDTH = 12;
 
+    parameter POST_NEUR_PARALLEL = 4;
+
     parameter PRE_NEUR_ADDR_WIDTH = 10;
     parameter PRE_NEUR_WORD_ADDR_WIDTH= 10;
     parameter PRE_NEUR_BYTE_ADDR_WIDTH = 0;
 
     parameter POST_NEUR_ADDR_WIDTH = 10;
-    parameter POST_NEUR_WORD_ADDR_WIDTH= 8;
-    parameter POST_NEUR_BYTE_ADDR_WIDTH = 2;
-    parameter POST_NEUR_PARALLEL = 4;
+    parameter POST_NEUR_WORD_ADDR_WIDTH= POST_NEUR_ADDR_WIDTH - $clog2(POST_NEUR_PARALLEL);
+    parameter POST_NEUR_BYTE_ADDR_WIDTH = $clog2(POST_NEUR_PARALLEL);
     
-    parameter PRE_NEUR_DATA_WIDTH = 8;
-    parameter POST_NEUR_DATA_WIDTH = 32;
-    parameter POST_NEUR_MEM_WIDTH = 12;
-    parameter POST_NEUR_SPIKE_CNT_WIDTH = 7;
-    parameter SYN_ARRAY_DATA_WIDTH = 32;
-    parameter SYN_ARRAY_ADDR_WIDTH = 16;
-    parameter WEIGHT_WIDTH = 8;
+    parameter PRE_NEUR_DATA_WIDTH = 8; // 单个突触前神经元脉冲计数数据位宽
+    parameter POST_NEUR_DATA_WIDTH = 32; // 单个突触后神经元状态数据位宽
+    parameter POST_NEUR_MEM_WIDTH = 12; // 单个突触后神经元膜电位数据位宽
+    parameter POST_NEUR_SPIKE_CNT_WIDTH = 7; // 单个突触后神经元脉冲计数数据位宽
+    parameter WEIGHT_WIDTH = 8; // 单个突触权重数据位宽
+    parameter SYN_ARRAY_DATA_WIDTH = POST_NEUR_PARALLEL * WEIGHT_WIDTH; // 突触阵列数据位宽
+    parameter SYN_ARRAY_ADDR_WIDTH = 16; // 突触阵列地址位宽
     reg                                 SCK                         ;
     reg                                 MOSI                        ;
     wire                                MISO                        ;
