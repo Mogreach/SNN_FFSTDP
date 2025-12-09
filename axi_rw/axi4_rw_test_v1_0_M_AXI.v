@@ -4,7 +4,7 @@
 	module axi4_rw_test_v1_0_M_AXI #
 	(
 		// Users to add parameters here
-		parameter TIME_TOTAL_STEP = 16,
+		parameter TIME_TOTAL_STEP = 8,
 		parameter DATA_SIZE = 784,
 		parameter TOTAL_TRAIN_SIZE = 2 * 1000, // 训练样本数（含正负样本）
 		parameter TOTAL_TEST_SIZE  = 10 * 100, //  测试样本数
@@ -264,7 +264,7 @@
 	wire  	train_enable_txn_pulse;
 
 	//用户自定义信号
-    reg                [  15: 0]        sample_count                ;
+    reg                [  20: 0]        sample_count                ;
     wire                                input_fifo_full             ;
     wire                                input_fifo_empty            ;
     wire               [   3: 0]        input_fifo_rd_out           ;
@@ -1020,8 +1020,7 @@
 
     parallel_to_serial#(
     .DATA_WIDTH                         (4                         ),
-    .CNT_MAX                            (783                       ),
-    .STEP                               (16                        ) 
+    .CNT_MAX                            (DATA_SIZE                 )
     )
     u_parallel_to_serial(
     .CLK                                (SNN_CLK                   ),

@@ -27,8 +27,7 @@
 
 module parallel_to_serial #(
     parameter                           DATA_WIDTH                 = 4     ,
-    parameter                           CNT_MAX                    = 783   , // INPUT_SIZE -1
-    parameter                           STEP                       = 16    
+    parameter                           CNT_MAX                    = 784    // INPUT_SIZE -1
 )
 (
     input                               CLK                        ,
@@ -63,7 +62,7 @@ module parallel_to_serial #(
     assign                              dout_serial                 = din_parallel_tmp[3];
     assign                              shift_en                    = !pts_ready && (AER_IN_REQ_negedge || !dout_serial) && !tstep_valid;
 	assign 								finish                      = (tstep_cnt == 0) && tstep_valid_negedge;
-    assign                              tstep_start                 = (cnt[9:0] == CNT_MAX) && shift_en;
+    assign                              tstep_start                 = (cnt[9:0] == CNT_MAX - 1'b1) && shift_en;
     assign                              tstep_end                   = (tstep_valid && AER_IN_REQ_negedge);
     always @(posedge CLK or negedge rst_n) begin
         if(!rst_n) begin
@@ -83,8 +82,8 @@ module parallel_to_serial #(
             tstep_cnt <= 'd0;
         end
         else if(!pts_ready && shift_en) begin
-            cnt <= (cnt == CNT_MAX)? 'd0 : cnt + 1'd1;
-            tstep_cnt <= (cnt == CNT_MAX)? tstep_cnt + 1'd1 : tstep_cnt;
+            cnt <= (cnt == CNT_MAX -1'b1)? 'd0 : cnt + 1'd1;
+            tstep_cnt <= (cnt == CNT_MAX -1'b1)? tstep_cnt + 1'd1 : tstep_cnt;
         end
         else begin
             cnt <= cnt;

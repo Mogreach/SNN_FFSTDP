@@ -4,12 +4,12 @@
 	module axi4_rw_test_v1_0 #
 	(
 		// Users to add parameters here
-		parameter TIME_TOTAL_STEP = 16,
+		parameter TIME_TOTAL_STEP = 8,
 		parameter DATA_SIZE = 784,
-		parameter TOTAL_TRAIN_SIZE = 2 * 1000, // 训练样本数（含正负样本）
-		parameter TOTAL_TEST_SIZE  = 10* 100, //  测试样本数
+		parameter TOTAL_TRAIN_SIZE = 2 * 50000, // 训练样本数（含正负样本）
+		parameter TOTAL_TEST_SIZE  = 10* 10000, //  测试样本数
 		parameter  C_M_TARGET_SLAVE_READ_ADDR	= 32'h00200000, // 读基地址
-		parameter  C_M_TARGET_SLAVE_WRITE_ADDR  = 32'h01900000, // 写基地址
+		parameter  C_M_TARGET_SLAVE_WRITE_ADDR  = 32'h0B000000, // 写基地址
 		parameter integer C_M_AXI_READ_BURST_LEN	= 4, // 读突发长度
 		parameter integer C_M_AXI_WRITE_BURST_LEN	= 1, // 写突发长度
 		// User parameters ends
