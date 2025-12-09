@@ -64,7 +64,7 @@ module ODIN_ffstdp_tb();
   end
 
     // **读取 TXT 文件**
-    parameter int N = 30;   // 样本数
+    parameter int N = 1;   // 样本数
     parameter int T = 8;    // 时间步
     parameter int WIDTH = 784;  // 每个时间步的 bit 数
     
@@ -119,7 +119,7 @@ module ODIN_ffstdp_tb();
   end
 
   // Reset and stimulus
-  initial begin
+  initial begin                 
   auto_ack_verbose = 1'b1;
     fork
       auto_ack(.req(AEROUT_REQ), .ack(AEROUT_ACK), .addr(AEROUT_ADDR), .neur(aer_neur_spk), .verbose(auto_ack_verbose));
@@ -141,7 +141,7 @@ module ODIN_ffstdp_tb();
 
     // Stimulus
     #20;
-    IS_TRAIN = 0;
+    IS_TRAIN = 1;
     IS_POS = 1;
     
     // 重复调用 aer_send 任务

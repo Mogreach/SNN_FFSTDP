@@ -75,9 +75,16 @@ module synaptic_core #(
         // assign synarray_wdata[(i*8)+7:(i*8)] = SPI_GATE_ACTIVITY_sync? (i==post_neuron_byte_addr && CTRL_SYNA_WR_EVENT)? CTRL_SYNA_PROG_DATA : synarray_rdata[(i*8)+7:(i*8)]
         //                                      : synarray_wdata_int[(i*8)+7:(i*8)];
         assign synarray_wdata[i*WEIGHT_WIDTH +: WEIGHT_WIDTH] = weight_new_array[i];
-        ffstdp_update ffstdp_update_0(
+        ffstdp_update# 
+        (
+            .PRE_CNT_WIDTH       (POST_NEUR_SPIKE_CNT_WIDTH  ),
+            .POST_CNT_WIDTH      (POST_NEUR_SPIKE_CNT_WIDTH  ),
+            .WEIGHT_WIDTH        (WEIGHT_WIDTH               )
+        )
+        ffstdp_update_0(
             // Inputs
             // General
+            .CLK(CLK),
             .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
             .IS_POS(IS_POS),           
             .IS_TRAIN(IS_TRAIN),

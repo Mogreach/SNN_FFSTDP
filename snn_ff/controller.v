@@ -131,9 +131,18 @@ module controller #(
 	//----------------------------------------------------------------------------------
 	//	PARAMETERS 
 	//----------------------------------------------------------------------------------
-    localparam R_W_SRAM_CLK = 2;
-    localparam R_W_SRAM_CLK_LOG2 = $clog2(R_W_SRAM_CLK);
-    localparam AER_TOTAL_CLK = R_W_SRAM_CLK * (OUTPUT_NEURON / POST_NEUR_PARALLEL) - 1;
+    localparam R_W_SRAM_CLK_neur_act = 3;
+    localparam R_W_SRAM_CLK_neur_act_LOG2 = $clog2(R_W_SRAM_CLK_neur_act);
+    localparam AER_TOTAL_CLK_neur_act = R_W_SRAM_CLK_neur_act * (OUTPUT_NEURON / POST_NEUR_PARALLEL) - 1;
+
+    localparam R_W_SRAM_CLK_tstep_act = 2;
+    localparam R_W_SRAM_CLK_tstep_act_LOG2 = $clog2(R_W_SRAM_CLK_tstep_act);
+    localparam AER_TOTAL_CLK_tstep_act = R_W_SRAM_CLK_tstep_act * (OUTPUT_NEURON / POST_NEUR_PARALLEL) - 1;
+
+
+    localparam R_W_SRAM_CLK_tref = 4;
+    localparam R_W_SRAM_CLK_tref_LOG2 = $clog2(R_W_SRAM_CLK_tref);
+    localparam AER_TOTAL_CLK_tref = R_W_SRAM_CLK_tref * (OUTPUT_NEURON / POST_NEUR_PARALLEL) - 1;
 	// FSM states 
 	localparam WAIT       = 4'd0; 
     localparam W_NEUR     = 4'd1;
@@ -164,6 +173,10 @@ module controller #(
     wire         tref_finish;
     
     reg  [ 31:0] ctrl_cnt;
+    reg [R_W_SRAM_CLK_neur_act_LOG2-1:0]ctrl_neur_act_cnt;
+    reg [R_W_SRAM_CLK_tstep_act_LOG2-1:0]ctrl_tstep_act_cnt;
+    reg [R_W_SRAM_CLK_tref_LOG2-1:0]ctrl_tref_cnt;
+
     reg  [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  T_step_cnt;
     reg          CTRL_TSTEP_EVENT_int;
     reg  [$clog2(OUTPUT_NEURON)-1:0]  post_neur_cnt;
@@ -258,11 +271,11 @@ module controller #(
             PUSH        :                                                                                       nextstate = WAIT_REQDN;
 			//确保CTRL_SCHED_POP_N拉低一周期
                                                  //{SPI_MAX_NEUR,1'b1}
-            NEUR_ACT    :   if      (ctrl_cnt[8:0] == AER_TOTAL_CLK)                                             nextstate = POP_NEUR;
+            NEUR_ACT    :   if      ((post_neur_cnt == OUTPUT_NEURON - POST_NEUR_PARALLEL) && (ctrl_neur_act_cnt == R_W_SRAM_CLK_neur_act - 1'b1))  nextstate = POP_NEUR;
 							else					                                                            nextstate = NEUR_ACT;
             POP_NEUR    :   if      (~CTRL_SCHED_POP_N)                                                         nextstate = WAIT;
 							else					                                                            nextstate = POP_NEUR;                
-			TSTEP_ACT   :   if      (ctrl_cnt[8:0] == AER_TOTAL_CLK)                                             nextstate = POP_NEUR_OUT;
+			TSTEP_ACT   :   if      ((post_neur_cnt == OUTPUT_NEURON - POST_NEUR_PARALLEL) && (ctrl_tstep_act_cnt == R_W_SRAM_CLK_tstep_act - 1'b1))nextstate = POP_NEUR_OUT;
 							else					                                                            nextstate = TSTEP_ACT;
             POP_NEUR_OUT:   if      (~CTRL_SCHED_POP_N)                                                         nextstate =POP_TSTEP;
 							else					                                                            nextstate = POP_NEUR_OUT;
@@ -280,12 +293,38 @@ module controller #(
     // Control counter
 	always @(posedge CLK, posedge RST)
 		if      (RST)               ctrl_cnt <= 32'd0;
-        else if ((state == WAIT) || (state ==POP_TSTEP))    
+        else if ((state == WAIT) || (state == POP_TSTEP) || (CTRL_NEUR_EVENT && ctrl_cnt[$clog2(AER_TOTAL_CLK_neur_act+1)-1:0] == AER_TOTAL_CLK_neur_act))    
                                     ctrl_cnt <= 32'd0;
 		else if (CTRL_NEUR_EVENT | CTRL_TSTEP_EVENT | CTRL_TREF_EVENT)
                                     ctrl_cnt <= ctrl_cnt + 32'd1;
         else                        ctrl_cnt <= ctrl_cnt;
-        
+
+    always @(posedge CLK, posedge RST) begin           
+		if      (RST)               ctrl_neur_act_cnt <= 'd0;
+        else if ((state == WAIT) || (CTRL_NEUR_EVENT && ctrl_neur_act_cnt == R_W_SRAM_CLK_neur_act - 1'b1))    
+                                    ctrl_neur_act_cnt <= 'd0;
+		else if (CTRL_NEUR_EVENT)
+                                    ctrl_neur_act_cnt <= ctrl_neur_act_cnt + 1'b1;
+        else                        ctrl_neur_act_cnt <= ctrl_neur_act_cnt;                                       
+    end
+
+    always @(posedge CLK, posedge RST) begin           
+		if      (RST)               ctrl_tstep_act_cnt <= 'd0;
+        else if ((state == WAIT) || (state == POP_TSTEP) || (CTRL_TSTEP_EVENT && ctrl_tstep_act_cnt == R_W_SRAM_CLK_tstep_act - 1'b1))    
+                                    ctrl_tstep_act_cnt <= 'd0;
+		else if (CTRL_TSTEP_EVENT)
+                                    ctrl_tstep_act_cnt <= ctrl_tstep_act_cnt + 1'b1;
+        else                        ctrl_tstep_act_cnt <= ctrl_tstep_act_cnt;                                       
+    end
+
+    always @(posedge CLK, posedge RST) begin           
+		if      (RST)               ctrl_tref_cnt <= 'd0;
+        else if ((state == WAIT) || (CTRL_TREF_EVENT && ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1))    
+                                    ctrl_tref_cnt <= 'd0;
+		else if (CTRL_TREF_EVENT)
+                                    ctrl_tref_cnt <= ctrl_tref_cnt + 1'b1;
+        else                        ctrl_tref_cnt <= ctrl_tref_cnt;                                       
+    end
     // Time-multiplexed neuron counter
 	always @(posedge CLK, posedge RST)
 		if      (RST)                                   post_neur_cnt <= 'd0;
@@ -511,15 +550,16 @@ module controller #(
             CTRL_POST_NEUR_CS   = 1'b1;
             CTRL_SYNARRAY_CS    = 1'b1;
             // 每2个周期进行读post_ram、读写syna_ram、post_neur_cnt计数
-            if (ctrl_cnt[0+: R_W_SRAM_CLK_LOG2] == R_W_SRAM_CLK -1'b1) begin
+            if (ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1) begin
                 CTRL_SYNARRAY_WE    = 1'b1;
                 post_neur_cnt_inc   = 1'b1;
             end else begin
                 CTRL_SYNARRAY_WE    = 1'b0;
                 post_neur_cnt_inc   = 1'b0;    
             end
-            // 历遍完一轮突触后神经元后，pre_neru_cnt计数并更新突触前脉冲计数121 = 64 * 2 -
-            if (ctrl_cnt[8:0] == {8'd60,1'b1}) begin
+            // 历遍完一轮突触后神经元后，pre_neru_cnt计数并更新突触前脉冲计数
+            // 突触后计数为最后一组且拉高SRAM写信号时，更新突触前脉冲计数
+            if ((post_neur_cnt == OUTPUT_NEURON - POST_NEUR_PARALLEL) && (ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1)) begin
                 pre_neur_cnt_inc    = 1'b1;
                 CTRL_PRE_NEUR_WE    = 1'b1;
             end
@@ -527,8 +567,9 @@ module controller #(
                 pre_neur_cnt_inc    = 1'b0;
                 CTRL_PRE_NEUR_WE    = 1'b0;
             end
+
             // 当历遍突触前最后一个神经元时，每两个周期更新突触后脉冲计数
-            if (!(ctrl_cnt[0+: R_W_SRAM_CLK_LOG2] == R_W_SRAM_CLK - 1'b1) && (pre_neur_cnt == INPUT_NEURON - 1'b1)) begin
+            if ((ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1) && (pre_neur_cnt == INPUT_NEURON - 1'b1)) begin
                 CTRL_POST_NEUR_WE   = 1'b1;
             end else begin
                 CTRL_POST_NEUR_WE   = 1'b0;
@@ -612,7 +653,7 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS = SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0];
-            CTRL_SYNARRAY_ADDR  = {CTRL_PRE_NEURON_ADDRESS,CTRL_POST_NEURON_ADDRESS[$clog2(POST_NEUR_PARALLEL) +: SYN_ARRAY_ADDR_WIDTH - PRE_NEUR_ADDR_WIDTH]};
+            CTRL_SYNARRAY_ADDR  = {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS[$clog2(POST_NEUR_PARALLEL) +: SYN_ARRAY_ADDR_WIDTH - PRE_NEUR_ADDR_WIDTH]};
             CTRL_SYNARRAY_CS    = 1'b1;
             CTRL_SYNARRAY_WE    = 1'b0;
             CTRL_NEUR_EVENT     = 1'b1;
@@ -620,7 +661,7 @@ module controller #(
             CTRL_PRE_NEUR_WE    = 1'b0;
             CTRL_POST_NEUR_CS   = 1'b1;
             // 2个周期进行读写ram
-            if (ctrl_cnt[0+: R_W_SRAM_CLK_LOG2] == R_W_SRAM_CLK - 1'b1) begin
+            if (ctrl_neur_act_cnt == R_W_SRAM_CLK_neur_act - 1'b1) begin
                 CTRL_POST_NEUR_WE  = 1'b1;
                 post_neur_cnt_inc  = 1'b1;
             end else begin
@@ -668,6 +709,7 @@ module controller #(
             post_neur_cnt_inc       = 1'b0;
 
             // 注意！：由NEUR_ACT跳转至POP_NEUR时，ctrl_cnt为128或为偶数时以下逻辑才对，若不为偶数可将条件修改为ctrl_cnt==‘4计数
+            // 增设ctrl_cnt清零条件，无需考虑ctrl_cnt计数
             // PRE_RAM读使能拉高两个时钟,写使能延后一个时钟拉高一时钟
             // SCHED_POP使能在第三个时钟拉低，第四个时钟跳转到WAIT
             CTRL_NEUR_EVENT     = 1'b1;
@@ -719,14 +761,14 @@ module controller #(
             CTRL_POST_NEUR_CS   = 1'b1;
             
             // 2个周期进行读写ram
-            if (ctrl_cnt[0] == 1'b0) begin
-                CTRL_POST_NEUR_WE  = 1'b0;
-                CTRL_AEROUT_PUSH_NEUR = 1'b0;
-                post_neur_cnt_inc       = 1'b0;
-            end else begin
+            if (ctrl_tstep_act_cnt == R_W_SRAM_CLK_tstep_act - 1'b1) begin
                 CTRL_POST_NEUR_WE  = 1'b1;
                 CTRL_AEROUT_PUSH_NEUR = 1'b1;
-                post_neur_cnt_inc       = 1'b1;    
+                post_neur_cnt_inc       = 1'b1;
+            end else begin
+                CTRL_POST_NEUR_WE  = 1'b0;
+                CTRL_AEROUT_PUSH_NEUR = 1'b0;
+                post_neur_cnt_inc       = 1'b0;    
             end
         end
         POP_NEUR_OUT : begin

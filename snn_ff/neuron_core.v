@@ -133,51 +133,93 @@ module neuron_core #(
             wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  post_neuron_spike_cnt = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH + POST_NEUR_MEM_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH];
             wire post_neuron_enable = post_neuron_sram_out_array[i][POST_NEUR_DATA_WIDTH-1];
 
-            if_neuron if_neuron_gen( 
-            .post_spike_cnt(post_neuron_spike_cnt),          // 突触后神经元发放脉冲数量 from SRAM
-            .post_spike_cnt_next(post_neuron_spike_cnt_next),          // 突触后神经元发放脉冲数量 to SRAM
-            .param_thr(post_neuron_thresold),               // neuron firing threshold parameter 
-            .state_core(post_neuron_mem),              // core neuron state from SRAM 
-            .state_core_next(post_neuron_mem_next),         // next core neuron state to SRAM
-            .syn_weight(SYNARRAY_RDATA [i*WEIGHT_WIDTH +: WEIGHT_WIDTH]),              // synaptic weight
-            .neuron_event(CTRL_NEUR_EVENT),                  // synaptic event trigger
-            .time_step_event(CTRL_TSTEP_EVENT),
-            .time_ref_event(CTRL_TREF_EVENT),                // time reference event trigger
-            .spike_out(IF_neuron_event_out[i])                // neuron spike event output  
+            if_neuron #(
+                .AER_WIDTH                             (AER_WIDTH          ),
+                .POST_NEUR_MEM_WIDTH                   (POST_NEUR_MEM_WIDTH),
+                .POST_NEUR_SPIKE_CNT_WIDTH             (POST_NEUR_SPIKE_CNT_WIDTH),
+                .WEIGHT_WIDTH                          (WEIGHT_WIDTH       ) 
+            )
+            if_neuron_gen(
+                .CLK                                   (CLK                ),
+                .post_spike_cnt                        (post_neuron_spike_cnt),// 突触后神经元发放脉冲数量 from SRAM
+                .post_spike_cnt_next                   (post_neuron_spike_cnt_next),// 突触后神经元发放脉冲数量 to SRAM
+                .param_thr                             (post_neuron_thresold),// neuron firing threshold parameter 
+                .state_core                            (post_neuron_mem    ),// core neuron state from SRAM 
+                .state_core_next                       (post_neuron_mem_next),// next core neuron state to SRAM
+                .syn_weight                            (SYNARRAY_RDATA [i*WEIGHT_WIDTH +: WEIGHT_WIDTH]),// synaptic weight
+                .neuron_event                          (CTRL_NEUR_EVENT    ),// synaptic event trigger
+                .time_step_event                       (CTRL_TSTEP_EVENT   ),
+                .time_ref_event                        (CTRL_TREF_EVENT    ),// time reference event trigger
+                .spike_out                             (IF_neuron_event_out[i]) // neuron spike event output  
             );
-            assign NEUR_EVENT_OUT[i] = post_neuron_enable? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
+            // assign NEUR_EVENT_OUT[i] = post_neuron_enable? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
+            assign NEUR_EVENT_OUT[i] = post_neuron_enable? IF_neuron_event_out[i] : 1'b0;
             assign POST_NEUR_S_CNT[i*POST_NEUR_SPIKE_CNT_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH] = post_neuron_spike_cnt;
         end
     endgenerate
     // 突触前神经元SRAM 读优先时序
-    SRAM_1024x8_wrapper neurarray_pre (       
+    // SRAM_1024x8_wrapper neurarray_pre (       
         
-        // Global inputs
-        .clk         (CLK),
+    //     // Global inputs
+    //     .clk         (CLK),
     
-        // Control and data inputs
-        // .ena        (CTRL_PRE_NEUR_CS),
-        .we         (CTRL_PRE_NEUR_WE),
-        .a          (CTRL_PRE_NEURON_ADDRESS),
-        .d          (pre_neuron_sram_in),
-        // Data output
-        .spo          (pre_neuron_sram_out)
+    //     // Control and data inputs
+    //     // .ena        (CTRL_PRE_NEUR_CS),
+    //     .we         (CTRL_PRE_NEUR_WE),
+    //     .a          (CTRL_PRE_NEURON_ADDRESS),
+    //     .d          (pre_neuron_sram_in),
+    //     // Data output
+    //     .spo          (pre_neuron_sram_out)
+    // );
+    
+    sram_wrapper#(
+    .ADDR_WIDTH     (PRE_NEUR_ADDR_WIDTH              ),
+    .DATA_WIDTH     (PRE_NEUR_DATA_WIDTH             ),
+    .SRAM_DEPTH     (INPUT_NEURON            )
+    )
+    neurarray_pre(
+    // Global inputs
+        .CK                                 (CLK                        ),// Clock (synchronous read/write)
+    // Control and data inputs
+        .CS                                 (CTRL_PRE_NEUR_CS                        ),// Chip select
+        .WE                                 (CTRL_PRE_NEUR_WE                        ),// Write enable
+        .A                                  (CTRL_PRE_NEURON_ADDRESS                         ),// Address bus
+        .D                                  (pre_neuron_sram_in                         ),// Data input bus (write)
+    // Data output
+        .Q                                  (pre_neuron_sram_out                        )// Data output bus (read)
     );
 
     // 突触后神经元SRAM 读优先时序
-    SRAM_256x128_wrapper neurarray_post (       
+    // SRAM_256x128_wrapper neurarray_post (       
         
-        // Global inputs
-        .clka         (CLK),
+    //     // Global inputs
+    //     .clka         (CLK),
     
-        // Control and data inputs
-        .ena         (CTRL_POST_NEUR_CS),
-        .wea         (CTRL_POST_NEUR_WE),
-        .addra          (post_neuron_sram_addr),
-        .dina          (post_neuron_sram_in),
-        // Data output
-        .douta          (post_neuron_sram_out)
+    //     // Control and data inputs
+    //     .ena         (CTRL_POST_NEUR_CS),
+    //     .wea         (CTRL_POST_NEUR_WE),
+    //     .addra          (post_neuron_sram_addr),
+    //     .dina          (post_neuron_sram_in),
+    //     // Data output
+    //     .douta          (post_neuron_sram_out)
+    // );
+    sram_wrapper#(
+    .ADDR_WIDTH     (POST_NEUR_ADDR_WIDTH              ),
+    .DATA_WIDTH     (POST_NEUR_DATA_WIDTH             ),
+    .SRAM_DEPTH     (OUTPUT_NEURON            )
+    )
+    neurarray_post(
+    // Global inputs
+        .CK                                 (CLK                        ),// Clock (synchronous read/write)
+    // Control and data inputs
+        .CS                                 (CTRL_POST_NEUR_CS                        ),// Chip select
+        .WE                                 (CTRL_POST_NEUR_WE                        ),// Write enable
+        .A                                  (post_neuron_sram_addr                         ),// Address bus
+        .D                                  (post_neuron_sram_in                         ),// Data input bus (write)
+    // Data output
+        .Q                                  (post_neuron_sram_out                        )// Data output bus (read)
     );
+
 
 //    Neuron_SRAM neurarray_0(
 //    .clka  (CLK      ),  // input wire clka
@@ -193,31 +235,3 @@ endmodule
 
 
 
-module SRAM_256x32_wrapper (
-
-    // Global inputs
-    input          CK,                       // Clock (synchronous read/write)
-
-    // Control and data inputs
-    input          CS,                       // Chip select
-    input          WE,                       // Write enable
-    input  [  7:0] A,                        // Address bus 
-    input  [ 31:0] D,                        // Data input bus (write)
-
-    // Data output
-    output [ 31:0] Q                         // Data output bus (read)   
-);
-    /*
-     *  Simple behavioral code for simulation, to be replaced by a 256-word 32-bit SRAM macro 
-     *  or Block RAM (BRAM) memory with the same format for FPGA implementations.
-     */      
-        reg [31:0] SRAM[255:0];
-        reg [31:0] Qr;
-        always @(posedge CK) begin
-            Qr <= CS ? SRAM[A] : Qr;
-            if (CS & WE) SRAM[A] <= D;
-        end
-        assign Q = Qr;
-
-
-endmodule
