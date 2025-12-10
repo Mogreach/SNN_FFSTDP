@@ -18,6 +18,7 @@ import sys
 import datetime
 import torch
 import torch.utils.data as data
+from torch.utils.data import WeightedRandomSampler
 import torchvision
 import numpy as np
 from tqdm import tqdm
@@ -25,7 +26,7 @@ from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
 from src.ff_snn_net import Net
 from config import ConfigParser
-from src.dataset import GroupedSortedMNIST
+from src.dataset import GroupedSortedMNIST, AugmentedMNIST
 import logging
 from spikingjelly.datasets.n_mnist import NMNIST
 from src.generate_neg_sample import *
@@ -142,7 +143,20 @@ def main():
         pin_memory=True
     )
     if args.dataset == "MNIST":
-    
+        # 基础 transform（不做归一化以便 encoder 接受 0-1 图像）
+        # base_transform = transforms.ToTensor()
+
+        # # 专门针对 5/8/9 的增强（在线）：旋转、仿射、随机擦除、少量高斯噪声模拟笔画差异
+        # aug_transform = transforms.Compose([
+        #     transforms.RandomRotation(12),  # ±12度
+        #     transforms.RandomAffine(degrees=0, translate=(0.06, 0.06), scale=(0.95, 1.05), shear=8),
+        #     transforms.RandomApply([transforms.RandomErasing(p=1.0, scale=(0.02, 0.15), ratio=(0.3, 3.3))], p=0.5),
+        #     transforms.ToTensor(),
+        # ])
+        # # 创建训练/测试数据集（训练集使用 AugmentedMNIST）
+        # train_dataset = AugmentedMNIST(root=args.data_dir, train=True, transform=base_transform,
+        #                             aug_transform=aug_transform, aug_labels=(5,8,9), aug_prob=0.6, download=True)
+        # test_dataset = torchvision.datasets.MNIST(root=args.data_dir, train=False, transform=base_transform, download=True)
         train_dataset = torchvision.datasets.MNIST(
             root=args.data_dir,
             train=True,
@@ -198,7 +212,66 @@ def main():
         )
     else:
         raise ValueError("Unsupported dataset. Please choose either 'MNIST' or 'CIFAR10'.")
+    # === 采样器：WeightedRandomSampler，提升 5/8/9 的采样概率 ===
+    # 这里把类别 5/8/9 权重乘以 factor（可调），其余类别按 1/xcount 反比权重
+    # targets = np.array(train_dataset.targets) if hasattr(train_dataset, 'targets') else np.array(train_dataset.dataset.targets)
+    # class_counts = np.bincount(targets, minlength=10).astype(np.float32)
 
+    # # 基本每类权重（样本越少权重越大）
+    # base_class_weight = 1.0 / (class_counts + 1e-6)
+
+    # # 对难类进一步提升采样权重
+    # hard_classes = [5, 8, 9]
+    # hard_boost = 2.0  # 可调：1.5~3.0 常用
+    # for c in hard_classes:
+    #     base_class_weight[c] *= hard_boost
+
+    # # 为每个样本分配采样权重
+    # sample_weights = base_class_weight[targets]
+    # sample_weights = torch.tensor(sample_weights, dtype=torch.double)
+
+    # sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+
+    # # 划分训练集/验证集（保持你原来的 95% split）
+    # train_size = int(0.95 * len(train_dataset))
+    # val_size = len(train_dataset) - train_size
+    # train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+
+    # # 注意：WeightedRandomSampler 要基于训练集 indices 来构造；我们需要基于 train_dataset 的索引重新创建 sampler。
+    # # 随机切分后，train_dataset 是 Subset, 需要把原始 indices 映射出来
+    # train_indices = train_dataset.indices if isinstance(train_dataset, torch.utils.data.Subset) else np.arange(len(train_dataset))
+    # # 取对应 indices 的 weights
+    # sample_weights_train = sample_weights[train_indices]
+    # sampler_train = WeightedRandomSampler(weights=sample_weights_train, num_samples=len(sample_weights_train), replacement=True)
+
+    # # 用 sampler_train 创建 DataLoader（替代原来 shuffle=True）
+    # train_data_loader = data.DataLoader(
+    #     dataset=train_dataset,
+    #     batch_size=args.b,
+    #     sampler=sampler_train,
+    #     drop_last=True,
+    #     num_workers=args.j,
+    #     pin_memory=True,
+    # )
+
+    # # 验证集和测试集保持不变（不打乱）
+    # val_data_loader = data.DataLoader(
+    #     dataset=val_dataset,
+    #     batch_size=100,
+    #     shuffle=False,
+    #     drop_last=False,
+    #     num_workers=args.j,
+    #     pin_memory=True,
+    # )
+
+    # test_data_loader = data.DataLoader(
+    #     dataset=test_dataset,
+    #     batch_size=100,
+    #     shuffle=False,
+    #     drop_last=False,
+    #     num_workers=args.j,
+    #     pin_memory=True,
+    # )
     # 划分训练集和验证集
     train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
     val_size = len(train_dataset) - train_size  # 20% 用于验证
@@ -309,13 +382,13 @@ def main():
                 # 先导入MNIST图像的数据集，生成正负样本后再编码成脉冲序列数据集
                 # 标签嵌入
                 # 传统方式：
-                # x_pos = overlay_y_on_x(x, y)
-                # y_neg = get_y_neg(y, device)
-                # x_neg = overlay_y_on_x(x, y_neg)
-                # 负样本独0码标签：
-                x_pos = overlay_label_on_x(x)
+                x_pos = overlay_y_on_x(x, y)
                 y_neg = get_y_neg(y, device)
                 x_neg = overlay_y_on_x(x, y_neg)
+                # 负样本独0码标签：
+                # x_pos = overlay_label_on_x(x)
+                # y_neg = get_y_neg(y, device)
+                # x_neg = overlay_y_on_x(x, y_neg)
                 
                 # x_neg = overlay_zero_on_x(x,y)
                 # Mask掩码

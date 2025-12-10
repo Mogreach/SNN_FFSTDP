@@ -160,7 +160,7 @@ if __name__ == "__main__":
         layer_weights_int8[layer_name] = weight_int8
         error = np.mean(np.abs(w.numpy() - (weight_int8 * (WEIGHT_MAX / 2**(WEIGHT_WIDTH-1))) ))
         print(f"{layer_name} 量化INT{WEIGHT_WIDTH}误差: {error:.4f}")
-        packed_data = pack_to_32bit(weight_int8, WEIGHT_MAX, WEIGHT_WIDTH)
+        packed_data = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=32)
         # 2. 4 个 8-bit 合并为 32-bit
         save_coe_file(packed_data, f"./{out_dir}/weights_{layer_name}.coe")
     print("COE 文件已生成！")
