@@ -1,0 +1,35 @@
+{
+    "signal": [
+        { "name": "clk", "wave": "p......." },
+        { "name": "data", "wave": "01010101" },
+        { "name": "pclk", "wave": "p......." },
+        { "name": "nclk", "wave": "n......." },
+        { "name": "clk0", "wave": "lhlhlhlh" },
+        { "name": "clk1", "wave": "LHLHLHLH" },
+        { "name": "pclk", "wave": "p...|..." },
+        { "name": "data", "wave": "1222|.==" },
+        { "name": "pclk", "wave": "p......." },
+        { "name": "pclk", "wave": "p...", "period": 2},
+        { "name": "data", "wave": "01010101" },
+        { "name": "data", "wave": "01010101", "phase": 0.5},
+        { "name": "data", "wave": "01010101", "phase": -1},
+        [
+            { "name": "clk", "wave": "p..Pp..P" },
+            [ "Master",
+                [ "ctrl",
+                    { "name": "write", "wave": "01.0...." },
+                    { "name": "read",  "wave": "0...1..0" }
+                ],
+                {  "name": "addr",  "wave": "x3.x4..x", "data": "A1 A2" }
+            ],
+            {},
+            ["Slave",
+                ["ctrl",
+                    {"name": "ack",   "wave": "x01x0.1x" }
+                ],
+                { "name": "rdata", "wave": "x.....4x", "data": "Q2" }
+            ]
+        ]
+        
+    ]
+}

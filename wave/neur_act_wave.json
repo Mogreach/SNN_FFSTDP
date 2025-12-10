@@ -1,0 +1,17 @@
+{
+    "signal":[
+        { "name": "CLK",             "wave": "p............" },
+        { "name": "STATE",           "wave": "2.3..........","data":["WAIT","NEUR_ACT"]},
+        { "name": "NEUR_EVENT",      "wave": "l.h.........."},
+        { "name": "ctrl_cnt",        "wave": "2..==========","data":["0","1","2","3","4","5","6","7","8","9"] },
+        { "name": "post_cs",         "wave": "l.h.........." },
+        { "name": "neur_cnt_inc",    "wave": "l..hlhlhlhlhl" },
+        { "name": "post_we",         "wave": "l..hlhlhlhlhl" },
+        { "name": "neur_cnt(post)",  "wave": "2...3.4.5.6..","data":["0","1","2","3","4"]},
+        { "name": "post_sram_in",    "wave": "6....3.4.5...","data":["newsram[0]","newsram[1]","newsram[2]","newsram[3]","newsram[4]"] },
+        { "name": "post_sram_out",   "wave": "2....7.8.9...","data":["sram[0]","sram[1]","sram[2]","sram[3]","4"] },
+        { "name": "post_sram[0]",    "wave": "2...6........","data":["orignal","new"] },
+        { "name": "post_sram[1]",    "wave": "7.....3......","data":["orignal","new"] },
+        { "name": "post_sram[2]",    "wave": "8.......4....","data":["orignal","new"] }
+    ]
+}

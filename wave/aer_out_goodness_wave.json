@@ -1,0 +1,19 @@
+{
+    "signal":[
+        { "name": "CLK",               "wave": "p............|.." },
+        { "name": "STATE",             "wave": "2.3..........|..4.","data":["POP_AER_OUT","TREF","WAIT"]},
+        { "name": "TREF_EVENT",        "wave": "l.h..........|..."},
+        { "name": "ctrl_cnt",          "wave": "2..==========|....","data":["0","1","2","3","4","5","6","7","8","9"] },
+        { "name": "post_cs",           "wave": "l.h..........|...." },
+        { "name": "post_neur_cnt_inc", "wave": "l..hlhlhlhlhl|hl..." },
+        { "name": "post_we",           "wave": "l..hlhlhlhlhl|hl..." },
+        { "name": "tref_finish",       "wave": "l............|.hl..." },
+        { "name": "neur_cnt(post)",    "wave": "2...3.4.5.6..|982","data":["0","1","2","3","4","783","784","0"]},
+        { "name": "neur_spike_cnt",    "wave": "2....3.4.5.6.|9.2","data":["sram[0]","sram[1]","sram[2]","sram[3]","4","783"] },
+        { "name": "square",            "wave": "7...2.3.4.5.6|.9.7.."},
+        { "name": "sum",               "wave": "7...2.3.4.5.6|.9.7.."},
+        { "name": "goodness_en",       "wave": "l....hlhlhlhl|hlhl.." },
+        { "name": "goodness",          "wave": "7.....2.3.4.5|.6.9."},
+        { "name": "goodness_finish",   "wave": "l............|....hl." }
+    ]
+}
