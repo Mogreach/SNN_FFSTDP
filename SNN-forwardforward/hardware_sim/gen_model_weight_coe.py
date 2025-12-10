@@ -1,5 +1,5 @@
 import sys
-sys.path.append('D:\OneDrive\SNN-ForwardForward')
+sys.path.append('D:/OneDrive/SNN_FFSTDP/SNN-forwardforward')
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -136,14 +136,14 @@ def save_coe_file(packed_data, filename="weights.coe"):
                 f.write(f"{hex_str},\n")  # 每行写入 32-bit 数据
 
 if __name__ == "__main__":
-    out_dir = "gen_coe"
+    out_dir = "Gen_out"
     os.makedirs(out_dir, exist_ok=True)
     config = ConfigParser()
     args = config.parse()
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
               v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./logs/analyze/784-256-10.pth")
+    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
     layer_weights = {}
     layer_weights_int8 = {}
     for layer_idx, layer in enumerate(net.layers):

@@ -1,5 +1,5 @@
 import sys
-sys.path.append('D:\OneDrive\SNN-ForwardForward')
+sys.path.append('D:/OneDrive/SNN_FFSTDP/SNN-forwardforward')
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -72,7 +72,7 @@ def gen_test_label(test_pics,test_label):
     #endif // TEST_LABELS_H
     """
     # 写入文本文件
-    with open("./gen_coe/test_labels.h", "w") as f:
+    with open("./Gen_out/test_labels.h", "w") as f:
         f.write(c_code)
     print("C header file 'test_labels.h' generated successfully!")
 def gen_dataset_spike(train_pics,test_pics,T):
@@ -130,7 +130,7 @@ def gen_dataset_spike(train_pics,test_pics,T):
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
               v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./logs/analyze/784-256-10.pth")
+    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
     all_spikes = []
     test_acc = 0
     test_count = 0
@@ -176,7 +176,7 @@ def gen_dataset_spike(train_pics,test_pics,T):
     all_spikes = np.array(all_spikes).astype(int)  # 形状为 (2 * train_pics, 16, 784)
 
     # 保存为单个二进制文件
-    save_spike_data(all_spikes, "./gen_coe/all_spikes.bin")
+    save_spike_data(all_spikes, "./Gen_out/all_spikes.bin")
     print("Saved all spike data to binary files")
 
 

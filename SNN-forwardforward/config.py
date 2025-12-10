@@ -43,12 +43,12 @@ class ConfigParser:
             help="number of data loading workers (default: 4)",
         )
         self.parser.add_argument(
-            "-data-dir", default="./data", type=str, help="root dir of MNIST dataset"
+            "-data-dir", default="./SNN-forwardforward/data", type=str, help="root dir of MNIST dataset"
         )
         self.parser.add_argument(
             "-out-dir",
             type=str,
-            default="./logs",
+            default="./SNN-forwardforward/logs",
             help="root dir for saving logs and checkpoint",
         )
         self.parser.add_argument(
