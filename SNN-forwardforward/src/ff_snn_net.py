@@ -136,7 +136,7 @@ class Net(torch.nn.Module):
                 self.layers += nn.ModuleList(
                     [
                         OutputLayer(
-                            in_features=10+sum(dims[1:d+1]),
+                            in_features=sum(dims[1:d+1]),
                             out_features=dims[d + 1],
                             epoch=epoch,
                             T=T,
@@ -168,7 +168,7 @@ class Net(torch.nn.Module):
                 self.layers += nn.ModuleList(
                     [
                         Layer(
-                            in_features=10+dims[d],
+                            in_features=dims[d],
                             out_features=dims[d + 1],
                             epoch=epoch,
                             T=T,
