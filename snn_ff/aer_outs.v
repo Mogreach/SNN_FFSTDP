@@ -83,7 +83,6 @@ module aer_outs #(
     output wire           ONE_SAMPLE_FINISH
 );
     localparam T_LOG2 = $clog2(TIME_STEP);
-    reg                [  31: 0]        goodness                    ;
     reg                                 AEROUT_ACK_sync_int,      AEROUT_ACK_sync,AEROUT_ACK_sync_del;
     reg                                 aer_out_addr_last,        aer_out_addr_last_int;
     reg                                 aer_out_trans               ;//AEROUT输出事件中
@@ -110,8 +109,9 @@ module aer_outs #(
     
     wire               [POST_NEUR_PARALLEL*AER_WIDTH-1: 0]                  aer_out_fifo_din                 ;
     wire               [AER_WIDTH-1: 0]                                     aer_out_fifo_dout                ;
-    wire               [    T_LOG2: 0]                                      post_neur_cnt[0:POST_NEUR_PARALLEL-1]  ;
-    reg               [2*(T_LOG2+1)-1: 0]                                   post_neur_goodness[0:POST_NEUR_PARALLEL-1]  ;
+    wire               [    T_LOG2: 0]                                      post_neur_cnt[0:POST_NEUR_PARALLEL-1];
+    reg                [2*(T_LOG2+1)-1: 0]                                  post_neur_goodness[0:POST_NEUR_PARALLEL-1];
+    wire               [(2*(T_LOG2+1)*POST_NEUR_PARALLEL)-1: 0]             post_neur_goodness_bus;
     wire               [2*(T_LOG2+1): 0]        post_neur_goodness_add1     ;
     wire               [2*(T_LOG2+1): 0]        post_neur_goodness_add2     ;
     wire [2*(T_LOG2+1)+$clog2(POST_NEUR_PARALLEL)-1:0] post_neur_goodness_sum;
@@ -147,11 +147,22 @@ module aer_outs #(
             begin                                        
                 post_neur_goodness[i] <= post_neur_cnt[i] * post_neur_cnt[i];              
             end
+
+            assign post_neur_goodness_bus[i*(2*(T_LOG2+1))+:2*(T_LOG2+1)] = post_neur_goodness[i];
         end
     endgenerate
-    assign post_neur_goodness_add1 = post_neur_goodness[0] + post_neur_goodness[1];
-    assign post_neur_goodness_add2 = post_neur_goodness[2] + post_neur_goodness[3];
-    assign post_neur_goodness_sum = post_neur_goodness_add1 + post_neur_goodness_add2;
+
+
+    adder_tree #(
+        .N(POST_NEUR_PARALLEL),
+        .WIDTH(2*(T_LOG2+1))
+    ) adder_tree_goodness (
+        .in(post_neur_goodness_bus),
+        .out(post_neur_goodness_sum)
+    );
+    // assign post_neur_goodness_add1 = post_neur_goodness[0] + post_neur_goodness[1];
+    // assign post_neur_goodness_add2 = post_neur_goodness[2] + post_neur_goodness[3];
+    // assign post_neur_goodness_sum = post_neur_goodness_add1 + post_neur_goodness_add2;
 
     // adder_tree #(
     //     .NUM(POST_NEUR_PARALLEL),
@@ -233,16 +244,31 @@ module aer_outs #(
         end
     end
     
-    aer_out_fifo aer_out_fifo_0 (
-    .clk(CLK),      // input wire clk
-    .srst(rst_activity),    // input wire srst
-    .din(aer_out_fifo_din),      // input wire [47 : 0] din
-    .wr_en(fifo_wr_en),  // input wire wr_en
-    .rd_en(fifo_rd_en),  // input wire rd_en
-    .dout(aer_out_fifo_dout),    // output wire [11 : 0] dout
-    .full(fifo_full),    // output wire full
-    .empty(fifo_empty)  // output wire empty
+    // aer_out_fifo aer_out_fifo_0 (
+    // .clk(CLK),      // input wire clk
+    // .srst(rst_activity),    // input wire srst
+    // .din(aer_out_fifo_din),      // input wire [47 : 0] din
+    // .wr_en(fifo_wr_en),  // input wire wr_en
+    // .rd_en(fifo_rd_en),  // input wire rd_en
+    // .dout(aer_out_fifo_dout),    // output wire [11 : 0] dout
+    // .full(fifo_full),    // output wire full
+    // .empty(fifo_empty)  // output wire empty
+    // );
+    syncFIFO_diffWidth #(
+    .DIN_WIDTH                             (AER_WIDTH * POST_NEUR_PARALLEL),
+    .DOUT_WIDTH                            (AER_WIDTH          ),
+    .WADDR_WIDTH                           ($clog2(2*(POST_NEUR_PARALLEL-1))) 
+    ) syncFIFO_diffWidth_u0 (
+    .din                                   (aer_out_fifo_din   ),
+    .wr_en                                 (fifo_wr_en         ),
+    .full                                  (fifo_full          ),
+    .almost_full                           (                   ),
+    .dout                                  (aer_out_fifo_dout  ),
+    .rd_en                                 (fifo_rd_en         ),
+    .empty                                 (fifo_empty         ),
+    .almost_empty                          (                   ),
+    .clk                                   (CLK                ),
+    .rst                                   (RST                ) 
     );
-    
 
 endmodule 

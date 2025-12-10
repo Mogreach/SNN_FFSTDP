@@ -27,28 +27,21 @@ module ODIN_ffstdp_tb();
   logic auto_ack_verbose;
 
   // Instantiate the DUT (Device Under Test)
-  ODIN_ffstdp #(
-    .N(784),
-    .M(10)
-  ) dut (
-    .CLK(CLK),
-    .RST(RST),
-    .IS_POS(IS_POS),
-    .IS_TRAIN(IS_TRAIN),
-    .SCK(SCK),
-    .MOSI(MOSI),
-    .MISO(MISO),
-    .AERIN_ADDR(AERIN_ADDR),
-    .AERIN_REQ(AERIN_REQ),
-    .AERIN_ACK(AERIN_ACK),
-    .AEROUT_ADDR(AEROUT_ADDR),
-    .AEROUT_REQ(AEROUT_REQ),
-    .AEROUT_ACK(AEROUT_ACK),
-    .GOODNESS(GOODNESS),
-    .ONE_SAMPLE_FINISH(ONE_SAMPLE_FINISH),
-    .SCHED_FULL(SCHED_FULL)
-  );
 
+  Top_test dut(
+      .CLK                                (CLK                       ),
+      .RST                                (RST                       ),
+      .AERIN_ADDR                         (AERIN_ADDR                ),
+      .AERIN_REQ                          (AERIN_REQ                 ),
+      .IS_POS                             (IS_POS                    ),
+      .IS_TRAIN                           (IS_TRAIN                  ),
+      .AERIN_ACK                          (AERIN_ACK                 ),
+      .GOODNESS                           (GOODNESS                  ),
+      .PROCESS_DONE                       (ONE_SAMPLE_FINISH         )
+  );
+  assign AEROUT_ADDR = dut.AEROUT_ADDR;
+  assign AEROUT_REQ = dut.AEROUT_REQ;
+  assign AEROUT_ACK = dut.AEROUT_ACK;
   // Clock generation
   initial begin
     CLK = 0;
@@ -64,7 +57,7 @@ module ODIN_ffstdp_tb();
   end
 
     // **读取 TXT 文件**
-    parameter int N = 1;   // 样本数
+    parameter int N = 10;   // 样本数
     parameter int T = 8;    // 时间步
     parameter int WIDTH = 784;  // 每个时间步的 bit 数
     
