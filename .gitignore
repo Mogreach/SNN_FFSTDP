@@ -140,3 +140,10 @@ SNN-forwardforward/doc/assets/
 SNN-forwardforward/images/
 SNN-forwardforward/doc/SNN-FF.md
 SNN-forwardforward/gen_coe/
+
+Hardware/script/brian2_sim/model_weight
+Hardware/script/brian2_sim/rom_coe
+Hardware/script/brian2_sim/data
+
+prj/
+doc/
