@@ -10,7 +10,7 @@ License       : MIT
 ====================================================================
 """
 import sys
-sys.path.append('D:\OneDrive\SNN-ForwardForward')
+sys.path.append('D:/OneDrive/SNN_FFSTDP/SNN-forwardforward')
 import matplotlib.pyplot as plt
 import torch
 import os
@@ -276,6 +276,48 @@ def visualize_correct_sample_of_all_label_freq(net,val_data_loader,device):
     visualize_goodness(goodness)
     for label_id in range(10):
         visualize_freq(freq, label_id)
+def save_image(img, title, save_path, cmap='magma'):
+    """
+    保存单张伪彩色图像
+    img: numpy 2D array (28x28)
+    title: 标题
+    cmap: 颜色映射风格，如 magma / viridis / plasma / inferno
+    """
+    plt.figure(figsize=(3, 3))
+    # plt.imshow(img, cmap=cmap, interpolation='bilinear')
+    plt.imshow(img)
+    # plt.title(title, fontsize=12)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
+def visualize_pos_neg_sample(test_dataset, save_dir="./vis", idx=0):
+    os.makedirs(save_dir, exist_ok=True)
+
+    # --- 取一张测试样本 ---
+    img, label = test_dataset[idx]       # img: 1x28x28
+    img = img.unsqueeze(0)  # 变成批量形式 1x1x28x28
+    label = torch.tensor(label).unsqueeze(0) 
+    img_pos = overlay_y_on_x(img, label).squeeze().numpy()
+    label_neg = get_y_neg(label,"cpu")
+    img_neg = overlay_y_on_x(img, label_neg).squeeze().numpy()
+
+    label = label[0].item()
+    label_neg = label_neg[0].item()
+
+    # --- 保存路径 ---
+    pos_path = os.path.join(save_dir, f"positive_{idx}_label.png")
+    neg_path = os.path.join(save_dir, f"negative_{idx}_label.png")
+
+    # --- 分别保存 ---
+    save_image(img_pos, f"Positive (label={label})", pos_path)
+    save_image(img_neg, f"Negative (label={label_neg})", neg_path)
+
+    print(f"[Saved] 正样本   -> {pos_path}")
+    print(f"[Saved] 负样本   -> {neg_path}")
+
+    return pos_path, neg_path
 def main():
     config = ConfigParser()
     args = config.parse()
@@ -331,12 +373,13 @@ def main():
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
               v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./logs/analyze/784-256-10.pth")
+    net.load("./SNN-forwardforward/logs/analyze/MNIST_91.pth")
     for name, module in net.named_modules():
         if isinstance(module, torch.nn.Conv2d):
             w = module.weight.data.clone()  # (Co, Ci, Kh, Kw)
     goodness_mean = visualize_goodness_mean(net, test_data_loader, device)
     visualize_layer_weights(net)
+    # visualize_pos_neg_sample(test_dataset, save_dir="SNN-forwardforward/images", idx=0)
     # visualize_correct_sample_of_all_label_goodness(net,val_data_loader,device)
     # visualize_correct_sample_of_all_label_freq(net,val_data_loader,device)
 
