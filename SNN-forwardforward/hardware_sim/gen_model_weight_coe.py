@@ -134,7 +134,15 @@ def save_coe_file(packed_data, filename="weights.coe"):
                 f.write(f"{hex_str};\n")  # 结尾加 ";"
             else:
                 f.write(f"{hex_str},\n")  # 每行写入 32-bit 数据
-
+def save_txt_file(packed_data, filename="weights.txt"):
+    """
+    生成 txt 文件 (16 进制格式)
+    :param packed_data: 32-bit 8位16进制 字符串列表
+    :param filename: COE 文件名
+    """
+    with open(filename, "w") as f:
+        for i, hex_str in enumerate(packed_data):
+            f.write(f"{hex_str}\n")  #
 if __name__ == "__main__":
     out_dir = "Gen_out"
     os.makedirs(out_dir, exist_ok=True)
@@ -143,7 +151,7 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
               v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    net.load("./SNN-forwardforward/logs/analyze/MNIST_91.pth")
     layer_weights = {}
     layer_weights_int8 = {}
     for layer_idx, layer in enumerate(net.layers):
@@ -163,6 +171,7 @@ if __name__ == "__main__":
         packed_data = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=32)
         # 2. 4 个 8-bit 合并为 32-bit
         save_coe_file(packed_data, f"./{out_dir}/weights_{layer_name}.coe")
+        save_txt_file(packed_data, f"./{out_dir}/weights_{layer_name}.txt")
     print("COE 文件已生成！")
     
 
