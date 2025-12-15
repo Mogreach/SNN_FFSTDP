@@ -1,4 +1,4 @@
-module sram_wrapper #(
+module sram_pre_neuron #(
     parameter  ADDR_WIDTH = 8,
     parameter  DATA_WIDTH = 32,
     parameter  SRAM_DEPTH = 256
@@ -22,8 +22,15 @@ module sram_wrapper #(
      *  Simple behavioral code for simulation, to be replaced by a 256-word 32-bit SRAM macro 
      *  or Block RAM (BRAM) memory with the same format for FPGA implementations.
      */      
+        // Vivado RAM style directive 
+        (* ram_style = "distributed" *)
         reg [DATA_WIDTH-1:0] SRAM[0:SRAM_DEPTH-1];
         reg [DATA_WIDTH-1:0] Qr;
+
+        initial begin
+        $readmemh("D:/OneDrive/SNN_FFSTDP/Gen_out/pre_neuron_state.txt", SRAM);
+        end
+
         always @(posedge CK) begin
             Qr <= CS ? SRAM[A] : Qr;
             if (CS & WE) SRAM[A] <= D;

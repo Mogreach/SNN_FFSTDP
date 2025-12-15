@@ -56,7 +56,8 @@ module neuron_core #(
     output wire [POST_NEUR_SPIKE_CNT_WIDTH * POST_NEUR_PARALLEL -1 :0] POST_NEUR_S_CNT
 );
 
-    localparam POST_NEUR_SRAM_DATA_WIDTH = POST_NEUR_PARALLEL * POST_NEUR_DATA_WIDTH; 
+    localparam POST_NEUR_SRAM_DATA_WIDTH = POST_NEUR_PARALLEL * POST_NEUR_DATA_WIDTH;
+    localparam POST_NEUR_SRAM_ADDR_WIDTH = $clog2((OUTPUT_NEURON/POST_NEUR_PARALLEL));
     
     // localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
     localparam  neuron_thresold= 12'b0000_0100_1101; // 神经元阈值S5.6: 1.2
@@ -70,13 +71,13 @@ module neuron_core #(
     wire [POST_NEUR_DATA_WIDTH-1:0] post_neuron_sram_in_array [0:POST_NEUR_PARALLEL-1];
     wire [POST_NEUR_DATA_WIDTH-1:0] post_neuron_sram_out_array [0:POST_NEUR_PARALLEL-1];
 
-    wire [POST_NEUR_WORD_ADDR_WIDTH - POST_NEUR_BYTE_ADDR_WIDTH-1:0]  post_neuron_sram_addr;
+    wire [POST_NEUR_SRAM_ADDR_WIDTH - 1:0]  post_neuron_sram_addr;
     wire [POST_NEUR_BYTE_ADDR_WIDTH-1:0]  post_neuron_byte_addr;
     wire [POST_NEUR_PARALLEL-1:0]  IF_neuron_event_out;
 
 
     // assign NEUR_STATE = (post_neuron_sram_out >> ({5'b0,post_neuron_byte_addr} << 5))[31:0]; //右移post_neuron_byte_address * 32
-    assign post_neuron_sram_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_WORD_ADDR_WIDTH-1 : POST_NEUR_BYTE_ADDR_WIDTH];
+    assign post_neuron_sram_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_SRAM_ADDR_WIDTH + POST_NEUR_BYTE_ADDR_WIDTH - 1 : POST_NEUR_BYTE_ADDR_WIDTH];
     assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_BYTE_ADDR_WIDTH-1:0];
     assign PRE_NEUR_S_CNT = pre_neuron_sram_out;
 
@@ -158,67 +159,67 @@ module neuron_core #(
         end
     endgenerate
     // 突触前神经元SRAM 读优先时序
-    SRAM_1024x8_wrapper neurarray_pre (       
+    // SRAM_1024x8_wrapper neurarray_pre (       
         
-        // Global inputs
-        .clk         (CLK),
+    //     // Global inputs
+    //     .clk         (CLK),
     
-        // Control and data inputs
-        // .ena        (CTRL_PRE_NEUR_CS),
-        .we         (CTRL_PRE_NEUR_WE),
-        .a          (CTRL_PRE_NEURON_ADDRESS),
-        .d          (pre_neuron_sram_in),
-        // Data output
-        .spo          (pre_neuron_sram_out)
-    );
-    
-    // sram_wrapper#(
-    // .ADDR_WIDTH     (PRE_NEUR_ADDR_WIDTH              ),
-    // .DATA_WIDTH     (PRE_NEUR_DATA_WIDTH             ),
-    // .SRAM_DEPTH     (INPUT_NEURON            )
-    // )
-    // neurarray_pre(
-    // // Global inputs
-    //     .CK                                 (CLK                        ),// Clock (synchronous read/write)
-    // // Control and data inputs
-    //     .CS                                 (CTRL_PRE_NEUR_CS                        ),// Chip select
-    //     .WE                                 (CTRL_PRE_NEUR_WE                        ),// Write enable
-    //     .A                                  (CTRL_PRE_NEURON_ADDRESS                         ),// Address bus
-    //     .D                                  (pre_neuron_sram_in                         ),// Data input bus (write)
-    // // Data output
-    //     .Q                                  (pre_neuron_sram_out                        )// Data output bus (read)
+    //     // Control and data inputs
+    //     // .ena        (CTRL_PRE_NEUR_CS),
+    //     .we         (CTRL_PRE_NEUR_WE),
+    //     .a          (CTRL_PRE_NEURON_ADDRESS),
+    //     .d          (pre_neuron_sram_in),
+    //     // Data output
+    //     .spo          (pre_neuron_sram_out)
     // );
+    
+    sram_pre_neuron#(
+    .ADDR_WIDTH     (PRE_NEUR_ADDR_WIDTH              ),
+    .DATA_WIDTH     (PRE_NEUR_DATA_WIDTH             ),
+    .SRAM_DEPTH     (INPUT_NEURON            )
+    )
+    neurarray_pre(
+    // Global inputs
+        .CK                                 (CLK                        ),// Clock (synchronous read/write)
+    // Control and data inputs
+        .CS                                 (CTRL_PRE_NEUR_CS                        ),// Chip select
+        .WE                                 (CTRL_PRE_NEUR_WE                        ),// Write enable
+        .A                                  (CTRL_PRE_NEURON_ADDRESS                         ),// Address bus
+        .D                                  (pre_neuron_sram_in                         ),// Data input bus (write)
+    // Data output
+        .Q                                  (pre_neuron_sram_out                        )// Data output bus (read)
+    );
 
     // 突触后神经元SRAM 读优先时序
-    SRAM_256x128_wrapper neurarray_post (       
+    // SRAM_256x128_wrapper neurarray_post (       
         
-        // Global inputs
-        .clka         (CLK),
+    //     // Global inputs
+    //     .clka         (CLK),
     
-        // Control and data inputs
-        .ena         (CTRL_POST_NEUR_CS),
-        .wea         (CTRL_POST_NEUR_WE),
-        .addra          (post_neuron_sram_addr),
-        .dina          (post_neuron_sram_in),
-        // Data output
-        .douta          (post_neuron_sram_out)
-    );
-    // sram_wrapper#(
-    // .ADDR_WIDTH     (POST_NEUR_WORD_ADDR_WIDTH - POST_NEUR_BYTE_ADDR_WIDTH),
-    // .DATA_WIDTH     (POST_NEUR_SRAM_DATA_WIDTH         ),
-    // .SRAM_DEPTH     (OUTPUT_NEURON / POST_NEUR_PARALLEL)
-    // )
-    // neurarray_post(
-    // // Global inputs
-    //     .CK                                 (CLK                        ),// Clock (synchronous read/write)
-    // // Control and data inputs
-    //     .CS                                 (CTRL_POST_NEUR_CS                        ),// Chip select
-    //     .WE                                 (CTRL_POST_NEUR_WE                        ),// Write enable
-    //     .A                                  (post_neuron_sram_addr                         ),// Address bus
-    //     .D                                  (post_neuron_sram_in                         ),// Data input bus (write)
-    // // Data output
-    //     .Q                                  (post_neuron_sram_out                        )// Data output bus (read)
+    //     // Control and data inputs
+    //     .ena         (CTRL_POST_NEUR_CS),
+    //     .wea         (CTRL_POST_NEUR_WE),
+    //     .addra          (post_neuron_sram_addr),
+    //     .dina          (post_neuron_sram_in),
+    //     // Data output
+    //     .douta          (post_neuron_sram_out)
     // );
+    sram_post_neuron#(
+    .ADDR_WIDTH     (POST_NEUR_SRAM_ADDR_WIDTH),
+    .DATA_WIDTH     (POST_NEUR_SRAM_DATA_WIDTH         ),
+    .SRAM_DEPTH     (OUTPUT_NEURON / POST_NEUR_PARALLEL)
+    )
+    neurarray_post(
+    // Global inputs
+        .CK                                 (CLK                        ),// Clock (synchronous read/write)
+    // Control and data inputs
+        .CS                                 (CTRL_POST_NEUR_CS                        ),// Chip select
+        .WE                                 (CTRL_POST_NEUR_WE                        ),// Write enable
+        .A                                  (post_neuron_sram_addr                         ),// Address bus
+        .D                                  (post_neuron_sram_in                         ),// Data input bus (write)
+    // Data output
+        .Q                                  (post_neuron_sram_out                        )// Data output bus (read)
+    );
 
 
 //    Neuron_SRAM neurarray_0(

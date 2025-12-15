@@ -22,11 +22,11 @@ module sram_synaptic #(
      *  Simple behavioral code for simulation, to be replaced by a 256-word 32-bit SRAM macro 
      *  or Block RAM (BRAM) memory with the same format for FPGA implementations.
      */      
-        reg [DATA_WIDTH-1:0] SRAM[SRAM_DEPTH-1:0];
+        reg [DATA_WIDTH-1:0] SRAM[0:SRAM_DEPTH-1];
         reg [DATA_WIDTH-1:0] Qr;
 
         initial begin
-        $readmemh("init_sram.txt", SRAM);
+        $readmemh("D:/OneDrive/SNN_FFSTDP/Gen_out/weights_weight.txt", SRAM);
         end
 
         always @(posedge CK) begin
