@@ -6,30 +6,12 @@ import os
 import seaborn as sns
 import torch
 import torch.utils.data as data
-import torchvision
-from src.ff_snn_net import Net
 import torch.nn.functional as F
-from config import ConfigParser
 import numpy as np
 
-WEIGHT_MAX = 2 ** 0
-WEIGHT_WIDTH = 8
-WEIGHT_SCALE = WEIGHT_MAX / (2 ** (WEIGHT_WIDTH - 1))
-
-INPUT_MAX = 2 ** 3
-INPUT_WIDTH = 8 
-INPUT_SCALE = INPUT_MAX / (2 ** (INPUT_WIDTH - 1))
-
-BIAS_MAX = 2 ** 7
-BIAS_WIDTH = 16
-BIAS_SCALE = BIAS_MAX / (2 ** (BIAS_WIDTH - 1))
-
-OUTPUT_WIDTH = 16
-OUTPUT_SCALE = WEIGHT_SCALE * INPUT_SCALE
-OUTPUT_MAX = OUTPUT_SCALE * (2 ** (OUTPUT_WIDTH - 1))
-
-T = 8
-theta = 1.2
+from src.ff_snn_net import Net
+from config import ConfigParser
+from hardware_sim_config import *
 def quantize_to_int(x_fp, scale, bits=16):
     """
     将浮点数张量 x_fp 按 scale 量化为有符号整型 (int16 / int8)
@@ -109,12 +91,15 @@ def pack_to_nbit(q_weights, max_val, num_bits, pack_bits=32):
     for i in range(num_packed):
         s_list = []
         for j in range(vals_per_pack):
-            _, s = float_to_fixed_bin(q_weights[i * vals_per_pack + j], il, fl)
-            s_list.append(s)
+            bin_s, hex_s  = float_to_fixed_bin(q_weights[i * vals_per_pack + j], il, fl)
+            s_list.append(bin_s)
+            # s_list.append(hex_s)
 
         # 小端：低位在前
-        hex_str = "".join(s_list[::-1])  # reverse for little endian
-        packed_data.append(hex_str)
+        bin_str = "".join(s_list[::-1])  # reverse for little endian
+        packed_data.append(bin_str)
+        # hex_str = "".join(s_list[::-1])  # reverse for little endian
+        # packed_data.append(hex_str)
 
     return packed_data
 
@@ -168,7 +153,7 @@ if __name__ == "__main__":
         layer_weights_int8[layer_name] = weight_int8
         error = np.mean(np.abs(w.numpy() - (weight_int8 * (WEIGHT_MAX / 2**(WEIGHT_WIDTH-1))) ))
         print(f"{layer_name} 量化INT{WEIGHT_WIDTH}误差: {error:.4f}")
-        packed_data = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=32)
+        packed_data = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=int(POST_PARALLEL * WEIGHT_WIDTH))
         # 2. 4 个 8-bit 合并为 32-bit
         save_coe_file(packed_data, f"./{out_dir}/weights_{layer_name}.coe")
         save_txt_file(packed_data, f"./{out_dir}/weights_{layer_name}.txt")
