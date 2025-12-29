@@ -137,8 +137,8 @@ if __name__ == '__main__':
     neg_delta_int_list = quantize_tensor_int(neg_delta_list, WEIGHT_MAX, num_bits=WEIGHT_WIDTH)
     rom_vis(_, pos_delta_int_list, neg_delta_int_list)
     # 🔥 生成 Verilog ROM
-    generate_rom_verilog_reg("./Hardware/rtl/snn_ff/rom/pos_derivative_rom.v", "pos_derivative_rom", pos_delta_int_list, WEIGHT_WIDTH)
-    generate_rom_verilog_reg("./Hardware/rtl/snn_ff/rom/neg_derivative_rom.v", "neg_derivative_rom", neg_delta_int_list, WEIGHT_WIDTH)
+    generate_rom_verilog_reg("./user/src/snn_ff/rom/pos_derivative_rom.v", "pos_derivative_rom", pos_delta_int_list, WEIGHT_WIDTH)
+    generate_rom_verilog_reg("./user/src/rtl/snn_ff/rom/neg_derivative_rom.v", "neg_derivative_rom", neg_delta_int_list, WEIGHT_WIDTH)
 
     write_coe(f"./{out_dir}/pos_derivative.coe",pos_delta_int_list, num_bits=WEIGHT_WIDTH, max_val=WEIGHT_MAX) 
     write_coe(f"./{out_dir}/neg_derivative.coe",neg_delta_int_list, num_bits=WEIGHT_WIDTH, max_val=WEIGHT_MAX)
