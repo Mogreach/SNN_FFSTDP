@@ -102,11 +102,9 @@ def generate_rom_verilog_reg(file_name, module_name, data_list, data_width):
 # 主流程
 ##################################
 if __name__ == '__main__':
-    out_dir = "Gen_out"
+    out_dir = "Gen_out" + "/" + TASK
     os.makedirs(out_dir, exist_ok=True)
-
-    T = 8
-    theta = 0.25
+    theta = THETA
     lr = 0.015625 / 8
 
     x = torch.tensor(np.arange(T+1))

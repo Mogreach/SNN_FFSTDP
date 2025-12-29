@@ -1,3 +1,6 @@
+TASK = "FashionMNIST"
+NET_PATH = "./SNN-forwardforward/logs/analyze/fashion_max.pth"
+
 POST_NEURONS = 256
 POST_PARALLEL = 8
 POST_DATA_WIDTH = 20
@@ -26,5 +29,7 @@ OUTPUT_WIDTH = 16
 OUTPUT_SCALE = WEIGHT_SCALE * INPUT_SCALE
 OUTPUT_MAX = OUTPUT_SCALE * (2 ** (OUTPUT_WIDTH - 1))
 
-T = 8
-theta = 1.2
+T = 16
+V_THRESHOLD_POS = 1.2
+V_THRESHOLD_NEG = -1.2
+THETA = 0.6

@@ -155,14 +155,14 @@ def save_txt_file(packed_data, filename="weights.txt"):
         for i, hex_str in enumerate(packed_data):
             f.write(f"{hex_str}\n")  #
 if __name__ == "__main__":
-    out_dir = "Gen_out"
+    out_dir = "Gen_out/" + TASK
     os.makedirs(out_dir, exist_ok=True)
     config = ConfigParser()
     args = config.parse()
     device = torch.device("cuda")
-    net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/MNIST_91.pth")
+    net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=T, lr=args.lr,
+              v_threshold_pos=V_THRESHOLD_POS,v_threshold_neg=V_THRESHOLD_NEG, opt=args.opt, loss_threshold=THETA)
+    net.load(NET_PATH)
     layer_weights = {}
     layer_weights_int8 = {}
     for layer_idx, layer in enumerate(net.layers):

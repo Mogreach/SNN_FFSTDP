@@ -2,6 +2,7 @@ import sys
 sys.path.append('D:/OneDrive/SNN_FFSTDP/SNN-forwardforward')
 import matplotlib.pyplot as plt
 import torch
+from spikingjelly.datasets.n_mnist import NMNIST
 import os
 import seaborn as sns
 import torch
@@ -13,6 +14,7 @@ import torch.nn.functional as F
 from config import ConfigParser
 import numpy as np
 from bitarray import bitarray
+from hardware_sim_config import *
 def get_label_neg(label):
     # 生成0-10的所有可能值
     possible_values = np.arange(10)
@@ -72,7 +74,7 @@ def gen_test_label(test_pics,test_label):
     #endif // TEST_LABELS_H
     """
     # 写入文本文件
-    with open("./Gen_out/test_labels.h", "w") as f:
+    with open(f"./Gen_out/{TASK}/test_labels.h", "w") as f:
         f.write(c_code)
     print("C header file 'test_labels.h' generated successfully!")
 def gen_dataset_spike(train_pics,test_pics,T):
@@ -82,18 +84,62 @@ def gen_dataset_spike(train_pics,test_pics,T):
 ####################################前向学习的代码结构######################################
     # 初始化数据加载器
     # 加载训练集和测试集
-    train_dataset = torchvision.datasets.MNIST(
-        root=args.data_dir,
-        train=True,
-        transform=torchvision.transforms.ToTensor(),
-        download=True
-    )
-    test_dataset = torchvision.datasets.MNIST(
-        root=args.data_dir,
-        train=False,
-        transform=torchvision.transforms.ToTensor(),
-        download=True
-    )
+    if TASK == "MNIST":
+        train_dataset = torchvision.datasets.MNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.MNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    elif TASK == "N-MNIST":
+        train_dataset = NMNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+
+        test_dataset = NMNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    elif TASK == "FashionMNIST":
+        train_dataset = torchvision.datasets.FashionMNIST(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.FashionMNIST(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    elif TASK == "CIFAR10":
+
+        train_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=True,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+        test_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=False,
+            transform=torchvision.transforms.ToTensor(),
+            download=True,
+        )
+    else:
+        raise ValueError("Unsupported dataset. Please choose either 'MNIST' or 'CIFAR10'.")
 
     # 划分训练集和验证集
     train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
@@ -128,9 +174,9 @@ def gen_dataset_spike(train_pics,test_pics,T):
         pin_memory=True
     )
     device = torch.device("cuda")
-    net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=T, lr=args.lr,
+              v_threshold_pos=V_THRESHOLD_POS,v_threshold_neg=V_THRESHOLD_NEG, opt=args.opt, loss_threshold=THETA)
+    net.load(NET_PATH)
     all_spikes = []
     test_acc = 0
     test_count = 0
@@ -176,7 +222,7 @@ def gen_dataset_spike(train_pics,test_pics,T):
     all_spikes = np.array(all_spikes).astype(int)  # 形状为 (2 * train_pics, 16, 784)
 
     # 保存为单个二进制文件
-    save_spike_data(all_spikes, "./Gen_out/all_spikes.bin")
+    save_spike_data(all_spikes, f"./Gen_out/{TASK}/all_spikes.bin")
     print("Saved all spike data to binary files")
 
 
@@ -186,7 +232,7 @@ def main():
     # sort_dataset()
     train_pics = 1000
     test_pics = 10000
-    T = 8
+
     size = 784
     gen_dataset_spike(train_pics,test_pics,T)
 
