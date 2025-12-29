@@ -1,16 +1,7 @@
 import sys
 sys.path.append('D:/OneDrive/SNN_FFSTDP/SNN-forwardforward')
-import matplotlib.pyplot as plt
-import torch
 import os
-import seaborn as sns
-import torch
-import torch.utils.data as data
-import torchvision
-from src.ff_snn_net import Net
-import torch.nn.functional as F
-from config import ConfigParser
-import numpy as np
+from hardware_sim_config import *
 
 def pack_pre_state_to_hex(spike_cnt, depth, pack_bits=32):
     """
@@ -62,12 +53,13 @@ def pack_post_state_to_hex(enable, spike_cnt, v_th, v_mem, depth, pack_bits=32):
 
     # ---- Step 1: 构造单元 32-bit ----
     enable_bin   = f"{enable:01b}"
-    spike_bin    = f"{spike_cnt:07b}"
-    vth_bin      = f"{v_th:012b}"
-    vmem_bin     = f"{v_mem:012b}"
+    spike_bin    = f"{spike_cnt:06b}"
+    # vth_bin      = f"{v_th:013b}"
+    vmem_bin     = f"{v_mem:013b}"
 
     # 拼成 32-bit（大端格式：高位在左）
-    unit_bin = enable_bin + spike_bin + vth_bin + vmem_bin  # len = 32
+    # unit_bin = enable_bin + spike_bin + vth_bin + vmem_bin  # len = 32
+    unit_bin = enable_bin + spike_bin + vmem_bin  # len = 32
 
     N = int(pack_bits / len(unit_bin))
     # ---- Step 2: 复制 N 次 ----
@@ -112,19 +104,9 @@ def save_txt_file(packed_data, filename="weights.txt"):
 if __name__ == "__main__":
     out_dir = "Gen_out"
     os.makedirs(out_dir, exist_ok=True)
-    POST_NEURONS = 256
-    POST_PARALLEL = 4
-    POST_DATA_WIDTH = 32
-    POST_SRAM_DATA_WIDTH = int(POST_PARALLEL * POST_DATA_WIDTH)
-    POST_SRAM_DEPTH = int(POST_NEURONS / POST_PARALLEL)
-
-    PRE_NEURONS = 784
-    PRE_PARALLEL = 1
-    PRE_DATA_WIDTH = 7
-    PRE_SRAM_DATA_WIDTH = int(PRE_PARALLEL * PRE_DATA_WIDTH)
-    PRE_SRAM_DEPTH = int(PRE_NEURONS / PRE_PARALLEL)
     
-    post_state = pack_post_state_to_hex(enable=1, spike_cnt=0, v_th=77, v_mem=0, depth = POST_SRAM_DEPTH, pack_bits=POST_SRAM_DATA_WIDTH)
+    vth = int(1.3 / WEIGHT_SCALE)
+    post_state = pack_post_state_to_hex(enable=1, spike_cnt=0, v_th=vth, v_mem=0, depth = POST_SRAM_DEPTH, pack_bits=POST_SRAM_DATA_WIDTH)
     pre_state = pack_pre_state_to_hex(spike_cnt=0, depth = PRE_SRAM_DEPTH, pack_bits=PRE_SRAM_DATA_WIDTH)
 
     save_txt_file(post_state, filename=f"./{out_dir}/post_neuron_state.txt")

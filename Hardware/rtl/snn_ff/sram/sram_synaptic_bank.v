@@ -19,7 +19,11 @@ module sram_synaptic_bank #(
     wire [BANK_ADDR_W-1:0] bank_addr = A % BLOCK_DEPTH;
 
     wire [DATA_WIDTH-1:0] bank_q [0:BANK_NUM-1];
-
+    // one-hot 片选
+    reg [BANK_NUM-1:0] bank_cs;
+    always@(*) begin
+        bank_cs = ({{BANK_NUM-1{1'b0}},1'b1} << bank_id);
+    end
     genvar i;
     generate
         for (i = 0; i < BANK_NUM; i = i + 1) begin : bank_gen
@@ -30,8 +34,8 @@ module sram_synaptic_bank #(
                 .BLOCK_DEPTH(BLOCK_DEPTH)
             ) bank (
                 .CK (CK),
-                .CS (CS & (bank_id == i)),
-                .WE (WE & (bank_id == i)),
+                .CS (CS && bank_cs[i]),
+                .WE (WE && bank_cs[i]),
                 .A  (bank_addr),
                 .D  (D),
                 .Q  (bank_q[i])
@@ -69,10 +73,8 @@ module sram_bank #(
 
         for (i = 0; i < BLOCK_DEPTH; i = i + 1) begin
             global_index = BANK_ID * BLOCK_DEPTH + i;
-            if (global_index < TOTAL_DEPTH)
-                mem[i] = temp_mem[global_index];
-            else
-                mem[i] = 0;
+            mem[i] = temp_mem[global_index];
+
         end
     end
 

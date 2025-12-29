@@ -254,6 +254,7 @@ module aer_outs #(
     // .full(fifo_full),    // output wire full
     // .empty(fifo_empty)  // output wire empty
     // );
+    
     syncFIFO_diffWidth #(
     .DIN_WIDTH                             (AER_WIDTH * POST_NEUR_PARALLEL),
     .DOUT_WIDTH                            (AER_WIDTH          ),

@@ -18,9 +18,12 @@ import seaborn as sns
 import torch
 import torch.utils.data as data
 import torchvision
-from src.ff_snn_net import Net
 import torch.nn.functional as F
+
 from config import ConfigParser
+from hardware_sim_config import *
+from src.ff_snn_net import Net
+from gen_model_weight_coe import quantize_tensor_int
 def get_y_neg(y,device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
@@ -372,11 +375,27 @@ def main():
     )
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+              v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
     net.load("./SNN-forwardforward/logs/analyze/MNIST_91.pth")
-    for name, module in net.named_modules():
-        if isinstance(module, torch.nn.Conv2d):
-            w = module.weight.data.clone()  # (Co, Ci, Kh, Kw)
+    with torch.no_grad():
+        for layer_idx, layer in enumerate(net.layers):
+                # 遍历命名子模块，找到真正的可学习层（你模型中 name=="layer" 的模块）
+                for name, module in layer.named_modules():
+                    if name == "layer":
+                        for p_name, param in module[1].named_parameters():
+                            # 1️⃣ float → int（对齐硬件）
+                            w_int = quantize_tensor_int(
+                                param.detach().cpu(),
+                                max_abs=WEIGHT_MAX,
+                                num_bits=WEIGHT_WIDTH
+                            )
+
+                            # 2️⃣ int → float（fake quant）
+                            w_fake = torch.from_numpy(w_int).to(device).float() * WEIGHT_SCALE
+
+                            # 3️⃣ 写回模型
+                            param.copy_(w_fake)
+                break
     goodness_mean = visualize_goodness_mean(net, test_data_loader, device)
     visualize_layer_weights(net)
     # visualize_pos_neg_sample(test_dataset, save_dir="SNN-forwardforward/images", idx=0)

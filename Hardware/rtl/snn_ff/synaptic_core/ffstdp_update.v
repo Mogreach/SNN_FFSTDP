@@ -48,18 +48,19 @@ module ffstdp_update #(
     assign L_to_s_derivative = (IS_POS)? L_to_s_derivative_pos : L_to_s_derivative_neg;
     assign delta_w_signed = (PRE_SPIKE_CNT_eq_zero || POST_SPIKE_CNT_eq_zero)? 'd0 : (L_to_s_derivative);
     assign new_w_result = WSYN_CURR_reg + delta_w_signed_reg;// 权重值同为Q3.4，其中1位符号位，3位整数位，4位小数位，
-    assign overflow = (WSYN_CURR_reg[WEIGHT_WIDTH-1]==delta_w_signed_reg[WEIGHT_WIDTH-1]) && (new_w_result[WEIGHT_WIDTH-1]!=WSYN_CURR_reg[WEIGHT_WIDTH-1]);
-    
+    // assign overflow = (WSYN_CURR_reg[WEIGHT_WIDTH-1]==delta_w_signed_reg[WEIGHT_WIDTH-1]) && (new_w_result[WEIGHT_WIDTH-1]!=WSYN_CURR_reg[WEIGHT_WIDTH-1]);
+    assign overflow = !(WSYN_CURR_reg[WEIGHT_WIDTH-1] ^ delta_w_signed_reg[WEIGHT_WIDTH-1]) && (new_w_result[WEIGHT_WIDTH-1] ^ WSYN_CURR_reg[WEIGHT_WIDTH-1]);
     always @(posedge CLK)           
     begin                                        
         WSYN_CURR_reg <= WSYN_CURR;
         delta_w_signed_reg <= delta_w_signed;                          
-    end                                          
-	always @(*) begin
-		if      (CTRL_TREF_EVENT && IS_TRAIN) WSYN_NEW <= overflow? 
+    end 
+    wire signed [WEIGHT_WIDTH-1:0] w_slect =  overflow? 
                                             (new_w_result[WEIGHT_WIDTH-1] == 1'b1)? max_value : min_value 
-                                            : new_w_result;
-		else    WSYN_NEW <= WSYN_CURR_reg;
+                                            : new_w_result;                                        
+	always @(*) begin
+		if      (CTRL_TREF_EVENT && IS_TRAIN) WSYN_NEW = w_slect;
+		else    WSYN_NEW = WSYN_CURR_reg;
 	end 
     
     // pos_derivative_rom pos_derivative_rom_0(

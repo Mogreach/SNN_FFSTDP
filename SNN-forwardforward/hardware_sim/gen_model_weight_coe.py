@@ -8,7 +8,7 @@ import torch
 import torch.utils.data as data
 import torch.nn.functional as F
 import numpy as np
-
+import math
 from src.ff_snn_net import Net
 from config import ConfigParser
 from hardware_sim_config import *
@@ -60,14 +60,38 @@ def float_to_fixed_bin(val, I, F):
     """
     # 计算总位宽
     total_bits = I + F + 1  # 包含符号位
+    hex_bits = int(((total_bits+ 4-1) / 4))
 
 
     # 转为有符号二进制字符串
     mask = (1 << total_bits) - 1
     scaled_twos = val & mask
     bin_str = format(scaled_twos, f'0{total_bits}b')
-    hex_str = f"{int(bin_str, 2):02X}"
+    hex_str = f"{int(bin_str, 2):0{hex_bits}X}"
     return bin_str, hex_str
+def bin_list_to_hex_list(packed_data_bin, zero_pad=True):
+    """
+    packed_data_bin: List[str]，每个元素是二进制字符串，如 '10101100'
+    zero_pad: 是否保持位宽（4bit 对齐补 0）
+
+    return: List[str]，对应的 16 进制字符串（不含 0x）
+    """
+    packed_data_hex = []
+
+    for bin_str in packed_data_bin:
+        # 去掉可能的空格 / 换行
+        bin_str = bin_str.strip()
+
+        # 位宽不是 4 的整数倍时，前面补 0
+        if zero_pad and len(bin_str) % 4 != 0:
+            pad_len = 4 - (len(bin_str) % 4)
+            bin_str = '0' * pad_len + bin_str
+
+        hex_str = hex(int(bin_str, 2))[2:]  # 去掉 '0x'
+        packed_data_hex.append(hex_str)
+
+    return packed_data_hex
+
 def pack_to_nbit(q_weights, max_val, num_bits, pack_bits=32):
     """
     将定点量化后的数据按 pack_bits 位拼接（可为 32 / 64 / 96 / 128 ...）
@@ -82,26 +106,28 @@ def pack_to_nbit(q_weights, max_val, num_bits, pack_bits=32):
     vals_per_pack = pack_bits // num_bits  # 每多少个数拼成一个 pack
     num_packed = len(q_weights) // vals_per_pack
 
-    packed_data = []
+    packed_data_bin = []
+    packed_data_hex = []
 
     # 计算 il / fl
     fl = int(-np.log2(max_val / (2 ** (num_bits - 1))))
     il = int(num_bits - fl - 1)
 
     for i in range(num_packed):
-        s_list = []
+        s_bin_list = []
+        s_hex_list = []
         for j in range(vals_per_pack):
             bin_s, hex_s  = float_to_fixed_bin(q_weights[i * vals_per_pack + j], il, fl)
-            s_list.append(bin_s)
-            # s_list.append(hex_s)
+            s_bin_list.append(bin_s)
+            # s_hex_list.append(hex_s)
 
         # 小端：低位在前
-        bin_str = "".join(s_list[::-1])  # reverse for little endian
-        packed_data.append(bin_str)
-        # hex_str = "".join(s_list[::-1])  # reverse for little endian
-        # packed_data.append(hex_str)
-
-    return packed_data
+        bin_str = "".join(s_bin_list[::-1])  # reverse for little endian
+        packed_data_bin.append(bin_str)
+        # hex_str = "".join(s_hex_list[::-1])  # reverse for little endian
+        # packed_data_hex.append(hex_str)
+    packed_data_hex = bin_list_to_hex_list(packed_data_bin, zero_pad=False)
+    return packed_data_bin, packed_data_hex
 
 
 def save_coe_file(packed_data, filename="weights.coe"):
@@ -153,10 +179,30 @@ if __name__ == "__main__":
         layer_weights_int8[layer_name] = weight_int8
         error = np.mean(np.abs(w.numpy() - (weight_int8 * (WEIGHT_MAX / 2**(WEIGHT_WIDTH-1))) ))
         print(f"{layer_name} 量化INT{WEIGHT_WIDTH}误差: {error:.4f}")
-        packed_data = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=int(POST_PARALLEL * WEIGHT_WIDTH))
+        packed_data_bin, packed_data_hex = pack_to_nbit(q_weights=weight_int8, max_val=WEIGHT_MAX, num_bits=WEIGHT_WIDTH, pack_bits=int(POST_PARALLEL * WEIGHT_WIDTH))
         # 2. 4 个 8-bit 合并为 32-bit
-        save_coe_file(packed_data, f"./{out_dir}/weights_{layer_name}.coe")
-        save_txt_file(packed_data, f"./{out_dir}/weights_{layer_name}.txt")
+        save_coe_file(packed_data_hex, f"./{out_dir}/weights_{layer_name}.coe")
+        save_txt_file(packed_data_bin, f"./{out_dir}/weights_{layer_name}.txt")
     print("COE 文件已生成！")
+
+
+
+    DATA_WIDTH = int(POST_PARALLEL * WEIGHT_WIDTH)
+    BLOCK_DEPTH = 2048
+
+    with open(f"./{out_dir}/weights_{layer_name}.txt") as f:
+        data = [line.strip() for line in f if line.strip()]
+
+    bank_num = math.ceil(len(data) / BLOCK_DEPTH)
+
+    for b in range(bank_num):
+        with open(f"./{out_dir}/weights_bank_{b}.txt", "w") as f:
+            for i in range(BLOCK_DEPTH):
+                idx = b * BLOCK_DEPTH + i
+                if idx < len(data):
+                    f.write(data[idx] + "\n")
+                else:
+                    f.write("0\n")
+
     
 

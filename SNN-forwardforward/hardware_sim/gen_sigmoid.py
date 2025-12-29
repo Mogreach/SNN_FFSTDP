@@ -4,6 +4,9 @@ import os
 import matplotlib.pyplot as plt
 import math
 
+
+from hardware_sim_config import *
+
 def pos_derivative(x, theta):
     return -1 / (1 + torch.exp(x - theta))
 
@@ -103,10 +106,8 @@ if __name__ == '__main__':
     os.makedirs(out_dir, exist_ok=True)
 
     T = 8
-    WEIGHT_WIDTH = 8
-    WEIGHT_MAX = 1
     theta = 0.25
-    lr = 0.015625 / 10
+    lr = 0.015625 / 8
 
     x = torch.tensor(np.arange(T+1))
     freq = x / T
@@ -124,8 +125,8 @@ if __name__ == '__main__':
                 pos_delta = 0
                 neg_delta = 0
             else:
-                pos_delta =  (pre+1) * pos_der[post+1]
-                neg_delta =  (pre+1) * neg_der[post+1]
+                pos_delta =  lr * (pre+1) * pos_der[post+1]
+                neg_delta =  lr * (pre+1) * neg_der[post+1]
             pos_delta_list.append(pos_delta)
             neg_delta_list.append(neg_delta)
     _ = torch.tensor(np.arange(16*16))

@@ -38,7 +38,7 @@ module if_neuron #(
 
     // assign spike_out       = ~state_core_next_i[11] & (state_core_next_i >= param_thr) & time_step_event;
     
-    assign state_core_next =  spike_out ? 8'd0 : state_core_next_i;
+    assign state_core_next =  spike_out ? 'd0 : state_core_next_i;
 
     assign post_spike_cnt_next = post_spike_cnt_next_i;
     // 权重S2.5对齐膜电位S5.6
@@ -48,7 +48,7 @@ module if_neuron #(
     // assign state_syn = state_core + syn_weight_ext;
 //  assign overflow = (state_core[POST_NEUR_MEM_WIDTH-1]==syn_weight_ext[POST_NEUR_MEM_WIDTH-1]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core[POST_NEUR_MEM_WIDTH-1]);
     assign state_syn = state_core_reg + syn_weight_reg;
-     assign overflow = (state_core_reg[POST_NEUR_MEM_WIDTH-1]==syn_weight_reg[7]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core_reg[POST_NEUR_MEM_WIDTH-1]);
+    assign overflow = (state_core_reg[POST_NEUR_MEM_WIDTH-1]==syn_weight_reg[WEIGHT_WIDTH-1]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core_reg[POST_NEUR_MEM_WIDTH-1]);
 
     // if_neur_mem_adder u_if_neur_mem_adder (
     // .A(state_core),  // input wire [11 : 0] A

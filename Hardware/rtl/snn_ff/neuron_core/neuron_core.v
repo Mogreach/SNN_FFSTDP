@@ -60,7 +60,7 @@ module neuron_core #(
     localparam POST_NEUR_SRAM_ADDR_WIDTH = $clog2((OUTPUT_NEURON/POST_NEUR_PARALLEL));
     
     // localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
-    localparam  neuron_thresold= 12'b0000_0100_1101; // 神经元阈值S5.6: 1.2
+    localparam  neuron_thresold= 13'b0000_1010_01100; // 神经元阈值S5.6: 1.2
     // localparam  neuron_thresold= 12'b0_00001_000000; //神经元阈值S5.6: 1
     // Internal regs and wires definitions
     wire [PRE_NEUR_DATA_WIDTH-1:0] pre_neuron_sram_out;
@@ -117,6 +117,7 @@ module neuron_core #(
             wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_mem_next;
             // 突触后神经元阈值更新
             // assign post_neuron_sram_in[23+(i*32):12+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[23:12] : neuron_thresold;
+            // wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_thresold_next = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH +: POST_NEUR_MEM_WIDTH];
             wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_thresold_next = neuron_thresold;
             // 突触后神经元发放脉冲更新
             // assign post_neuron_sram_in[30+(i*32):24+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[30:24] : IF_neuron_next_spike_cnt[i];
@@ -125,13 +126,16 @@ module neuron_core #(
             // assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : post_neuron_sram_out[31+(i*32)];                            
             // assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : 1'b1;
             wire post_neuron_enable_next = 1'b1;
-            assign post_neuron_sram_in_array[i] = {post_neuron_enable_next, post_neuron_spike_cnt_next, post_neuron_thresold_next, post_neuron_mem_next};
+            // assign post_neuron_sram_in_array[i] = {post_neuron_enable_next, post_neuron_spike_cnt_next, post_neuron_thresold_next, post_neuron_mem_next};
+            assign post_neuron_sram_in_array[i] = {post_neuron_enable_next, post_neuron_spike_cnt_next, post_neuron_mem_next};
             assign post_neuron_sram_in[i*POST_NEUR_DATA_WIDTH +: POST_NEUR_DATA_WIDTH] = post_neuron_sram_in_array[i];
 
             assign post_neuron_sram_out_array[i] = post_neuron_sram_out[i*POST_NEUR_DATA_WIDTH +: POST_NEUR_DATA_WIDTH];
             wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_mem = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH-1:0];
-            wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_thresold = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH +: POST_NEUR_MEM_WIDTH];
-            wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  post_neuron_spike_cnt = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH + POST_NEUR_MEM_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH];
+            // wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_thresold = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH +: POST_NEUR_MEM_WIDTH];
+            wire [POST_NEUR_MEM_WIDTH-1:0]  post_neuron_thresold = neuron_thresold;
+            // wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  post_neuron_spike_cnt = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH + POST_NEUR_MEM_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH];
+            wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  post_neuron_spike_cnt = post_neuron_sram_out_array[i][POST_NEUR_MEM_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH];
             wire post_neuron_enable = post_neuron_sram_out_array[i][POST_NEUR_DATA_WIDTH-1];
 
             if_neuron #(
