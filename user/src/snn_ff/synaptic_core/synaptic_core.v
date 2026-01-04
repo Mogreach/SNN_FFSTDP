@@ -101,7 +101,7 @@ module synaptic_core #(
     
     
     // Synaptic memory wrapper
-    SRAM_65536x32_wrapper SRAM_65536x32_wrapper_0(
+    sram_synaptic u_sram_synaptic(
     .clka                                  (CLK                ),// input wire clka
     .ena                                   (CTRL_SYNARRAY_CS   ),// input 片选使能信号
     .wea                                   (CTRL_SYNARRAY_WE   ),// input 写使能信号

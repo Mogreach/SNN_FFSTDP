@@ -57,7 +57,7 @@ module ODIN_ffstdp_tb();
   end
 
     // **读取 TXT 文件**
-    parameter int N = 10;   // 样本数
+    parameter int N = 1000;   // 样本数
     parameter int T = 8;    // 时间步
     parameter int WIDTH = 784;  // 每个时间步的 bit 数
     
@@ -69,7 +69,7 @@ module ODIN_ffstdp_tb();
   initial begin
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/simulation_spikes.bin", "rb"); // 以二进制方式读取
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.bin", "rb"); // 以二进制方式读取
-      file = $fopen("D:/OneDrive/SNN_FFSTDP/Gen_out/all_spikes.bin", "rb");
+      file = $fopen("D:/OneDrive/SNN_FFSTDP/Gen_out/MNIST/all_spikes.bin", "rb");
       
       if (file == 0) begin
           $display("Error: Cannot open file!");
