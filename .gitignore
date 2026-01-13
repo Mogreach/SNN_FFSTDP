@@ -144,7 +144,8 @@ SNN-forwardforward/doc/SNN-FF.md
 Hardware/script/brian2_sim/model_weight
 Hardware/script/brian2_sim/rom_coe
 Hardware/script/brian2_sim/data
-
+user/script/brian2_sim/data/
+*.h5
 prj/
 doc/
 Gen_out/
