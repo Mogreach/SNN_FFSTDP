@@ -1,4 +1,4 @@
-PROJECT_NAME
+# PROJECT_TREE
     ----.vscode
         ----property.json 工程配置文件 用户自定义 (或者存放于工作区的根目录也可)
     ----prj 用于存放工程文件
