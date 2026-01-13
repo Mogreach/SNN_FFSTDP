@@ -81,48 +81,16 @@ def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
     B, C, H, W = images.shape
     spike_train = torch.zeros((T, B, C, H, W), device=images.device)
     v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
-
     for t in range(T):
         v_mem += images  # 每步累加像素值
         spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
         spike_train[t] = spike
         v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
-
+    # Possion编码
+    # spike_train = torch.zeros(T, images.shape[0], images.flatten(1).shape[1]).cuda()
+    # for t in range(T):
+    #     spike_train[t] += encoding.PoissonEncoder(images).flatten(1)
     return spike_train  # 形状为 [T, B, C, H, W]
-
-class IFNode_Non_T(neuron.IFNode):
-    def neuronal_charge(self, x: torch.Tensor):
-        self.v = self.v.detach() + x
-class IFNode_multiple_threshold(neuron.IFNode):
-    def __init__(self, v_threshold_pos: float , v_threshold_neg: float):
-        super().__init__()
-        self.v_threshold_pos = v_threshold_pos
-        self.v_threshold_neg = v_threshold_neg
-    def neuronal_fire(self):
-        """
-        * :ref:`API in English <BaseNode.neuronal_fire-en>`
-
-        .. _BaseNode.neuronal_fire-cn:
-
-        根据当前神经元的电压、阈值，计算输出脉冲。
-
-        * :ref:`中文API <BaseNode.neuronal_fire-cn>`
-
-        .. _BaseNode.neuronal_fire-en:
-
-
-        Calculate out spikes of neurons by their current membrane potential and threshold voltage.
-        """
-        spike_pos = self.surrogate_function(self.v - self.v_threshold_pos)
-        spike_neg = -1 * self.surrogate_function(-self.v + self.v_threshold_neg)
-        return spike_pos + spike_neg
-    # def forward(self, x: torch.Tensor):
-    #     self.v = self.v + x
-    #     pos_spike = (self.v >= self.v_threshold_pos).to(x.dtype)
-    #     neg_spike = - (self.v <= self.v_threshold_neg).to(x.dtype)
-    #     self.v = self.v * (1.0 - pos_spike + neg_spike)
-    #     out = pos_spike + neg_spike
-    #     return out
 
 class Net(torch.nn.Module):
     def __init__(self, dims, tau, epoch, T, lr, v_threshold_pos, v_threshold_neg, opt, loss_threshold):
@@ -148,22 +116,6 @@ class Net(torch.nn.Module):
                         ).cuda()
                     ]
                 )
-            elif (d==0):
-                self.layers += nn.ModuleList(
-                    [
-                        Layer(
-                            in_features=dims[d],
-                            out_features=dims[d + 1],
-                            epoch=epoch,
-                            T=T,
-                            lr=lr,
-                            v_threshold_pos=v_threshold_pos + d *0.2,
-                            v_threshold_neg=v_threshold_neg,
-                            tau=tau,
-                            loss_threshold=loss_threshold,
-                        ).cuda()
-                    ]
-                )
             else:
                 self.layers += nn.ModuleList(
                     [
@@ -173,7 +125,7 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold_pos=v_threshold_pos + d *0.2,
+                            v_threshold_pos=v_threshold_pos,
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
@@ -187,14 +139,7 @@ class Net(torch.nn.Module):
         for label in range(10):
             goodness = []
             label = torch.full((x.shape[0],), label)
-            h = overlay_y_on_x(x, label)
-            
-            # Possion编码
-            # h_encoded = torch.zeros(self.T, h.shape[0], h.flatten(1).shape[1]).cuda()
-            # for t in range(self.T):
-            #     h_encoded[t] += self.encoder(h).flatten(1)
-            # h = h_encoded
-            # 频率编码
+            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
             spike_in_of_label = h[:,:,0:10]
@@ -211,21 +156,18 @@ class Net(torch.nn.Module):
         # 通过goodness计算预测结果
     def predict_winner(self, x):
         label = torch.randint(0, 10, (x.shape[0],))
-        h = overlay_y_on_x(x, label)
+        h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
         # 频率编码
         h = spike_encoder(x, self.T)
         h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
-        spike_in_of_label = h[:,:,0:10]
         spike_in_of_output_layer = torch.empty((h.shape[0],h.shape[1],0)).cuda()
         # spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,h),dim=2)
-        spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_in_of_label),dim=2)
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
                 spike_out = layer.predict(spike_in_of_output_layer) 
             else:
                 h = layer.predict(h)
                 spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,h),dim=2)
-                h = torch.cat((h,spike_in_of_label),dim=2)
         spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
         return spike_out_sum.argmax(1)
     def predict_analyze(self, x):
@@ -235,7 +177,7 @@ class Net(torch.nn.Module):
         for label in range(10):
             goodness = []
             label = torch.full((x.shape[0],), label)
-            h = overlay_y_on_x(x, label)
+            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
             # 频率编码
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
@@ -263,45 +205,38 @@ class Net(torch.nn.Module):
                 train_mode = False
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss
-    def train_ff_stdp(self, x_pos, x_neg, label):
+    def train_ff_stdp(self, x, label):
+        x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=10)
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
         in_pos = x_pos_encoded.flatten(2)
         in_neg = x_neg_encoded.flatten(2)
-
-        # in_pos = torch.zeros(self.T, x_pos.shape[0], x_pos.flatten(1).shape[1]).cuda()
-        # in_neg = torch.zeros(self.T, x_pos.shape[0], x_neg.flatten(1).shape[1]).cuda()
-        # for t in range(self.T):
-        #     x_pos_encoded = self.encoder(x_pos)
-        #     x_neg_encoded = self.encoder(x_neg)
-        #     in_pos[t] += x_pos_encoded.flatten(1)
-        #     in_neg[t] += x_neg_encoded.flatten(1)
-
         spike_input_pos = in_pos
         spike_input_neg = in_neg
-
-        goodness_pos, cos_pos, spike_out_pos = self.train_ff_stdp_step(spike_input_pos, True, label)
-        goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_neg, False, label)
-        
+        goodness_pos, cos_pos, spike_out_pos, goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_pos, spike_input_neg, label)      
         return goodness_pos, goodness_neg, cos_pos, cos_neg
-    def train_ff_stdp_step(self, input, is_pos, label):
-        spike_input  = input
-        goodness_per_layer = []
-        cos_sim_per_layer = []
-        spike_in_of_label = spike_input[:,:,0:10]
-        spike_in_of_output_layer = torch.empty((spike_input.shape[0],spike_input.shape[1],0)).cuda()
-        spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_input[:,:,0:10]),dim=2)
-        # spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_input),dim=2)
+    def train_ff_stdp_step(self, input_pos, input_neg, label):
+        T, B, _ = input_pos.shape
+        pos_goodness_per_layer = []
+        neg_goodness_per_layer = []
+        pos_cos_sim_per_layer = []
+        neg_cos_sim_per_layer = []
+        pos_spike_in_of_output_layer = torch.empty((T,B,0)).cuda()
+        neg_spike_in_of_output_layer = torch.empty((T,B,0)).cuda()
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
-                spike_output = layer.train_bp_stdp(spike_in_of_output_layer, label)
+                pos_spike_output = layer.train_bp_stdp(pos_spike_in_of_output_layer, label)
+                neg_spike_output = 0
+                # neg_spike_output = layer.train_bp_stdp(neg_spike_in_of_output_layer, label)
             else:
-                spike_input, g ,cos_sim = layer.train_ff_stdp(spike_input, is_pos)
-                goodness_per_layer.append(g.mean().item())
-                cos_sim_per_layer.append(cos_sim)
-                spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,spike_input),dim=2)
-                spike_input = torch.cat((spike_input,spike_in_of_label),dim=2)
-        return goodness_per_layer, cos_sim_per_layer , spike_output
+                input_pos, pos_g , pos_cos_sim, input_neg, neg_g, neg_cos_sim = layer.train_ff_stdp(input_pos, input_neg)
+                pos_goodness_per_layer.append(pos_g.mean().item())
+                neg_goodness_per_layer.append(neg_g.mean().item())
+                pos_cos_sim_per_layer.append(pos_cos_sim)
+                neg_cos_sim_per_layer.append(neg_cos_sim)
+                pos_spike_in_of_output_layer = torch.cat((pos_spike_in_of_output_layer,input_pos),dim=2)
+                neg_spike_in_of_output_layer = torch.cat((neg_spike_in_of_output_layer,input_neg),dim=2)
+        return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_output, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_output
 
     def save(self, args, path):
         check_point = {
@@ -329,18 +264,12 @@ class Layer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            # neuron.LIFNode(tau=tau, v_threshold= v_threshold, surrogate_function=surrogate.ATan())
-            # IFNode_Non_T(v_reset= None, v_threshold= v_threshold, surrogate_function=surrogate.ATan(), step_mode='s')
             neuron.IFNode(
                 v_reset=None,
                 v_threshold=v_threshold_pos,
                 surrogate_function=surrogate.ATan(),
                 step_mode="s",
             ),
-            # IFNode_multiple_threshold(
-            #     v_threshold_pos=v_threshold_pos,
-            #     v_threshold_neg=v_threshold_neg
-            # ),
         )
         self.lr = lr
         self.spike_input_rate = 0
@@ -434,59 +363,65 @@ class Layer(nn.Module):
         else:
             functional.reset_net(self.layer)
             return g_pos_freq.detach(), g_neg_freq.detach(), 0
-    def train_ff_stdp(self,x_encoded,is_pos):
-        N = x_encoded.shape[1]
-        input_spike_sum = x_encoded.sum(0)
-        output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+    def train_ff_stdp(self, pos_encoded, neg_encoded):
+        N = pos_encoded.shape[1]
+        # Positive sample processing
+        pos_input_spike_sum = pos_encoded.sum(0)
+        pos_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
         for t in range(self.T):
-            output_spike[t] += self.forward(x_encoded[t])
-        out_freq = output_spike.mean(0).transpose(0,1)
+            pos_output_spike[t] += self.forward(pos_encoded[t])
+        pos_out_freq = pos_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
-        goodness = self.cal_goodness(out_freq)
-
-        if is_pos:
-            L_to_s_grad = 2*out_freq*pos_derivative(goodness,self.threshold)
-            loss = torch.log(1 + torch.exp(-goodness + self.threshold)).mean()
-        else:
-            L_to_s_grad = 2*out_freq*neg_derivative(goodness,self.threshold)
-            loss = torch.log(1 + torch.exp(goodness - self.threshold)).mean()
-        weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
-        # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
-        loss.backward()
-        with torch.no_grad():
+        pos_goodness = self.cal_goodness(pos_out_freq)
+        pos_L_to_s_grad = 2*pos_out_freq*pos_derivative(pos_goodness,self.threshold)
+        pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
+        pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
+        pos_loss.backward()
+        with torch.no_grad():   
             for param in self.layer.parameters():
-                    # 使用优化器更新权重           
-                    param += self.lr * weight_grad
-                    cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*weight_grad.flatten(),dim=0)
-                    # param.grad = weight_grad
-                    # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
-                    # 可视化梯度分布
-                    # plt.figure(figsize=(8, 6))
-                    # plt.hist(param.grad.cpu().numpy().flatten(), bins=50, color='blue', alpha=0.7)
-                    # plt.title("Gradient Distribution")
-                    # plt.xlabel("Gradient Value")
-                    # plt.ylabel("Frequency")
-                    # plt.grid(True)
-                    # plt.show()
-                    # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
-        # self.opt.step()
+                pos_cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*pos_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
-        return output_spike.detach(), goodness.detach().mean(1).cpu(),cos_sim.detach().cpu().item()
+        # Negative sample processing
+        neg_input_spike_sum = neg_encoded.sum(0)
+        neg_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+        for t in range(self.T):
+            neg_output_spike[t] += self.forward(neg_encoded[t])
+        neg_out_freq = neg_output_spike.mean(0).transpose(0,1)
+        self.opt.zero_grad()
+        neg_goodness = self.cal_goodness(neg_out_freq)
+        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold)
+        neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
+        neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
+        neg_loss.backward()
+        with torch.no_grad():   
+            for param in self.layer.parameters():
+                neg_cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+        functional.reset_net(self.layer)
+        # Update weights
+        with torch.no_grad():   
+            for param in self.layer.parameters():
+                # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
+                # 使用优化器更新权重           
+                param += self.lr * (pos_weight_grad + neg_weight_grad) 
+                # param.grad = weight_grad
+                # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
+                # 可视化梯度分布
+                # plt.figure(figsize=(8, 6))
+                # plt.hist(param.grad.cpu().numpy().flatten(), bins=50, color='blue', alpha=0.7)
+                # plt.title("Gradient Distribution")
+                # plt.xlabel("Gradient Value")
+                # plt.ylabel("Frequency")
+                # plt.grid(True)
+                # plt.show()
+                # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
+        
+        return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         h = x
         g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()
-        # self.spike_input_rate = 0
-        # h_encoded = spike_encoder(h, self.T)
         for t in range(self.T):
-            # h_encoded = self.encoder(h)
-            # self.spike_input_rate += h_encoded.mean().detach().cpu() / self.T
             spike_out = self.forward(h[t])
             g[t] += spike_out
-            # 用于观察输出层脉冲发放情况
-            # if (self.out_features==10):
-            # if(g[0].sum() > 0):
-            # print(1)
-            # self.visualize_spike_in_timestep(spike_out)
         functional.reset_net(self.layer)
         return g
 class OutputLayer(nn.Module):
@@ -497,16 +432,12 @@ class OutputLayer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            # neuron.IFNode(
-            #     v_reset=None,
-            #     v_threshold=v_threshold_pos,
-            #     surrogate_function=surrogate.ATan(),
-            #     step_mode="s",
-            # ),
-            IFNode_multiple_threshold(
-                v_threshold_pos=v_threshold_pos,
-                v_threshold_neg=v_threshold_neg
-            ),
+            neuron.IFNode(
+                v_reset=None,
+                v_threshold=v_threshold_pos,
+                surrogate_function=surrogate.ATan(),
+                step_mode="s",
+            )
         )
         self.lr = lr
         self.spike_input_rate = 0
@@ -517,7 +448,6 @@ class OutputLayer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
-        # self.opt = SGD(self.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
     def forward(self, x):
@@ -526,24 +456,29 @@ class OutputLayer(nn.Module):
         return self.layer(x)
     def train_bp_stdp(self,x_encoded, label):
         N = x_encoded.shape[1]
-        input_spike_sum = x_encoded.sum(0).cuda()
         output_spike = torch.zeros(self.T, N, self.out_features).cuda()
-        ksi_output = torch.zeros(N,self.out_features).cuda() 
         for t in range(self.T):
             output_spike[t] += self.forward(x_encoded[t])
-        spike_sums = output_spike.sum(0)  # 对时间维度求和，形状为 [N, out_features]
-         # 创建一个布尔掩码，判断每个样本的每个输出神经元是否满足条件
-        neg_mask = (spike_sums >= 1) & (torch.arange(self.out_features).cuda() != label.unsqueeze(1))
-        pos_mask = (spike_sums <= (self.T/2)) & (torch.arange(self.out_features).cuda() == label.unsqueeze(1))
-        ksi_output[pos_mask] = 1
-        ksi_output[neg_mask] = -1
-        ksi_output = ksi_output.transpose(0,1)
+        spike_freq = output_spike.mean(0)
         self.opt.zero_grad()
-        weight_grad = ksi_output @ input_spike_sum / N
-        with torch.no_grad():
-            for param in self.layer.parameters():
-                    # 使用优化器更新权重           
-                    param += self.lr * weight_grad
+        loss = F.cross_entropy(spike_freq.view(-1, self.out_features), label.view(-1))
+        loss.backward()
+        self.opt.step()
+        # input_spike_sum = x_encoded.sum(0).cuda()
+        # ksi_output = torch.zeros(N,self.out_features).cuda() 
+        # spike_sums = output_spike.sum(0)  # 对时间维度求和，形状为 [N, out_features]
+        #  # 创建一个布尔掩码，判断每个样本的每个输出神经元是否满足条件
+        # neg_mask = (spike_sums >= 1) & (torch.arange(self.out_features).cuda() != label.unsqueeze(1))
+        # pos_mask = (spike_sums <= (self.T/2)) & (torch.arange(self.out_features).cuda() == label.unsqueeze(1))
+        # ksi_output[pos_mask] = 1
+        # ksi_output[neg_mask] = -1
+        # ksi_output = ksi_output.transpose(0,1)
+        # self.opt.zero_grad()
+        # weight_grad = ksi_output @ input_spike_sum / N
+        # with torch.no_grad():
+        #     for param in self.layer.parameters():
+        #             # 使用优化器更新权重           
+        #             param += self.lr * weight_grad
         functional.reset_net(self.layer)
         return output_spike.detach()
     def predict(self, x):

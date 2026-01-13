@@ -18,7 +18,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-dims",
-            default=[784,256,10],
+            default=[784,512,512,10],
             help="dimension of the network",
             type=int,
             nargs="+",
