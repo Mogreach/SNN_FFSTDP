@@ -22,14 +22,8 @@ import torch.utils.data as data
 import torchvision
 import torch.nn.functional as F
 from config import ConfigParser
-from src.ff_snn_net import Net
-"""
-Function Name: 可视化权重特征
-
-参数:
-param_name (type): param为 torch.Tensor 或 np.array，形状为 [500, 784]。
-
-"""
+from src.ff_snn_net import Net, spike_encoder
+from src.generate_neg_sample import *
 def vis_weight_feature(param):
     # 假设 param 是 shape: [500, 784] 的 torch.Tensor 或 np.array
     if isinstance(param, torch.Tensor):
@@ -49,34 +43,6 @@ def vis_weight_feature(param):
 
     plt.tight_layout()
     plt.show()
-
-def get_y_neg(y,device):
-    y_neg = y.clone()
-    for idx, y_samp in enumerate(y):
-        allowed_indices = list(range(10))
-        # print("allowed_indices:", allowed_indices)
-        # print("y_samp:", y_samp.item())
-        allowed_indices.remove(y_samp.item())
-        y_neg[idx] = torch.tensor(allowed_indices)[
-            torch.randint(len(allowed_indices), size=(1,))
-        ].item()
-    return y_neg.to(device)
-
-def overlay_y_on_x(x, y,classes=10):
-    """Replace the first 10 pixels of data [x] with one-hot-encoded label [y]
-    """
-    x_ = x.clone()  # 创建一个 x 的副本，避免修改原始数据
-    batch_size = x.shape[0]  # 获取批量大小
-    x_[:, 0, 0, :classes] *= 0.0  # 将N*C*H*W格式向量的每个样本的前10个像素值赋0
-    # 遍历每个样本
-    for i in range(batch_size):
-        # 获取当前样本的标签
-        label = y[i].item()  # y[i]是该样本的标签
-        # 确保标签在0到9之间（根据设置的 classes）
-        if 0 <= label < classes:
-            # 将第一通道前10个像素位置中对应标签的像素赋值为最大值
-            x_[i, 0, label, 0] = x_.max()  # 将每个样本前10个像素中，对应标签类别序号赋为当前矩阵最大值
-    return x_
 
 def visualize_sample(data, name='', idx=0):
     reshaped = data[idx].cpu().sum(dim=0) #.reshape(1, 28, 28)
@@ -140,9 +106,6 @@ def visualize_freq(freq_label_layer_freq, label_id, save_path=None):
     if save_path:
         plt.savefig(save_path)
     plt.show()
-import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 def visualize_layer_weights(net):
     """
@@ -305,6 +268,72 @@ def visualize_correct_sample_of_all_label_freq(net,val_data_loader,device):
     visualize_goodness(goodness)
     for label_id in range(10):
         visualize_freq(freq, label_id)
+
+
+class SpikeHook:
+    def __init__(self):
+        self.records = []
+
+    def hook_fn(self, module, input, output):
+        # output: [T,B,N] or [B,N] (step_mode='s')
+        self.records.append(output.detach())
+
+    def clear(self):
+        self.records = []
+
+@torch.no_grad()
+def visualize_firing_rate_per_label_hook(net, x, y):
+    # net.eval()
+    T = net.T
+    B = x.shape[0]
+
+    # ----------------------------
+    # 注册 hook
+    # ----------------------------
+    hooks = []
+    spike_hooks = []
+
+    for layer in net.layers[:-1]:
+        h = SpikeHook()
+        handle = layer.layer[2].register_forward_hook(h.hook_fn)
+        hooks.append(handle)
+        spike_hooks.append(h)
+
+    # firing_rates[label][layer] = [num_neurons]
+    firing_rates = []
+
+    acc = net.predict_winner(x).eq(y).cpu().float().mean().item()
+
+    # ----------------------------
+    # 统计 firing rate
+    # ----------------------------
+    for h in spike_hooks:
+        spikes = torch.stack(h.records, dim=0) if len(h.records[0].shape) == 2 else torch.cat(h.records)
+        # spikes shape: [T,B,N]
+        freq = spikes.mean(dim=(0,1))  # [N]
+        firing_rates.append(freq.cpu().numpy())
+
+    # ----------------------------
+    # 移除 hook
+    # ----------------------------
+    for handle in hooks:
+        handle.remove()
+
+    num_layers = len(firing_rates)
+
+    for layer_idx in range(num_layers):
+        plt.figure(figsize=(8, 4))
+        neurons = np.arange(len(firing_rates[layer_idx]))
+        freq = firing_rates[layer_idx]
+
+        plt.bar(neurons, freq, color='skyblue', alpha=0.7)
+        plt.xlabel("Neuron Index")
+        plt.ylabel("Firing Rate (mean over T & batch)")
+        plt.title(f"Layer {layer_idx} Firing Rate Distribution")
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.show()
+
 def main():
     config = ConfigParser()
     args = config.parse()
@@ -358,17 +387,30 @@ def main():
         pin_memory=True
     )
     device = torch.device("cuda")
-    net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
-    for name, module in net.named_modules():
-        if isinstance(module, torch.nn.Conv2d):
-            w = module.weight.data.clone()  # (Co, Ci, Kh, Kw)
-    goodness_mean = visualize_goodness_mean(net, test_data_loader, device)
-    visualize_layer_weights(net)
+    # net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+    #           v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    # net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    # # for name, module in net.named_modules():
+    # #     if isinstance(module, torch.nn.Conv2d):
+    # #         w = module.weight.data.clone()  # (Co, Ci, Kh, Kw)
+    # goodness_mean = visualize_goodness_mean(net, test_data_loader, device)
+    # visualize_layer_weights(net)
     # visualize_correct_sample_of_all_label_goodness(net,val_data_loader,device)
     # visualize_correct_sample_of_all_label_freq(net,val_data_loader,device)
 
+    net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
+    net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
+
+    for class_id in range(10):
+        # 假设 y 是标签张量，形状 [B]
+        target_class = class_id
+        x_batch, y_batch = next(iter(test_data_loader))
+        # 选出属于 target_class 的样本
+        mask = y_batch == target_class
+        x_target = x_batch[mask].cuda()
+        y_target = y_batch[mask].cuda()
+        visualize_firing_rate_per_label_hook(net, x_target, y_target)
 if __name__ == "__main__":
     main()
 
