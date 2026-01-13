@@ -30,18 +30,6 @@ from src.dataset import GroupedSortedMNIST, AugmentedMNIST
 import logging
 from spikingjelly.datasets.n_mnist import NMNIST
 from src.generate_neg_sample import *
-def get_y_neg(y, device):
-    y_neg = y.clone()
-    for idx, y_samp in enumerate(y):
-        allowed_indices = list(range(10))
-        # print("allowed_indices:", allowed_indices)
-        # print("y_samp:", y_samp.item())
-        allowed_indices.remove(y_samp.item())
-        y_neg[idx] = torch.tensor(allowed_indices)[
-            torch.randint(len(allowed_indices), size=(1,))
-        ].item()
-    return y_neg.to(device)
-
 
 
 def visualize_sample(data, name="", idx=0):
