@@ -30,7 +30,7 @@ class ConfigParser:
         self.parser.add_argument("-b", default=1000,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=20,
+            default=50,
             type=int,
             metavar="N",
             help="number of total epochs to run",
@@ -74,7 +74,7 @@ class ConfigParser:
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
         )
         self.parser.add_argument(
-            "-v_threshold_pos", default=1.0, type=float, help="V_threshold of LIF neuron"
+            "-v_threshold_pos", default=1.2, type=float, help="V_threshold of LIF neuron"
         )
         self.parser.add_argument(
             "-v_threshold_neg", default=-1.0, type=float, help="V_threshold of LIF neuron"
