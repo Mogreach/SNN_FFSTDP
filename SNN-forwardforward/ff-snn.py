@@ -110,6 +110,25 @@ def plot_goodness(goodness_of_layer_list,is_pos, save_path):
     # 保存图像到文件
     plt.savefig(save_path)
     print(f"{label} Goodness plot saved to {save_path}")
+def plot_firing_rate_pos_neg(pos_firing_rate,neg_firing_rate,save_path):
+
+    num_layers = len(pos_firing_rate) 
+    plt.figure(figsize=(10, 6))
+    for layer_idx in range(num_layers):
+        plt.plot(pos_firing_rate[layer_idx],"o-",label=f"Layer {layer_idx + 1} Positive")
+        plt.plot(neg_firing_rate[layer_idx],"x--",label=f"Layer {layer_idx + 1} Negative")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("Average Firing Rate")
+    plt.title("Positive / Negative Firing Rate vs Epoch")
+
+    plt.legend()
+    plt.grid(True)
+
+    plt.savefig(save_path)
+    print(f"Firing rate (pos/neg) plot saved to {save_path}")
+
+
 def main():
     config = ConfigParser()
     args = config.parse()
@@ -256,6 +275,8 @@ def main():
     goodness_neg_of_layer_list = [[] for _ in range(len(net.layers))]
     cos_pos_of_layer_list = [[] for _ in range(len(net.layers))]
     cos_neg_of_layer_list = [[] for _ in range(len(net.layers))]
+    spike_out_pos_of_layer_list = [[] for _ in range(len(net.layers))]
+    spike_out_neg_of_layer_list = [[] for _ in range(len(net.layers))]
     # 定义输出文件路径
     log_file_path = os.path.join(out_dir, "output_log.txt")
     # 保存原始标准输出
@@ -272,20 +293,27 @@ def main():
             goodness_neg_sum = 0
             cos_pos_sum = 0
             cos_neg_sum = 0
+            spike_out_pos_sum = 0
+            spike_out_neg_sum = 0
             for x, y in train_data_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
-                goodness_pos, goodness_neg, cos_pos, cos_neg = net.train_ff_stdp(x, y)
+                goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg = net.train_ff_stdp(x, y)
                 # 单个batch获取所有层的平均余弦相似度以及优度值
                 goodness_pos = torch.tensor(goodness_pos)
                 goodness_neg = torch.tensor(goodness_neg)
                 cos_pos = torch.tensor(cos_pos)
                 cos_neg = torch.tensor(cos_neg)
+                spike_out_pos = torch.tensor(spike_out_pos)
+                spike_out_neg = torch.tensor(spike_out_neg)
 
                 goodness_pos_sum += goodness_pos
                 goodness_neg_sum += goodness_neg
                 cos_pos_sum += cos_pos
                 cos_neg_sum += cos_neg
+                spike_out_pos_sum += spike_out_pos
+                spike_out_neg_sum += spike_out_neg
+
             # 累加的goodness先求所有层的平均值，在求batch的平均值计算loss
             loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
             print(f"Epoch: {i+1}/{epochs}, Loss: {loss.mean():.4f}")
@@ -294,6 +322,8 @@ def main():
                 goodness_neg_of_layer_list[l].append(goodness_neg_sum[l]/batch_samples)
                 cos_pos_of_layer_list[l].append(cos_pos_sum[l]/batch_samples)
                 cos_neg_of_layer_list[l].append(cos_neg_sum[l]/batch_samples)
+                spike_out_pos_of_layer_list[l].append(spike_out_pos_sum[l]/batch_samples)
+                spike_out_neg_of_layer_list[l].append(spike_out_neg_sum[l]/batch_samples)
                 loss_of_layer_list[l].append(loss[l])
 
             with torch.no_grad():
@@ -335,6 +365,7 @@ def main():
         plot_cos_sim(cos_neg_of_layer_list, False, os.path.join(out_dir, "cosine_similarity_negative.png"))
         plot_goodness(goodness_pos_of_layer_list, True, os.path.join(out_dir, "goodness_positive.png"))
         plot_goodness(goodness_neg_of_layer_list, False, os.path.join(out_dir, "goodness_negative.png"))
+        plot_firing_rate_pos_neg(spike_out_pos_of_layer_list, spike_out_neg_of_layer_list, os.path.join(out_dir, "spike_out_positive.png"))
         logger.info(f"Training completed in Total time: {int(hours)}h {int(minutes)}m {int(seconds)}s")
 
         test_acc = 0

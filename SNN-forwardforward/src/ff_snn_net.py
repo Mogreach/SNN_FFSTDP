@@ -212,19 +212,23 @@ class Net(torch.nn.Module):
         spike_input_pos = in_pos
         spike_input_neg = in_neg
         goodness_pos, cos_pos, spike_out_pos, goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_pos, spike_input_neg, label)      
-        return goodness_pos, goodness_neg, cos_pos, cos_neg
+        return goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg
     def train_ff_stdp_step(self, input_pos, input_neg, label):
         T, B, _ = input_pos.shape
         pos_goodness_per_layer = []
         neg_goodness_per_layer = []
         pos_cos_sim_per_layer = []
         neg_cos_sim_per_layer = []
+        pos_spike_out_per_layer = []
+        neg_spike_out_per_layer = []
         pos_spike_in_of_output_layer = torch.empty((T,B,0)).cuda()
         neg_spike_in_of_output_layer = torch.empty((T,B,0)).cuda()
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
                 pos_spike_output = layer.train_bp_stdp(pos_spike_in_of_output_layer, label)
-                neg_spike_output = 0
+                neg_spike_output = pos_spike_output
+                pos_spike_out_per_layer.append(pos_spike_output.mean().detach().cpu())
+                neg_spike_out_per_layer.append(neg_spike_output.mean().detach().cpu())
                 # neg_spike_output = layer.train_bp_stdp(neg_spike_in_of_output_layer, label)
             else:
                 input_pos, pos_g , pos_cos_sim, input_neg, neg_g, neg_cos_sim = layer.train_ff_stdp(input_pos, input_neg)
@@ -232,9 +236,11 @@ class Net(torch.nn.Module):
                 neg_goodness_per_layer.append(neg_g.mean().item())
                 pos_cos_sim_per_layer.append(pos_cos_sim)
                 neg_cos_sim_per_layer.append(neg_cos_sim)
+                pos_spike_out_per_layer.append(input_pos.mean().detach().cpu())
+                neg_spike_out_per_layer.append(input_neg.mean().detach().cpu())
                 pos_spike_in_of_output_layer = torch.cat((pos_spike_in_of_output_layer,input_pos),dim=2)
                 neg_spike_in_of_output_layer = torch.cat((neg_spike_in_of_output_layer,input_neg),dim=2)
-        return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_output, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_output
+        return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_out_per_layer, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_out_per_layer
 
     def save(self, args, path):
         check_point = {
