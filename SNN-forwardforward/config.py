@@ -18,7 +18,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-dims",
-            default=[784,256,256,10],
+            default=[784,512,512,10],
             help="dimension of the network",
             type=int,
             nargs="+",
@@ -68,13 +68,13 @@ class ConfigParser:
             "-momentum", default=0.9, type=float, help="momentum for SGD"
         )
         self.parser.add_argument(
-            "-lr", default=0.015625, type=float, help="learning rate"
+            "-lr", default=0.015625/2, type=float, help="learning rate"
         )
         self.parser.add_argument(
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
         )
         self.parser.add_argument(
-            "-v_threshold_pos", default=1.4, type=float, help="V_threshold of LIF neuron"
+            "-v_threshold_pos", default=1.3, type=float, help="V_threshold of LIF neuron"
         )
         self.parser.add_argument(
             "-v_threshold_neg", default=-1.0, type=float, help="V_threshold of LIF neuron"

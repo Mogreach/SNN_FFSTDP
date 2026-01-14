@@ -301,7 +301,7 @@ def main():
             for x, y in train_data_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
-                goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg = net.train_ff_stdp(x, y)
+                goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg = net.train_ff_stdp(x, y, frozen)
                 # 单个batch获取所有层的平均余弦相似度以及优度值
                 goodness_pos = torch.tensor(goodness_pos)
                 goodness_neg = torch.tensor(goodness_neg)
