@@ -78,16 +78,15 @@ def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
     """
     B, C, H, W = images.shape
     spike_train = torch.zeros((T, B, C, H, W), device=images.device)
-    v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
-    for t in range(T):
-        v_mem += images  # 每步累加像素值
-        spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
-        spike_train[t] = spike
-        v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
-    # Possion编码
-    # spike_train = torch.zeros(T, images.shape[0], images.flatten(1).shape[1]).cuda()
+    # v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
     # for t in range(T):
-    #     spike_train[t] += encoding.PoissonEncoder(images).flatten(1)
+    #     v_mem += images  # 每步累加像素值
+    #     spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
+    #     spike_train[t] = spike
+    #     v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
+    # Possion编码
+    for t in range(T):
+        spike_train[t] += encoding.PoissonEncoder()(images)
     return spike_train  # 形状为 [T, B, C, H, W]
 
 class Net(torch.nn.Module):
