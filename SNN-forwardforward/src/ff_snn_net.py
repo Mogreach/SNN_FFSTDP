@@ -202,7 +202,7 @@ class Net(torch.nn.Module):
                 train_mode = False
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss
-    def train_ff_stdp(self, x, label):
+    def train_ff_stdp(self, x, label, frozen):
         x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=10)
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
@@ -210,9 +210,9 @@ class Net(torch.nn.Module):
         in_neg = x_neg_encoded.flatten(2)
         spike_input_pos = in_pos
         spike_input_neg = in_neg
-        goodness_pos, cos_pos, spike_out_pos, goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_pos, spike_input_neg, label)      
+        goodness_pos, cos_pos, spike_out_pos, goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_pos, spike_input_neg, label, frozen)    
         return goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg
-    def train_ff_stdp_step(self, input_pos, input_neg, label):
+    def train_ff_stdp_step(self, input_pos, input_neg, label, frozen):
         T, B, _ = input_pos.shape
         pos_goodness_per_layer = []
         neg_goodness_per_layer = []
@@ -230,7 +230,7 @@ class Net(torch.nn.Module):
                 neg_spike_out_per_layer.append(neg_spike_output.mean().detach().cpu())
                 # neg_spike_output = layer.train_bp_stdp(neg_spike_in_of_output_layer, label)
             else:
-                input_pos, pos_g , pos_cos_sim, input_neg, neg_g, neg_cos_sim = layer.train_ff_stdp(input_pos, input_neg)
+                input_pos, pos_g , pos_cos_sim, input_neg, neg_g, neg_cos_sim = layer.train_ff_stdp(input_pos, input_neg, frozen)
                 pos_goodness_per_layer.append(pos_g.mean().item())
                 neg_goodness_per_layer.append(neg_g.mean().item())
                 pos_cos_sim_per_layer.append(pos_cos_sim)
@@ -366,7 +366,7 @@ class Layer(nn.Module):
         else:
             functional.reset_net(self.layer)
             return g_pos_freq.detach(), g_neg_freq.detach(), 0
-    def train_ff_stdp(self, pos_encoded, neg_encoded):
+    def train_ff_stdp(self, pos_encoded, neg_encoded, frozen):
         N = pos_encoded.shape[1]
         # Positive sample processing
         pos_input_spike_sum = pos_encoded.sum(0)
@@ -401,23 +401,25 @@ class Layer(nn.Module):
                 neg_cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
         # Update weights
-        with torch.no_grad():   
-            for param in self.layer.parameters():
-                # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
-                # 使用优化器更新权重           
-                param += self.lr * (pos_weight_grad + neg_weight_grad) 
-                # param.grad = weight_grad
-                # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
-                # 可视化梯度分布
-                # plt.figure(figsize=(8, 6))
-                # plt.hist(param.grad.cpu().numpy().flatten(), bins=50, color='blue', alpha=0.7)
-                # plt.title("Gradient Distribution")
-                # plt.xlabel("Gradient Value")
-                # plt.ylabel("Frequency")
-                # plt.grid(True)
-                # plt.show()
-                # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
-        
+        if frozen:
+            pass
+        else:
+            with torch.no_grad():   
+                for param in self.layer.parameters():
+                    # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
+                    # 使用优化器更新权重           
+                    param += self.lr * (pos_weight_grad + neg_weight_grad) 
+                    # param.grad = weight_grad
+                    # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
+                    # 可视化梯度分布
+                    # plt.figure(figsize=(8, 6))
+                    # plt.hist(param.grad.cpu().numpy().flatten(), bins=50, color='blue', alpha=0.7)
+                    # plt.title("Gradient Distribution")
+                    # plt.xlabel("Gradient Value")
+                    # plt.ylabel("Frequency")
+                    # plt.grid(True)
+                    # plt.show()
+                    # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         h = x

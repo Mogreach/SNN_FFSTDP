@@ -18,19 +18,19 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-dims",
-            default=[784,512,512,10],
+            default=[784,256,256,10],
             help="dimension of the network",
             type=int,
             nargs="+",
         )
         self.parser.add_argument(
-            "-T", default=8, type=int, help="simulating time-steps"
+            "-T", default=16, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
         self.parser.add_argument("-b", default=1000,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=50,
+            default=200,
             type=int,
             metavar="N",
             help="number of total epochs to run",
@@ -74,7 +74,7 @@ class ConfigParser:
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
         )
         self.parser.add_argument(
-            "-v_threshold_pos", default=1.2, type=float, help="V_threshold of LIF neuron"
+            "-v_threshold_pos", default=1.4, type=float, help="V_threshold of LIF neuron"
         )
         self.parser.add_argument(
             "-v_threshold_neg", default=-1.0, type=float, help="V_threshold of LIF neuron"

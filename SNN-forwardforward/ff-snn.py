@@ -282,6 +282,7 @@ def main():
     # 保存原始标准输出
     original_stdout = sys.stdout
     start_time = time.time()
+    frozen = False
     with open(log_file_path, "w") as f:
         sys.stdout = f  # 替换标准输出
         for i in tqdm(range(epochs)):
@@ -295,6 +296,8 @@ def main():
             cos_neg_sum = 0
             spike_out_pos_sum = 0
             spike_out_neg_sum = 0
+            if i > (0.6*epochs):
+                frozen = True
             for x, y in train_data_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
