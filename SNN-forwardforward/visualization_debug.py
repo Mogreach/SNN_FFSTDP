@@ -398,10 +398,20 @@ def main():
     # visualize_correct_sample_of_all_label_goodness(net,val_data_loader,device)
     # visualize_correct_sample_of_all_label_freq(net,val_data_loader,device)
 
-    net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
-    net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
-
+    net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=16, lr=args.lr,
+              v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
+    # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
+    net.load("./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.0078125/2026-01-15_00-41-13/checkpoint_max.pth")
+    test_acc = 0
+    test_samples = 0
+    test_count = 0
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            test_samples += y_te.numel()
+            test_count += 1
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            test_acc += net.predict_winner(x_te).eq(y_te).cpu().float().mean().item()
+    print("test Acc:", 100 * test_acc / test_count, "%")
     for class_id in range(10):
         # 假设 y 是标签张量，形状 [B]
         target_class = class_id
