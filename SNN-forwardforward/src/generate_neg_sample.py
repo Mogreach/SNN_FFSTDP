@@ -13,41 +13,43 @@ def minmax_norm(x, dims=[1,2,3], eps=1e-10):
     x_max = torch.amax(x, dim=dims, keepdim=True)
     x = (x - x_min) / (x_max - x_min + eps)
     return x
-def generate_pos_n_neg_sample(x, y, num_classes=10):
+def generate_pos_n_neg_sample(x, y, num_classes=10, type= "SCFF"):
 
-    # One-hot编码标签叠加在输入向量前10个像素位置
-    # x_pos = overlay_y_on_x(x, y, classes=num_classes)
-    # y_neg = get_y_neg(y, x.device)
-    # x_neg = overlay_y_on_x(x, y_neg, classes=num_classes)
+    if type == "embed_label_onehot":
+        # One-hot编码标签叠加在输入向量前10个像素位置
+        x_pos = overlay_y_on_x(x, y, classes=num_classes)
+        y_neg = get_y_neg(y, x.device)
+        x_neg = overlay_y_on_x(x, y_neg, classes=num_classes)
 
-    # 负样本独0码标签
-    # x_pos = overlay_label_on_x(x)
-    # y_neg = get_y_neg(y, device)
-    # x_neg = overlay_y_on_x(x, y_neg)
-    # x_neg = overlay_zero_on_x(x,y)
+    elif type == "embed_zero_onehot":
+        # 负样本独0码标签
+        x_pos = overlay_label_on_x(x)
+        y_neg = get_y_neg(y, x.device)
+        x_neg = overlay_y_on_x(x, y_neg)
+        x_neg = overlay_zero_on_x(x,y)
+    # elif type == "continuous_mask":
+    #     # Mask掩码
+    #     x_pos = x
+    #     x_neg = generate_negative_samples_continuous(x_pos, y, train_dataset.dataset, device=x.device, visualize=False)
+    #     x_pos = overlay_label_on_x(x_pos)
+    #     x_neg = overlay_zero_on_x(x_neg,y)
+    elif type == "SCFF":
+        # SCFF方式
+        p = 1
+        batch_size = x.shape[0]
+        x_pos = x + x
+        #create negative samples
+        random_indices = (torch.randperm(batch_size - 1) + 1)[:min(p,batch_size - 1)]
+        labeles = torch.arange(batch_size)
+        batch_negs = []
+        for i in random_indices:
+            x_neg = x[(labeles+i)%batch_size]
+            batch_neg = x + x_neg
+            batch_negs.append(batch_neg)
+        x_neg = torch.cat(batch_negs)
 
-    # Mask掩码
-    # x_pos = x
-    # x_neg = generate_negative_samples_continuous(x_pos, y, train_dataset.dataset, device=device, visualize=False)
-    # x_pos = overlay_label_on_x(x_pos)
-    # x_neg = overlay_zero_on_x(x_neg,y)
-
-    # SCFF方式
-    p = 1
-    batch_size = x.shape[0]
-    x_pos = x + x
-    #create negative samples
-    random_indices = (torch.randperm(batch_size - 1) + 1)[:min(p,batch_size - 1)]
-    labeles = torch.arange(batch_size)
-    batch_negs = []
-    for i in random_indices:
-        x_neg = x[(labeles+i)%batch_size]
-        batch_neg = x + x_neg
-        batch_negs.append(batch_neg)
-    x_neg = torch.cat(batch_negs)
-
-    x_pos = minmax_norm(x_pos, dims = [2,3])
-    x_neg = minmax_norm(x_neg, dims = [2,3])
+        x_pos = minmax_norm(x_pos, dims = [2,3])
+        x_neg = minmax_norm(x_neg, dims = [2,3])
     return x_pos, x_neg
 
 

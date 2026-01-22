@@ -24,6 +24,33 @@ import torch.nn.functional as F
 from config import ConfigParser
 from src.ff_snn_net import Net, spike_encoder
 from src.generate_neg_sample import *
+
+class SpikeHook:
+    def __init__(self,num_neurons):
+        self.records = []
+        self.num_neurons = num_neurons
+
+    def hook_fn(self, module, input, output):
+        # output: [T,B,N] or [B,N] (step_mode='s')
+        self.records.append(output.detach())
+
+    def clear(self):
+        self.records = []
+
+
+def register_hook(net, type="SCFF"):
+    hooks = []
+    spike_hooks = []
+    if type == "SCFF":
+        layers = net.layers
+    elif type == "embed_label_onehot":
+        layers = net.layers  # 不hook最后一层
+    for layer in layers:
+        h = SpikeHook(layer.out_features)
+        handle = layer.layer[2].register_forward_hook(h.hook_fn)
+        hooks.append(handle)
+        spike_hooks.append(h)
+    return hooks, spike_hooks
 def vis_weight_feature(param):
     # 假设 param 是 shape: [500, 784] 的 torch.Tensor 或 np.array
     if isinstance(param, torch.Tensor):
@@ -122,7 +149,8 @@ def visualize_layer_weights(net):
             if name == "layer":
                 for p_name, param in module[1].named_parameters():
                     w = param.detach().cpu().numpy()
-
+                    print(f"Layer {layer_idx} - {p_name} weight shape: {w.shape}")
+                    print(f"Layer {layer_idx} - {p_name} weight stats: min={w.min()}, max={w.max()}, mean={w.mean():.4f}, std={w.std():.4f}")
                     # ------------------------
                     # 1️⃣ 权重分布直方图
                     # ------------------------
@@ -145,200 +173,282 @@ def visualize_layer_weights(net):
 
     plt.tight_layout()
     plt.show()
-def visualize_goodness_mean(net, test_data_loader, device):
+def plot_firing_rate_neuron_all(firing_neuron_mean, num_layers):
     """
-    测试准确率并统计所有预测正确样本的各类别平均 goodness，并绘制热力图
+    绘制每个标签每层的 neuron-wise firing rate（柱状图）
+    横轴：Neuron Index（按顺序排列）
+    纵轴：Firing Rate（统一纵轴范围）
+    firing_neuron_mean[label][layer] = np.ndarray [num_neurons]
     """
+
+    num_labels = len(firing_neuron_mean)
+
+    # 计算纵轴统一范围
+    all_rates = np.concatenate([firing_neuron_mean[label][layer] 
+                                for label in range(num_labels) 
+                                for layer in range(num_layers)])
+    y_max = all_rates.max() * 1.1  # 留一点空白
+
+    fig, axes = plt.subplots(
+        num_labels, num_layers,
+        figsize=(3.5 * num_layers, 2.5 * num_labels),
+        sharex=False, sharey=True,  # 纵轴统一
+        gridspec_kw={'wspace':0.3, 'hspace':0.4}
+    )
+
+    if num_labels == 1:
+        axes = axes[np.newaxis, :]
+    if num_layers == 1:
+        axes = axes[:, np.newaxis]
+
+    for label in range(num_labels):
+        for layer in range(num_layers):
+            ax = axes[label, layer]
+            fr = firing_neuron_mean[label][layer]
+            # 横轴重新排列为排序顺序（从低到高发放率）
+            neurons = np.argsort(fr)
+            fr_sorted = fr[neurons]
+
+            ax.bar(neurons, fr_sorted, color='skyblue', alpha=0.8, edgecolor='black')
+
+            ax.set_ylim(0, y_max)
+            ax.set_xlabel("Neuron Index (sorted)", fontsize=8)
+            if layer == 0:
+                ax.set_ylabel(f"Label {label}\nFiring Rate", fontsize=8)
+            if label == 0:
+                ax.set_title(f"Layer {layer}", fontsize=10)
+
+            # ax.tick_params(axis='both', labelsize=7)
+            ax.tick_params(axis='y', labelleft=True)  # ⚠ 强制显示纵轴刻度
+            ax.tick_params(axis='x', labelsize=7)
+
+    fig.suptitle("Neuron-wise Firing Rate (All Labels & Layers, Sorted)", fontsize=12)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
+def plot_firing_rate_hist_all(firing_neuron_mean, num_layers, bins=40):
+    """
+    firing_neuron_mean[label][layer] = np.ndarray [num_neurons]
+    绘制每个 label × layer 的 neuron-wise firing rate 分布直方图
+    横坐标：Firing rate
+    纵坐标：Density
+    """
+
+    num_labels = len(firing_neuron_mean)
+
+    fig, axes = plt.subplots(
+        num_labels, num_layers,
+        figsize=(3.2 * num_layers, 2.5 * num_labels),
+        sharex=False, sharey=False,
+        gridspec_kw={'wspace':0.3, 'hspace':0.4}
+    )
+
+    # 当只有一行或一列时，axes可能是一维，需要统一成二维索引
+    if num_labels == 1:
+        axes = axes[np.newaxis, :]
+    if num_layers == 1:
+        axes = axes[:, np.newaxis]
+
+    for label in range(num_labels):
+        for layer in range(num_layers):
+            ax = axes[label, layer]
+            fr = firing_neuron_mean.get(label, {}).get(layer, None)
+            if fr is None:
+                ax.axis("off")
+                continue
+            # fr = firing_neuron_mean[label][layer]
+            ax.hist(fr, bins=bins, density=True, alpha=0.8, color='skyblue', edgecolor='black')
+
+            ax.set_xlabel("Firing Rate", fontsize=8)
+            ax.set_ylabel("Density", fontsize=8)
+
+            # 标题只在第一行显示
+            if label == 0:
+                ax.set_title(f"Layer {layer}", fontsize=10)
+            # y 轴标签只在第一列显示
+            if layer == 0:
+                ax.set_ylabel(f"Label {label}", fontsize=8)
+
+            # 设置字体大小
+            ax.tick_params(axis='both', labelsize=7)
+
+    fig.suptitle("Neuron-wise Firing Rate Distribution (All Labels & Layers)", fontsize=12)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # 留出 suptitle 空间
+    plt.show()
+
+
+def plot_layerwise_label_compare(firing_neuron_mean, bins=40):
+    num_labels = len(firing_neuron_mean)
+    num_layers = len(next(iter(firing_neuron_mean.values())))
+
+    fig, axes = plt.subplots(
+        num_layers, 1,
+        figsize=(6, 2.5 * num_layers),
+        sharex=True
+    )
+
+    if num_layers == 1:
+        axes = [axes]
+
+    for layer in range(num_layers):
+        ax = axes[layer]
+        for label in range(num_labels):
+            fr = firing_neuron_mean[label][layer]
+            ax.hist(fr, bins=bins, density=True, alpha=0.4, label=f"L{label}")
+
+        ax.set_title(f"Layer {layer}")
+        ax.set_ylabel("Density")
+        ax.legend(fontsize=8, ncol=5)
+
+    axes[-1].set_xlabel("Firing Rate")
+    fig.suptitle("Firing Rate Distribution per Layer (Label Comparison)", fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+def visualize_hook(net, test_data_loader, device, type="SCFF"):
+    """
+    使用 forward hook 统计所有预测正确样本的各类别平均 goodness，并绘制热力图
+    """
+    # net.eval()
+
+    hooks, spike_hooks = register_hook(net,type)
+
+    num_labels = 10
+    num_layers = len(spike_hooks)
+
+    # ===============================
+    # 统计准确率
+    # ===============================
+    per_class_correct = torch.zeros(num_labels)
+    per_class_total   = torch.zeros(num_labels)
+
+    # ===============================
+    # Fire rate, goodness 累计
+    # ===============================
+    goodness_sum   = torch.zeros(num_labels, num_layers)
+    firing_rates_sum = torch.zeros(num_labels, num_layers)
+    sample_count = torch.zeros(num_labels)
+    # ===============================
+    # 每个 label × layer × neuron 的 firing 累计
+    # ===============================
+    firing_neuron_sum = {}   # dict[label][layer] = Tensor[num_neurons]
+
     test_acc = 0
     test_count = 0
-    num_labels = 10
-    num_layers = len(net.layers)
-    """
-    计算每个类别的测试准确率
-    返回：
-        - per_class_correct: [10]
-        - per_class_total:   [10]
-        - per_class_acc:     [10]
-    """
-    num_labels = 10
-    per_class_correct = torch.zeros(num_labels)
-    per_class_total = torch.zeros(num_labels)
-    
-    # 累计各类 goodness 总和与计数
-    goodness_sum = torch.zeros(num_labels, num_layers).to(device)
-    goodness_count = torch.zeros(num_labels).to(device)
 
     with torch.no_grad():
         for x_te, y_te in test_data_loader:
+            x_te = x_te.to(device)
+            y_te = y_te.to(device)
+            # forward（hook 会自动记录 spikes）
+            if type == "SCFF":
+                pred = net.predict_winner(x_te)
+            elif type == "embed_label_onehot":
+                pred = net.predict_multiple(x_te)
+            test_acc += pred.eq(y_te).cpu().float().mean().item()
             test_count += 1
-            x_te, y_te = x_te.to(device), y_te.to(device)
-            predict_result, goodness, _ = net.predict_analyze(x_te)  
-            goodness = goodness.to(device)
-            # goodness: [10, num_layers, batch_size]
-            test_acc += predict_result.eq(y_te).cpu().float().mean().item()
-        
-            # 获取每个样本是否预测正确
-            correct_mask = predict_result.eq(y_te)
-            for idx in range(x_te.shape[0]):
-                label = y_te[idx].item()
-                if correct_mask[idx]:
-                    # 取该样本下对应标签的goodness: [num_layers]
-                    sample_goodness = goodness[label, :, idx]
-                    goodness_sum[label] += sample_goodness
-                    goodness_count[label] += 1
-
-            for i in range(len(y_te)):
+            # ----------------------------
+            # 逐样本统计
+            # ----------------------------
+            for i in range(x_te.shape[0]):
                 label = y_te[i].item()
                 per_class_total[label] += 1
-
-                if predict_result[i].item() == label:
+                # 仅统计预测正确/错误的样本
+                if pred[i].item() != label:
                     per_class_correct[label] += 1
-    print("test Acc:", 100 * test_acc / test_count, "%")
-    # 计算每类准确率
-    per_class_acc = per_class_correct / per_class_total
 
+                    # 对该样本，逐层算 goodness
+                    for layer_idx, h in enumerate(spike_hooks):
+                        if len(h.records) == 0:
+                            h.records = [torch.zeros((net.T, x_te.shape[0], h.num_neurons))]
+                        # spikes: [T,B,N] 或 [B,N]
+                        if len(h.records[0].shape) == 2:
+                            spikes = torch.stack(h.records, dim=0)  # [T,B,N]
+                        else:
+                            spikes = torch.cat(h.records)
+
+                        # 取该样本的脉冲
+                        # [T,N]
+                        s = spikes[:, i]
+                        g = net.T * s.mean(0).pow(2).sum().item()
+                        firing_rates_sum[label, layer_idx] += s.mean().item()
+                        goodness_sum[label, layer_idx] += g
+                        # neuron-wise firing rate for this sample
+                        neuron_fr = s.mean(0).cpu()   # [N]
+                        if label not in firing_neuron_sum:
+                            firing_neuron_sum[label] = {}
+                        if layer_idx not in firing_neuron_sum[label]:
+                            firing_neuron_sum[label][layer_idx] = neuron_fr.clone()
+                        else:
+                            firing_neuron_sum[label][layer_idx] += neuron_fr
+
+                    sample_count[label] += 1
+            for h in spike_hooks:
+                h.records.clear()
+
+    # ===============================
+    # 打印准确率
+    # ===============================
+    print("test Acc:", 100 * test_acc / test_count, "%")
     print("\n============================")
     print("   Per-Class Accuracy (%)")
     print("============================")
     for i in range(num_labels):
-        acc = 100 * per_class_acc[i].item()
-        print(f"Label {i}: {acc:.2f}%  ({int(per_class_correct[i])}/{int(per_class_total[i])})")
+        if per_class_total[i] > 0:
+            acc = 100 * per_class_correct[i] / per_class_total[i]
+            print(f"Label {i}: {acc:.2f}%  ({int(per_class_correct[i])}/{int(per_class_total[i])})")
 
-    # 避免除以0
+    # ===============================
+    # 计算平均 goodness
+    # ===============================
     goodness_mean = torch.zeros_like(goodness_sum)
+    freq_mean = torch.zeros_like(firing_rates_sum)
     for l in range(num_labels):
-        if goodness_count[l] > 0:
-            goodness_mean[l] = goodness_sum[l] / goodness_count[l]
+        if sample_count[l] > 0:
+            goodness_mean[l] = goodness_sum[l] / sample_count[l]
+            freq_mean[l] = firing_rates_sum[l] / sample_count[l]
 
-    # 转CPU并numpy化
-    goodness_mean = goodness_mean.cpu().numpy()
-
+    goodness_mean = goodness_mean.numpy()
+    freq_mean = freq_mean.numpy()
     # ===============================
-    # 绘制热力图
+    # neuron-wise firing rate mean
     # ===============================
-    plt.figure(figsize=(10, 6))
-    sns.heatmap(
-        goodness_mean,
-        annot=True, fmt=".2f", cmap="viridis",
-        xticklabels=[f"Layer {i}" for i in range(num_layers)],
-        yticklabels=[f"Label {i}" for i in range(num_labels)]
-    )
-    plt.xlabel("Layer")
-    plt.ylabel("Label")
-    plt.title("Average Goodness per Label and Layer (Correct Predictions Only)")
-    plt.tight_layout()
-    plt.show()
+    firing_neuron_mean = {}
 
-    return goodness_mean
+    for label in firing_neuron_sum:
+        firing_neuron_mean[label] = {}
+        for layer_idx in firing_neuron_sum[label]:
+            firing_neuron_mean[label][layer_idx] = (
+                firing_neuron_sum[label][layer_idx] / sample_count[label]
+            ).numpy()
 
-def visualize_correct_sample_of_all_label_goodness(net,val_data_loader,device):
-    test_acc = 0
-    test_samples = 0
-    test_count = 0
-    """查看标签0-9的goodness分布情况"""
-    with torch.no_grad():
-        for l in range(10):
-            for x_te, y_te in val_data_loader:
-                if (l != y_te):
-                    continue
-                else:
-                    x_te, y_te = x_te.to(device), y_te.to(device)
-                    predict_result , goodness,freq = net.predict_analyze(x_te)
-                    test_acc = predict_result.eq(y_te).cpu().float().mean().item()
-                    if test_acc == 1:
-                        print("test Acc:", 100 * test_acc, "%")
-                        visualize_goodness(goodness)
-                        break
-def visualize_correct_sample_of_all_label_freq(net,val_data_loader,device):
-    test_acc = 0
-    test_samples = 0
-    test_count = 0
-    """查看标签0-9的脉冲频率分布情况"""
-    with torch.no_grad():
-        for x_te, y_te in val_data_loader:
-            test_samples += y_te.numel()
-            x_te, y_te = x_te.to(device), y_te.to(device)
-            predict_result , goodness,freq = net.predict_analyze(x_te)
-            test_acc = predict_result.eq(y_te).cpu().float().mean().item()
-            if test_acc == 0:
-                test_count += 1
-            if (test_count == 10):
-                break
-        print("test Acc:", 100 * test_acc / test_count, "%")
-    visualize_goodness(goodness)
-    for label_id in range(10):
-        visualize_freq(freq, label_id)
-
-
-class SpikeHook:
-    def __init__(self):
-        self.records = []
-
-    def hook_fn(self, module, input, output):
-        # output: [T,B,N] or [B,N] (step_mode='s')
-        self.records.append(output.detach())
-
-    def clear(self):
-        self.records = []
-
-@torch.no_grad()
-def visualize_firing_rate_per_label_hook(net, x, y):
-    # net.eval()
-    T = net.T
-    B = x.shape[0]
-
-    # ----------------------------
-    # 注册 hook
-    # ----------------------------
-    hooks = []
-    spike_hooks = []
-
-    for layer in net.layers[:-1]:
-        h = SpikeHook()
-        handle = layer.layer[2].register_forward_hook(h.hook_fn)
-        hooks.append(handle)
-        spike_hooks.append(h)
-
-    # firing_rates[label][layer] = [num_neurons]
-    firing_rates = []
-
-    acc = net.predict_winner(x).eq(y).cpu().float().mean().item()
-
-    # ----------------------------
-    # 统计 firing rate
-    # ----------------------------
-    for h in spike_hooks:
-        spikes = torch.stack(h.records, dim=0) if len(h.records[0].shape) == 2 else torch.cat(h.records)
-        # spikes shape: [T,B,N]
-        freq = spikes.mean(dim=(0,1))  # [N]
-        firing_rates.append(freq.cpu().numpy())
-
-    # ----------------------------
-    # 移除 hook
-    # ----------------------------
-    for handle in hooks:
-        handle.remove()
-
-    num_layers = len(firing_rates)
-
-    for layer_idx in range(num_layers):
-        plt.figure(figsize=(8, 4))
-        neurons = np.arange(len(firing_rates[layer_idx]))
-        freq = firing_rates[layer_idx]
-
-        plt.bar(neurons, freq, color='skyblue', alpha=0.7)
-        plt.xlabel("Neuron Index")
-        plt.ylabel("Firing Rate (mean over T & batch)")
-        plt.title(f"Layer {layer_idx} Firing Rate Distribution")
-        plt.grid(True, linestyle='--', alpha=0.5)
+    def plot_heatmap(data, title):
+        # ===============================
+        # 可视化
+        # ===============================
+        plt.figure(figsize=(10, 6))
+        sns.heatmap(
+            data,
+            annot=True, fmt=".2f", cmap="viridis",
+            xticklabels=[f"Layer {i}" for i in range(num_layers)],
+            yticklabels=[f"Label {i}" for i in range(num_labels)]
+        )
+        plt.xlabel("Layer")
+        plt.ylabel("Label")
+        plt.title(title)
         plt.tight_layout()
         plt.show()
-
+    plot_heatmap(goodness_mean, "Average Goodness per Label and Layer (Correct Predictions Only)")
+    plot_heatmap(freq_mean, "Average Firing Rate per Label and Layer (Correct Predictions Only)")
+    plot_firing_rate_hist_all(firing_neuron_mean, num_layers)
+    plot_layerwise_label_compare(firing_neuron_mean)
+    plot_firing_rate_neuron_all(firing_neuron_mean, num_layers)
+    # 移除 hook
+    for h in hooks:
+        h.remove()
 def main():
     config = ConfigParser()
     args = config.parse()
-###########################################################################################
-####################################前向学习的代码结构######################################
     # 初始化数据加载器
     # 加载训练集和测试集
     train_dataset = torchvision.datasets.MNIST(
@@ -387,9 +497,9 @@ def main():
         pin_memory=True
     )
     device = torch.device("cuda")
-    # net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-    #           v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    # net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    # ===============================
+    # 权重分布
+    # ===============================
     # # for name, module in net.named_modules():
     # #     if isinstance(module, torch.nn.Conv2d):
     # #         w = module.weight.data.clone()  # (Co, Ci, Kh, Kw)
@@ -398,29 +508,33 @@ def main():
     # visualize_correct_sample_of_all_label_goodness(net,val_data_loader,device)
     # visualize_correct_sample_of_all_label_freq(net,val_data_loader,device)
 
+    # ===============================
+    # 单层多次推理可视化分析
+    # ===============================
+    net = Net(dims=[784,256,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    visualize_layer_weights(net)
+    visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
+    # ===============================
+    # 多层多次推理可视化分析
+    # ===============================
+    net = Net(dims=[784,256, 128, 64,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+              v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    net.load("./SNN-forwardforward/logs/analyze/784-256-128-64-10.pth")
+    visualize_layer_weights(net)
+    visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
+    # ===============================
+    # 单次推理可视化分析
+    # ===============================
     net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=16, lr=args.lr,
               v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
     # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
-    net.load("./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.0078125/2026-01-15_00-41-13/checkpoint_max.pth")
-    test_acc = 0
-    test_samples = 0
-    test_count = 0
-    with torch.no_grad():
-        for x_te, y_te in test_data_loader:
-            test_samples += y_te.numel()
-            test_count += 1
-            x_te, y_te = x_te.to(device), y_te.to(device)
-            test_acc += net.predict_winner(x_te).eq(y_te).cpu().float().mean().item()
-    print("test Acc:", 100 * test_acc / test_count, "%")
-    for class_id in range(10):
-        # 假设 y 是标签张量，形状 [B]
-        target_class = class_id
-        x_batch, y_batch = next(iter(test_data_loader))
-        # 选出属于 target_class 的样本
-        mask = y_batch == target_class
-        x_target = x_batch[mask].cuda()
-        y_target = y_batch[mask].cuda()
-        visualize_firing_rate_per_label_hook(net, x_target, y_target)
+    net.load("./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_max.pth")
+    visualize_layer_weights(net)
+    visualize_hook(net, test_data_loader, device, type="SCFF")
+
+
 if __name__ == "__main__":
     main()
 

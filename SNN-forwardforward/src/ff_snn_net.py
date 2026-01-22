@@ -130,13 +130,13 @@ class Net(torch.nn.Module):
                     ]
                 )
     # 通过goodness计算预测结果
-    def predict(self, x):
+    def predict_multiple(self, x):
         goodness_per_label = []
         # goodness_per_label = 0  # 选择输出频率最大
         for label in range(10):
             goodness = []
             label = torch.full((x.shape[0],), label)
-            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
+            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10, type="embed_label_onehot")
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
             spike_in_of_label = h[:,:,0:10]
@@ -146,14 +146,14 @@ class Net(torch.nn.Module):
                 h = layer.predict(h)
                 freq = h.mean(0)  # 计算每层的平均频率
                 goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
-                h = torch.cat((h, spike_in_of_label),dim=2)
+                # h = torch.cat((h, spike_in_of_label),dim=2)
             goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
         goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
         return goodness_of_all_label.argmax(1)
         # 通过goodness计算预测结果
     def predict_winner(self, x):
         label = torch.randint(0, 10, (x.shape[0],))
-        h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
+        h, _ = generate_pos_n_neg_sample(x, label, num_classes=10, type="SCFF")
         # 频率编码
         h = spike_encoder(x, self.T)
         h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
@@ -167,30 +167,6 @@ class Net(torch.nn.Module):
                 spike_in_of_output_layer = torch.cat((spike_in_of_output_layer,h),dim=2)
         spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
         return spike_out_sum.argmax(1)
-    def predict_analyze(self, x):
-        goodness_per_label = []
-        goodness_label_layer_goodness = torch.zeros(10,len(self.layers),x.shape[0]).cuda()
-        freq_label_layer_freq = torch.zeros(10,len(self.layers),x.shape[0],1000).cuda()
-        for label in range(10):
-            goodness = []
-            label = torch.full((x.shape[0],), label)
-            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10)
-            # 频率编码
-            h = spike_encoder(h, self.T)
-            h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
-            spike_in_of_label = h[:,:,0:10]
-            for i, layer in enumerate(self.layers):
-                if i == len(self.layers) - 1:
-                    break
-                h = layer.predict(h)
-                freq = h.mean(0)  # 计算每层的平均频率
-                goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
-                goodness_label_layer_goodness[label,i,:] = layer.cal_goodness(freq).sum(1)
-                freq_label_layer_freq[label,i,:,0:freq.shape[1]] = freq
-                h = torch.cat((h, spike_in_of_label),dim=2)
-            goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
-        goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
-        return goodness_of_all_label.argmax(1),goodness_label_layer_goodness.cpu(),freq_label_layer_freq
     def train(self, x_pos, x_neg, y, layer_idx):
         h_pos, h_neg = x_pos, x_neg
         for i, layer in enumerate(self.layers):
@@ -254,7 +230,12 @@ class Net(torch.nn.Module):
         check_point = torch.load(path)
         # 加载每一层的参数
         for i, layer in enumerate(self.layers):
-            layer.load_state_dict(check_point["net"][f"layer_{i}"])
+            key = f"layer_{i}"
+            if key in check_point["net"]:
+                layer.load_state_dict(check_point["net"][key])
+                print(f"[OK] Loaded {key}")
+            else:
+                print(f"[Skip] {key} not found in checkpoint, skipped.")
         # 打印加载的超参数
         print(check_point["args"])
 
