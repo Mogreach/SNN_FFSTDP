@@ -18,7 +18,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-dims",
-            default=[784,512,512,512,10],
+            default=[784,512,512,10],
             help="dimension of the network",
             type=int,
             nargs="+",
@@ -27,10 +27,10 @@ class ConfigParser:
             "-T", default=16, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
-        self.parser.add_argument("-b", default=100,type=int, help="batch size")
+        self.parser.add_argument("-b", default=1000,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=300,
+            default=200,
             type=int,
             metavar="N",
             help="number of total epochs to run",

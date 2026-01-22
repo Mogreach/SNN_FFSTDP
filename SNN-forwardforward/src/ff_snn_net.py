@@ -89,6 +89,25 @@ def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
         spike_train[t] += encoding.PoissonEncoder()(images)
     return spike_train  # 形状为 [T, B, C, H, W]
 
+class tdLayerNorm(nn.Module):
+    def __init__(self, dim, v_threshold,eps=1e-5, alpha=1.0):
+        super().__init__()
+        self.v_threshold = v_threshold
+        self.eps = eps
+        self.alpha = alpha
+        self.gamma = nn.Parameter(torch.ones(dim))
+        self.beta = nn.Parameter(torch.zeros(dim))
+
+    def forward(self, x):
+        mean = x.mean(dim=-1, keepdim=True)
+        var = x.var(dim=-1, unbiased=False, keepdim=True)
+        ln_x = (self.v_threshold * (x - mean)) / torch.sqrt(var + self.eps)
+        ln_x = self.gamma * ln_x + self.beta
+
+        # soft combination
+        # return x + self.alpha * (ln_x - x)
+        return ln_x
+
 class Net(torch.nn.Module):
     def __init__(self, dims, tau, epoch, T, lr, v_threshold_pos, v_threshold_neg, opt, loss_threshold):
         super().__init__()
@@ -248,7 +267,8 @@ class Layer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            nn.LayerNorm(out_features),
+            # nn.LayerNorm(out_features),
+            # tdLayerNorm(out_features, v_threshold_pos),
             neuron.IFNode(
                 v_reset=None,
                 v_threshold=v_threshold_pos,
@@ -257,6 +277,7 @@ class Layer(nn.Module):
             ),
         )
         self.lr = lr
+        self.v_threshold = v_threshold_pos
         self.spike_input_rate = 0
         self.in_features = in_features
         self.out_features = out_features
@@ -298,10 +319,16 @@ class Layer(nn.Module):
         goodness = self.T * freq.abs().pow(2) * freq.sign()
         return goodness
 
-    def forward(self, x):
+    def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
-        # x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
-        return self.layer(x)
+        x = self.layer[0](x)   # Flatten
+        x = self.layer[1](x)   # Linear
+        mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
+        var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
+        x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
+        x = self.layer[2](x)   # IFNode  
+        # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
+        return x, mean, var
 
     def train(self, x_pos, x_neg, y, train_mode):
         g_pos = torch.zeros(self.T, x_pos.shape[0], self.out_features).cuda()
@@ -353,12 +380,15 @@ class Layer(nn.Module):
         # Positive sample processing
         pos_input_spike_sum = pos_encoded.sum(0)
         pos_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+        pos_ln_mean = torch.zeros((N, self.out_features)).cuda()
+        pos_ln_var = torch.zeros((N, self.out_features)).cuda()
         for t in range(self.T):
-            pos_output_spike[t] += self.forward(pos_encoded[t])
+            pos_spike, pos_ln_mean, pos_ln_var = self.forward(pos_encoded[t], pos_ln_mean, pos_ln_var)
+            pos_output_spike[t] += pos_spike
         pos_out_freq = pos_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        pos_L_to_s_grad = 2*pos_out_freq*pos_derivative(pos_goodness,self.threshold)
+        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
         pos_loss.backward()
@@ -371,12 +401,15 @@ class Layer(nn.Module):
         # Negative sample processing
         neg_input_spike_sum = neg_encoded.sum(0)
         neg_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
+        neg_ln_mean = torch.zeros((N, self.out_features)).cuda()
+        neg_ln_var = torch.zeros((N, self.out_features)).cuda()
         for t in range(self.T):
-            neg_output_spike[t] += self.forward(neg_encoded[t])
+            neg_spike, neg_ln_mean, neg_ln_var = self.forward(neg_encoded[t], neg_ln_mean, neg_ln_var)
+            neg_output_spike[t] += neg_spike
         neg_out_freq = neg_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold)
+        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
         neg_loss.backward()
@@ -399,10 +432,12 @@ class Layer(nn.Module):
 
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
-        h = x
-        g = torch.zeros(self.T, x.shape[1], self.out_features).cuda()
+        N = x.shape[1]
+        g = torch.zeros(self.T, N, self.out_features).cuda()
+        ln_mean = torch.zeros((N, self.out_features)).cuda()
+        ln_var = torch.zeros((N, self.out_features)).cuda()
         for t in range(self.T):
-            spike_out = self.forward(h[t])
+            spike_out, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
             g[t] += spike_out
         functional.reset_net(self.layer)
         return g
@@ -414,12 +449,12 @@ class OutputLayer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            neuron.IFNode(
-                v_reset=None,
-                v_threshold=v_threshold_pos,
-                surrogate_function=surrogate.ATan(),
-                step_mode="s",
-            )
+            # neuron.IFNode(
+            #     v_reset=None,
+            #     v_threshold=v_threshold_pos,
+            #     surrogate_function=surrogate.ATan(),
+            #     step_mode="s",
+            # )
         )
         self.lr = lr
         self.spike_input_rate = 0
