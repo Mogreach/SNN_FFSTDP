@@ -46,8 +46,10 @@ def register_hook(net, type="SCFF"):
     elif type == "embed_label_onehot":
         layers = net.layers  # 不hook最后一层
     for layer in layers:
+        if layer == net.layers[-1]:
+            continue
         h = SpikeHook(layer.out_features)
-        handle = layer.layer[3].register_forward_hook(h.hook_fn)
+        handle = layer.layer[2].register_forward_hook(h.hook_fn)
         hooks.append(handle)
         spike_hooks.append(h)
     return hooks, spike_hooks
@@ -354,7 +356,7 @@ def visualize_hook(net, test_data_loader, device, type="SCFF"):
                 label = y_te[i].item()
                 per_class_total[label] += 1
                 # 仅统计预测正确/错误的样本
-                if pred[i].item() != label:
+                if pred[i].item() == label:
                     per_class_correct[label] += 1
 
                     # 对该样本，逐层算 goodness
@@ -457,7 +459,7 @@ def main():
         transform=torchvision.transforms.ToTensor(),
         download=True
     )
-    test_dataset = torchvision.datasets.MNIST(
+    test_dataset = torchvision.datasets.FashionMNIST(
         root=args.data_dir,
         train=False,
         transform=torchvision.transforms.ToTensor(),
@@ -511,26 +513,26 @@ def main():
     # ===============================
     # 单层多次推理可视化分析
     # ===============================
-    net = Net(dims=[784,256,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
-    visualize_layer_weights(net)
-    visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
-    # ===============================
-    # 多层多次推理可视化分析
-    # ===============================
-    net = Net(dims=[784,256, 128, 64,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
-              v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
-    net.load("./SNN-forwardforward/logs/analyze/784-256-128-64-10.pth")
-    visualize_layer_weights(net)
-    visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
+    # net = Net(dims=[784,256,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+    #           v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    # net.load("./SNN-forwardforward/logs/analyze/784-256-10.pth")
+    # visualize_layer_weights(net)
+    # visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
+    # # ===============================
+    # # 多层多次推理可视化分析
+    # # ===============================
+    # net = Net(dims=[784,256, 128, 64,10],tau=args.tau, epoch=args.epochs, T=8, lr=args.lr,
+    #           v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.5)
+    # net.load("./SNN-forwardforward/logs/analyze/784-256-128-64-10.pth")
+    # visualize_layer_weights(net)
+    # visualize_hook(net, test_data_loader, device, type="embed_label_onehot")
     # ===============================
     # 单次推理可视化分析
     # ===============================
-    net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=16, lr=args.lr,
-              v_threshold_pos=1.3,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
+    net = Net(dims=[784,512,10],tau=args.tau, epoch=args.epochs, T=32, lr=args.lr,
+              v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
     # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
-    net.load("./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_max.pth")
+    net.load("./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_max.pth")
     visualize_layer_weights(net)
     visualize_hook(net, test_data_loader, device, type="SCFF")
 
