@@ -47,7 +47,7 @@ def register_hook(net, type="SCFF"):
         layers = net.layers  # 不hook最后一层
     for layer in layers:
         h = SpikeHook(layer.out_features)
-        handle = layer.layer[2].register_forward_hook(h.hook_fn)
+        handle = layer.layer[3].register_forward_hook(h.hook_fn)
         hooks.append(handle)
         spike_hooks.append(h)
     return hooks, spike_hooks

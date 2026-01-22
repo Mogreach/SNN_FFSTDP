@@ -248,6 +248,7 @@ class Layer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
+            nn.LayerNorm(out_features),
             neuron.IFNode(
                 v_reset=None,
                 v_threshold=v_threshold_pos,
@@ -361,9 +362,11 @@ class Layer(nn.Module):
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
         pos_loss.backward()
-        with torch.no_grad():   
-            for param in self.layer.parameters():
-                pos_cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*pos_weight_grad.flatten(),dim=0)
+        with torch.no_grad():
+            for m in self.layer.modules():
+                if isinstance(m, nn.Linear):
+                    w_grad = m.weight.grad
+                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
         # Negative sample processing
         neg_input_spike_sum = neg_encoded.sum(0)
@@ -377,30 +380,23 @@ class Layer(nn.Module):
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
         neg_loss.backward()
-        with torch.no_grad():   
-            for param in self.layer.parameters():
-                neg_cos_sim = torch.cosine_similarity(param.grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+        with torch.no_grad():
+            for m in self.layer.modules():
+                if isinstance(m, nn.Linear):
+                    w_grad = m.weight.grad
+                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
         # Update weights
         if frozen:
             pass
         else:
-            with torch.no_grad():   
-                for param in self.layer.parameters():
-                    # weight_grad = -1 * torch.mean(L_to_s_grad,dim=1,keepdim=True) @ torch.mean(input_spike_sum,dim=0,keepdim=True)
-                    # 使用优化器更新权重           
-                    param += self.lr * (pos_weight_grad + neg_weight_grad) 
-                    # param.grad = weight_grad
-                    # plt.imshow(np.array(param[511].cpu().reshape(28,28)))
-                    # 可视化梯度分布
-                    # plt.figure(figsize=(8, 6))
-                    # plt.hist(param.grad.cpu().numpy().flatten(), bins=50, color='blue', alpha=0.7)
-                    # plt.title("Gradient Distribution")
-                    # plt.xlabel("Gradient Value")
-                    # plt.ylabel("Frequency")
-                    # plt.grid(True)
-                    # plt.show()
-                    # param.clamp_(min=-12.0, max=12.0)  # 限制权重在[-12, 12]范围内
+            with torch.no_grad():
+                for m in self.layer.modules():
+                    if isinstance(m, nn.Linear):         
+                        m.weight += self.lr * (pos_weight_grad + neg_weight_grad) 
+                    # elif isinstance(m, nn.LayerNorm):
+                    #     m.weight += self.lr * (pos_weight_grad + neg_weight_grad)
+
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         h = x
