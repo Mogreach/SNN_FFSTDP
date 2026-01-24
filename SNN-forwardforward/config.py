@@ -12,7 +12,7 @@ License       : MIT
 import argparse
 class ConfigParser:
     def __init__(self):
-        self.parser = argparse.ArgumentParser(description="FF-STDP Training")
+        self.parser = argparse.ArgumentParser(description="Fashion no tdLN + no IF node")
         self.parser.add_argument(
             "-dataset", default="FashionMNIST", type=str, help="Train dataset"
         )

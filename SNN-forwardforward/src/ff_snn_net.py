@@ -323,9 +323,9 @@ class Layer(nn.Module):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
         x = self.layer[0](x)   # Flatten
         x = self.layer[1](x)   # Linear
-        mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
-        var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
-        x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
+        # mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
+        # var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
+        # x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
         x = self.layer[2](x)   # IFNode  
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
         return x, mean, var
@@ -388,7 +388,8 @@ class Layer(nn.Module):
         pos_out_freq = pos_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
+        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
+        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold)
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
         pos_loss.backward()
@@ -409,7 +410,8 @@ class Layer(nn.Module):
         neg_out_freq = neg_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
+        # neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
+        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold)
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
         neg_loss.backward()
