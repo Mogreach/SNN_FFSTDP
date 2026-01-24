@@ -540,7 +540,10 @@ def main():
     # 784-512-512-10 no tdLN + no IF："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth"
     # net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth")
     # 784-512-512-10 tdLN + no IF："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth"
-    net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth")
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth")
+    # 784-512-512-10 tdLBN + no IF："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-24_23-56-44/checkpoint_last.pth"
+    net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-24_23-56-44/checkpoint_last.pth")
+    
     
     
     # 784-512-512-10 未tdLN："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_last.pth"
