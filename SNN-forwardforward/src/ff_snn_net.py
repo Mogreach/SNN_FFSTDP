@@ -267,8 +267,6 @@ class Layer(nn.Module):
         self.layer = nn.Sequential(
             layer.Flatten(),
             layer.Linear(in_features, out_features, bias=False),
-            # nn.LayerNorm(out_features),
-            # tdLayerNorm(out_features, v_threshold_pos),
             neuron.IFNode(
                 v_reset=None,
                 v_threshold=v_threshold_pos,
@@ -323,9 +321,9 @@ class Layer(nn.Module):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
         x = self.layer[0](x)   # Flatten
         x = self.layer[1](x)   # Linear
-        # mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
-        # var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
-        # x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
+        mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
+        var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
+        x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
         x = self.layer[2](x)   # IFNode  
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
         return x, mean, var
@@ -388,8 +386,7 @@ class Layer(nn.Module):
         pos_out_freq = pos_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
-        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold)
+        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
         pos_loss.backward()
@@ -410,8 +407,7 @@ class Layer(nn.Module):
         neg_out_freq = neg_output_spike.mean(0).transpose(0,1)
         self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        # neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
-        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold)
+        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
         neg_loss.backward()
@@ -429,9 +425,6 @@ class Layer(nn.Module):
                 for m in self.layer.modules():
                     if isinstance(m, nn.Linear):         
                         m.weight += self.lr * (pos_weight_grad + neg_weight_grad) 
-                    # elif isinstance(m, nn.LayerNorm):
-                    #     m.weight += self.lr * (pos_weight_grad + neg_weight_grad)
-
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         N = x.shape[1]

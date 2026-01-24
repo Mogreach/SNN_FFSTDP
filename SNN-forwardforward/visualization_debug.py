@@ -529,10 +529,24 @@ def main():
     # ===============================
     # 单次推理可视化分析
     # ===============================
-    net = Net(dims=[784,512,10],tau=args.tau, epoch=args.epochs, T=32, lr=args.lr,
+    net = Net(dims=[784,512,512,10],tau=args.tau, epoch=args.epochs, T=16, lr=args.lr,
               v_threshold_pos=1.2,v_threshold_neg=-1.2, opt=args.opt, loss_threshold=0.25)
-    # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_max.pth")
-    net.load("./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_max.pth")
+    # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.015625/2026-01-13_15-42-17/checkpoint_last.pth")
+    # 784-512-10 未tdLN："./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_last.pth")
+    # 784-512-10 tdLN: "./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-23_00-45-43/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/T8_b1000_adam_lr0.00390625/2026-01-23_00-45-43/checkpoint_last.pth")
+    
+    # 784-512-512-10 no tdLN + no IF："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth")
+    # 784-512-512-10 tdLN + no IF："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth"
+    net.load("./SNN-forwardforward/logs/FashionMNIST/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth")
+    
+    
+    # 784-512-512-10 未tdLN："./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/MNIST/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_last.pth")
+    # 784-512-10 tdLN："./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.00390625/2026-01-22_20-18-51/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/MNIST/T8_b1000_adam_lr0.00390625/2026-01-22_20-18-51/checkpoint_last.pth")
     visualize_layer_weights(net)
     visualize_hook(net, test_data_loader, device, type="SCFF")
 
