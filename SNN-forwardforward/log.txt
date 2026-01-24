@@ -1,0 +1,21 @@
+TOP MNIST
+test Acc: 91.200000166893 %
+Testing completed. Total time: 0h 0m 3s
+Namespace(dataset='MNIST', dims=[784, 256, 10], T=8, device='cuda:0', b=500, epochs=200, j=8, data_dir='./data', out_dir='./logs', resume=None, amp=False, opt='adam', momentum=0.9, lr=0.015625, tau=2.0, v_threshold_pos=1.3, v_threshold_neg=-1.0, loss_threshold=0.25, save_model=False)
+./logs/MNIST/T8_b500_adam_lr0.015625/2025-11-25_09-20-40
+Batch size:  1
+test Acc: 87.11999994516373 %
+Testing completed. Total time: 0h 0m 7s
+Namespace(dataset='MNIST', dims=[784, 256], T=8, device='cuda:0', b=1, epochs=150, j=8, data_dir='./data', out_dir='./logs', resume=None, amp=False, opt='adam', momentum=0.9, lr=0.000390625, tau=2.0, v_threshold=1.2, loss_threshold=0.2, save_model=False)
+./logs/MNIST/T8_b1_adam_lr0.000390625/2025-10-27_18-49-05
+
+FashionMNIST
+test Acc: 81.8799996972084 %
+Testing completed. Total time: 0h 0m 18s
+Namespace(dataset='FashionMNIST', dims=[784, 512, 256], T=32, device='cuda:0', b=500, epochs=200, j=8, data_dir='./data', out_dir='./logs', resume=None, amp=False, opt='adam', momentum=0.9, lr=0.0015625, tau=2.0, v_threshold=1.2, loss_threshold=1.25, save_model=False)
+./logs/FashionMNIST/T32_b500_adam_lr0.0015625/2025-10-22_17-35-53
+
+test Acc: 79.57999968528748 %
+Testing completed. Total time: 0h 0m 5s
+Namespace(dataset='FashionMNIST', dims=[784, 256, 10], T=16, device='cuda:0', b=100, epochs=250, j=8, data_dir='./data', out_dir='./logs', resume=None, amp=False, opt='adam', momentum=0.9, lr=0.0015625, tau=2.0, v_threshold_pos=1.2, v_threshold_neg=-1.0, loss_threshold=0.6, save_model=False)
+./logs/FashionMNIST/T16_b100_adam_lr0.0015625/2025-12-17_22-37-37
