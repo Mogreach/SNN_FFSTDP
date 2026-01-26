@@ -302,26 +302,27 @@ class Layer(nn.Module):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
         x = self.layer[0](x)   # Flatten
         x = self.layer[1](x)   # Linear
-        mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1, keepdim=True)
-        var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False, keepdim=True)
-        x = ((self.v_threshold * (x - mean)) / torch.sqrt(var + 1e-5))
+        mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1)
+        var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False)
+        x = ((self.v_threshold * (x - mean.view(-1,1))) / torch.sqrt(var.view(-1,1) + 1e-5))
         x = self.layer[2](x)   # IFNode  
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
         return x, mean, var
     def train_ff_stdp(self, pos_encoded, neg_encoded, frozen):
-        N = pos_encoded.shape[1]
+        _, N, __ = pos_encoded.shape
         # Positive sample processing
         pos_input_spike_sum = pos_encoded.sum(0)
         pos_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
-        pos_ln_mean = torch.zeros((N, self.out_features)).cuda()
-        pos_ln_var = torch.zeros((N, self.out_features)).cuda()
+        pos_ln_mean = torch.zeros((N)).cuda()
+        pos_ln_var = torch.zeros((N)).cuda()
         for t in range(self.T):
             pos_spike, pos_ln_mean, pos_ln_var = self.forward(pos_encoded[t], pos_ln_mean, pos_ln_var)
             pos_output_spike[t] += pos_spike
-        pos_out_freq = pos_output_spike.mean(0).transpose(0,1)
+        pos_out_freq = pos_output_spike.mean(0)
         self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * pos_ln_mean.transpose(0,1)
+        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
+        pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
         pos_loss.backward()
@@ -334,15 +335,16 @@ class Layer(nn.Module):
         # Negative sample processing
         neg_input_spike_sum = neg_encoded.sum(0)
         neg_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
-        neg_ln_mean = torch.zeros((N, self.out_features)).cuda()
-        neg_ln_var = torch.zeros((N, self.out_features)).cuda()
+        neg_ln_mean = torch.zeros((N)).cuda()
+        neg_ln_var = torch.zeros((N)).cuda()
         for t in range(self.T):
             neg_spike, neg_ln_mean, neg_ln_var = self.forward(neg_encoded[t], neg_ln_mean, neg_ln_var)
             neg_output_spike[t] += neg_spike
-        neg_out_freq = neg_output_spike.mean(0).transpose(0,1)
+        neg_out_freq = neg_output_spike.mean(0)
         self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * neg_ln_mean.transpose(0,1)
+        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
+        neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
         neg_loss.backward()
@@ -364,8 +366,8 @@ class Layer(nn.Module):
     def predict(self, x):
         N = x.shape[1]
         g = torch.zeros(self.T, N, self.out_features).cuda()
-        ln_mean = torch.zeros((N, self.out_features)).cuda()
-        ln_var = torch.zeros((N, self.out_features)).cuda()
+        ln_mean = torch.zeros((N)).cuda()
+        ln_var = torch.zeros((N)).cuda()
         for t in range(self.T):
             spike_out, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
             g[t] += spike_out
