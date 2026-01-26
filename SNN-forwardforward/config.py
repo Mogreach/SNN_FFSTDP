@@ -13,16 +13,37 @@ import argparse
 class ConfigParser:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Fashion no tdLN + no IF node")
+        # argparse
         self.parser.add_argument(
-            "-dataset", default="FashionMNIST", type=str, help="Train dataset"
+            "-model",
+            type=str,
+            default="CNN",
+            choices=["CNN", "MLP"],
+            help="Network architecture type"
         )
         self.parser.add_argument(
-            "-dims",
-            default=[784,512,512,10],
-            help="dimension of the network",
-            type=int,
-            nargs="+",
+            "-dataset", default="FashionMNIST", type=str, choices=["MNIST","FashionMNIST","CIFAR10"],help="Train dataset"
         )
+        if self.parser.parse_known_args()[0].model == "CNN":
+            self.parser.add_argument(
+                "-conv_cfg",
+                default = [
+                            # in_ch, out_ch, k, s, p
+                            (1,  16, 3, 1, 1),
+                            (16, 32, 3, 2, 1),
+                            (32, 64, 3, 2, 1),
+                        ],
+                help="configuration of convolutional layers: (in_channels, out_channels, kernel_size, stride, padding)",
+                type=eval,
+            )
+        elif self.parser.parse_known_args()[0].model == "MLP":
+            self.parser.add_argument(
+                "-dims",
+                default=[784,512,512,10],
+                help="dimension of the MLP network",
+                type=int,
+                nargs="+",
+            )
         self.parser.add_argument(
             "-T", default=16, type=int, help="simulating time-steps"
         )
@@ -74,7 +95,7 @@ class ConfigParser:
             "-tau", default=2.0, type=float, help="parameter tau of LIF neuron"
         )
         self.parser.add_argument(
-            "-v_threshold_pos", default=1.2, type=float, help="V_threshold of LIF neuron"
+            "-v_threshold", default=1.2, type=float, help="V_threshold of LIF neuron"
         )
         self.parser.add_argument(
             "-v_threshold_neg", default=-1.0, type=float, help="V_threshold of LIF neuron"

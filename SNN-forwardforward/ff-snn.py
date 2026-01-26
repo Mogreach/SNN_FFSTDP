@@ -25,6 +25,7 @@ from tqdm import tqdm
 from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
 from src.ff_snn_net import Net
+from src.ff_snn_cnn import ConvNet
 from config import ConfigParser
 from src.dataset import GroupedSortedMNIST, AugmentedMNIST
 import logging
@@ -227,12 +228,18 @@ def main():
         num_workers=args.j,
         pin_memory=True,
     )
+    x, y = next(iter(train_data_loader))
+    _, __, H, W = x.shape
+    num_classes = int(y.max().item() + 1)
     device = torch.device("cuda")
     out_dir = os.path.join(
-                os.path.join(
-                    os.path.join(args.out_dir,args.dataset),f"T{args.T}_b{args.b}_{args.opt}_lr{args.lr}"
-                            ), datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                        )           
+        args.out_dir,
+        args.dataset,
+        args.model,   # 模型类型
+        f"T{args.T}_b{args.b}_{args.opt}_lr{args.lr}",
+        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    )
+            
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
         print(f"Mkdir {out_dir}.")
@@ -245,24 +252,31 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
     # 记录超参数
-    logger.info(f"Training with batch size: {args.b}, epochs: {args.epochs}, lr: {args.lr}, dims: {args.dims}, T: {args.T}, opt: {args.opt}, loss_threshold: {args.loss_threshold}, out_dir: {out_dir}")
-    
-    net = Net(
-        dims=args.dims,
-        tau=args.tau,
-        epoch=args.epochs,
+    print(f"args: {args}")
+    print(f"Saving at {out_dir}")
+    # net = Net(
+    #     dims=args.dims,
+    #     tau=args.tau,
+    #     epoch=args.epochs,
+    #     T=args.T,
+    #     lr=args.lr,
+    #     v_threshold=args.v_threshold,
+    #     v_threshold_neg=args.v_threshold_neg,
+    #     opt=args.opt,
+    #     loss_threshold=args.loss_threshold,
+    # )
+    net = ConvNet(
+        conv_cfg=args.conv_cfg,
         T=args.T,
+        epoch=args.epochs,                
         lr=args.lr,
-        v_threshold_pos=args.v_threshold_pos,
-        v_threshold_neg=args.v_threshold_neg,
-        opt=args.opt,
+        tau=args.tau,
+        v_threshold=args.v_threshold,
         loss_threshold=args.loss_threshold,
+        num_classes=num_classes,
+        H=H,
+        W=W,
     )
-
-    # for layer in net.layers:
-    #     layer.initialize()
-    # net.load("logs/T8_b1000_adam_lr0.015625/2025-10-13_13-45-53/checkpoint_last.pth")
-    # x, y = next(iter(train_data_loader))
     # 初始化存储训练精度的列表
     epochs = args.epochs
 
@@ -392,8 +406,6 @@ def main():
         save = True
         if save or args.save_model:
             net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
-        print(args)
-        print(out_dir)
     logger.info(f"Test Acc: {100 * test_acc / test_count}%")
     logging.basicConfig(
         filename="./logs/training.log",
