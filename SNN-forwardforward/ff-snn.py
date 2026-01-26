@@ -254,29 +254,31 @@ def main():
     # 记录超参数
     print(f"args: {args}")
     print(f"Saving at {out_dir}")
-    # net = Net(
-    #     dims=args.dims,
-    #     tau=args.tau,
-    #     epoch=args.epochs,
-    #     T=args.T,
-    #     lr=args.lr,
-    #     v_threshold=args.v_threshold,
-    #     v_threshold_neg=args.v_threshold_neg,
-    #     opt=args.opt,
-    #     loss_threshold=args.loss_threshold,
-    # )
-    net = ConvNet(
-        conv_cfg=args.conv_cfg,
-        T=args.T,
-        epoch=args.epochs,                
-        lr=args.lr,
-        tau=args.tau,
-        v_threshold=args.v_threshold,
-        loss_threshold=args.loss_threshold,
-        num_classes=num_classes,
-        H=H,
-        W=W,
-    )
+    if args.model == "MLP":
+        net = Net(
+            dims=args.dims,
+            tau=args.tau,
+            epoch=args.epochs,
+            T=args.T,
+            lr=args.lr,
+            v_threshold=args.v_threshold,
+            v_threshold_neg=args.v_threshold_neg,
+            opt=args.opt,
+            loss_threshold=args.loss_threshold,
+        )
+    elif args.model == "CNN":
+        net = ConvNet(
+            conv_cfg=args.conv_cfg,
+            T=args.T,
+            epoch=args.epochs,                
+            lr=args.lr,
+            tau=args.tau,
+            v_threshold=args.v_threshold,
+            loss_threshold=args.loss_threshold,
+            num_classes=num_classes,
+            H=H,
+            W=W,
+        )
     # 初始化存储训练精度的列表
     epochs = args.epochs
 
