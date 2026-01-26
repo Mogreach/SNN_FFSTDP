@@ -109,7 +109,7 @@ class tdLayerNorm(nn.Module):
         return ln_x
 
 class Net(torch.nn.Module):
-    def __init__(self, dims, tau, epoch, T, lr, v_threshold_pos, v_threshold_neg, opt, loss_threshold):
+    def __init__(self, dims, tau, epoch, T, lr, v_threshold, v_threshold_neg, opt, loss_threshold):
         super().__init__()
         self.T = T
         self.layers = []
@@ -125,7 +125,7 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold_pos=v_threshold_pos,
+                            v_threshold=v_threshold,
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
@@ -141,7 +141,7 @@ class Net(torch.nn.Module):
                             epoch=epoch,
                             T=T,
                             lr=lr,
-                            v_threshold_pos=v_threshold_pos,
+                            v_threshold=v_threshold,
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
@@ -261,7 +261,7 @@ class Net(torch.nn.Module):
 
 class Layer(nn.Module):
     def __init__(
-        self, in_features, out_features, epoch, T, lr, v_threshold_pos, v_threshold_neg, tau, loss_threshold
+        self, in_features, out_features, epoch, T, lr, v_threshold, v_threshold_neg, tau, loss_threshold
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -269,13 +269,13 @@ class Layer(nn.Module):
             layer.Linear(in_features, out_features, bias=False),
             neuron.IFNode(
                 v_reset=None,
-                v_threshold=v_threshold_pos,
+                v_threshold=v_threshold,
                 surrogate_function=surrogate.ATan(),
                 step_mode="s",
             ),
         )
         self.lr = lr
-        self.v_threshold = v_threshold_pos
+        self.v_threshold = v_threshold
         self.spike_input_rate = 0
         self.in_features = in_features
         self.out_features = out_features
@@ -293,25 +293,6 @@ class Layer(nn.Module):
                 # 使用正态分布初始化权重，并添加一个正偏置
                 nn.init.normal_(m.weight.data, std=np.sqrt(2 / self.out_features))
                 m.weight.data += 0.1  # 添加正偏置，确保权重平均值大于 0
-
-
-    def visualize_spike_in_timestep(self, layer_forward_out):
-        self.spike_vis = torch.cat(
-            (self.spike_vis, layer_forward_out[0].cpu().flatten().unsqueeze(1)), dim=1
-        )
-        if self.visible and self.spike_vis.shape[1] == self.T:
-            plt.imshow(
-                self.spike_vis.detach().numpy(), cmap="viridis", aspect="auto"
-            )  # 使用 'viridis' 颜色映射，自动调整纵横比
-            plt.colorbar(label="Spike Intensity")  # 添加颜色条并标注
-            plt.title("Spike Visualization")  # 图像标题
-            plt.xlabel("Time Steps")  # x 轴标签
-            plt.ylabel("Neuron Index")  # y 轴标签
-            plt.tight_layout()  # 自动调整子图参数
-            plt.show()
-        if self.spike_vis.shape[1] == self.T:
-            self.spike_vis = torch.zeros(self.out_features).unsqueeze(1)
-
     def cal_goodness(self, freq):
         # goodness = self.T * freq.pow(2)
         goodness = self.T * freq.abs().pow(2) * freq.sign()
@@ -327,52 +308,6 @@ class Layer(nn.Module):
         x = self.layer[2](x)   # IFNode  
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
         return x, mean, var
-
-    def train(self, x_pos, x_neg, y, train_mode):
-        g_pos = torch.zeros(self.T, x_pos.shape[0], self.out_features).cuda()
-        g_neg = torch.zeros(self.T, x_pos.shape[0], self.out_features).cuda()
-        in_pos = torch.zeros(self.T, x_pos.shape[0], self.in_features).cuda()
-        in_neg = torch.zeros(self.T, x_pos.shape[0], self.in_features).cuda()
-        for t in range(self.T):
-            x_pos_encoded = self.encoder(x_pos)
-            x_neg_encoded = self.encoder(x_neg)
-            g_pos[t] += self.forward(x_pos_encoded)
-            in_pos[t] += x_pos_encoded.flatten(1)
-            g_neg[t] += self.forward(x_neg_encoded)
-            in_neg[t] += x_neg_encoded.flatten(1)
-        g_pos_freq = g_pos.mean(0)
-        g_neg_freq = g_neg.mean(0)
-        if train_mode:
-            self.opt.zero_grad()
-            pos_goodness = self.cal_goodness(g_pos_freq)
-            neg_goodness = self.cal_goodness(g_neg_freq)
-            loss = torch.log(
-                1
-                + torch.exp(
-                    torch.cat(
-                        [-pos_goodness + self.threshold, neg_goodness - self.threshold]
-                    )
-                )
-            ).mean()
-            # loss = torch.log(1 + torch.exp(-pos_goodness + neg_goodness + self.threshold)).mean()
-            loss.backward()
-            # grad_w_autograd = self.layer[1].weight.grad.clone()
-            # loss, grad = Custom_Loss.Frequency_FF_Loss(g_pos,g_neg,in_pos,in_neg,self.in_features, self.out_features, self.T, self.threshold, x_pos, x_neg, g_pos_freq, g_neg_freq)
-            # for param in self.layer.parameters():
-            #     if param.requires_grad:
-            #         # 使用优化器更新权重
-            #         param.grad = grad
-            # grad_w_manual = grad.clone()
-            # cos_sim = torch.nn.functional.cosine_similarity(grad_w_manual.view(-1), grad_w_autograd.view(-1), dim=0)
-            # print(cos_sim)
-            # print("手写梯度均值:", grad_w_manual.mean().item(), "标准差:", grad_w_manual.std().item())
-            # print("自动梯度均值:", grad_w_autograd.mean().item(), "标准差:", grad_w_autograd.std().item())
-            self.opt.step()
-            functional.reset_net(self.layer)
-            return g_pos_freq.detach(), g_neg_freq.detach(), loss.cpu().item()
-        else:
-            functional.reset_net(self.layer)
-            return g_pos_freq.detach(), g_neg_freq.detach(), 0
     def train_ff_stdp(self, pos_encoded, neg_encoded, frozen):
         N = pos_encoded.shape[1]
         # Positive sample processing
@@ -438,7 +373,7 @@ class Layer(nn.Module):
         return g
 class OutputLayer(nn.Module):
     def __init__(
-        self, in_features, out_features, epoch, T, lr, v_threshold_pos, v_threshold_neg, tau, loss_threshold
+        self, in_features, out_features, epoch, T, lr, v_threshold, v_threshold_neg, tau, loss_threshold
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -446,7 +381,7 @@ class OutputLayer(nn.Module):
             layer.Linear(in_features, out_features, bias=False),
             # neuron.IFNode(
             #     v_reset=None,
-            #     v_threshold=v_threshold_pos,
+            #     v_threshold=v_threshold,
             #     surrogate_function=surrogate.ATan(),
             #     step_mode="s",
             # )
