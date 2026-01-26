@@ -295,26 +295,37 @@ class ConvLayer(nn.Module):
         patch = self.kernel_size*self.kernel_size * Cin
         pos_out = torch.empty(T, B, self.Cout, self.Hout, self.Wout).cuda()
         neg_out = torch.empty(T, B, self.Cout, self.Hout, self.Wout).cuda()
+        pos_pool_out = torch.empty(T, B, self.Cout, self.Hp, self.Wp).cuda()
+        neg_pool_out = torch.empty(T, B, self.Cout, self.Hp, self.Wp).cuda()
         pos_input_spike_sum = pos_encoded.sum(0)  # [B,Cin,Hin,Win]
         neg_input_spike_sum = neg_encoded.sum(0)  # [B,Cin,Hin,Win]
+        #===========================================================
         # Positive sample processing
-        pos_ln_mean = torch.zeros((B)).cuda()
-        pos_ln_var = torch.zeros((B)).cuda()
+        #===========================================================
+        pos_ln_mean = torch.zeros((B),device='cuda')
+        pos_ln_var = torch.zeros((B),device='cuda')
         self.opt.zero_grad()
         for t in range(T):
             pos_spike, pos_ln_mean, pos_ln_var = self.forward(pos_encoded[t], pos_ln_mean, pos_ln_var)
             pos_out[t] = pos_spike
-        # 提取卷积patch [B, Cin*Kh*Kw, Hout*Wout]
+            pos_pool_out[t] = self.layer[2](pos_out[t])  # MaxPool2d
+        #------------------------------------------------------
+        # 突触前偏导矩阵：提取卷积patch [B, Cin*Kh*Kw, Hout*Wout]
+        #------------------------------------------------------
         pos_input_spike_sum_unfold = F.unfold(pos_input_spike_sum,kernel_size=(self.kernel_size, self.kernel_size),stride=self.stride,padding=self.padding)
+        # pos_input_spike_sum_unfold [B, Cin*Kh*Kw, Hout*Wout] → [Cin*Kh*Kw, B*Hout*Wout]
+        pos_input_spike_sum_unfold = pos_input_spike_sum_unfold.permute(1, 0, 2).reshape(patch, -1)
+        #------------------------------------------------------
+        # 突触后偏导矩阵：
+        #------------------------------------------------------
         pos_freq = pos_out.mean(0)  # [B,Cout,Hout,Wout]
         pos_goodness = self.cal_goodness(pos_freq)
         pos_L_to_s_grad = 2 * pos_freq * pos_derivative(pos_goodness,self.threshold) * (self.v_threshold / torch.sqrt(pos_ln_var.view(B,1,1,1) + 1e-5))
         pos_L_to_s_grad = pos_L_to_s_grad.view(B, self.Cout, -1)  # [B,Cout,Hout*Wout]
-
         # pos_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
-        # pos_input_spike_sum_unfold [B, Cin*Kh*Kw, Hout*Wout] → [Cin*Kh*Kw, B*Hout*Wout]
+        pos_L_to_s_grad = pos_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1)
         # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
-        pos_weight_grad = -1 * (pos_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1) @ pos_input_spike_sum_unfold.permute(1, 0, 2).reshape(patch, -1).T) / B
+        pos_weight_grad = -1 * (pos_L_to_s_grad @ pos_input_spike_sum_unfold.T) / B
         pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
         pos_loss.backward()
         with torch.no_grad():
@@ -323,25 +334,33 @@ class ConvLayer(nn.Module):
                     w_grad = m.weight.grad
                     pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
-
+        #===========================================================
         # Negative sample processing
-        neg_ln_mean = torch.zeros((B)).cuda()
-        neg_ln_var = torch.zeros((B)).cuda()
+        #===========================================================
+        neg_ln_mean = torch.zeros((B),device='cuda')
+        neg_ln_var = torch.zeros((B),device='cuda')
         self.opt.zero_grad()
         for t in range(T):
             neg_spike, neg_ln_mean, neg_ln_var = self.forward(neg_encoded[t], neg_ln_mean, neg_ln_var)
             neg_out[t] = neg_spike
-        # 提取卷积patch [B, Cin*Kh*Kw, Hout*Wout]
+            neg_pool_out[t] = self.layer[2](neg_out[t])  # MaxPool2d
+        #------------------------------------------------------
+        # 突触前偏导矩阵：提取卷积patch [B, Cin*Kh*Kw, Hout*Wout]
+        #------------------------------------------------------
         neg_input_spike_sum_unfold = F.unfold(neg_input_spike_sum,kernel_size=(self.kernel_size, self.kernel_size),stride=self.stride,padding=self.padding)
+        # neg_input_spike_sum_unfold [B, Cin*Kh*Kw, Hout*Wout] → [Cin*Kh*Kw, B*Hout*Wout]
+        neg_input_spike_sum_unfold = neg_input_spike_sum_unfold.permute(1, 0, 2).reshape(patch, -1)
+        #------------------------------------------------------
+        # 突触后偏导矩阵：
+        #------------------------------------------------------
         neg_freq = neg_out.mean(0)  # [B,Cout,Hout,Wout]
         neg_goodness = self.cal_goodness(neg_freq)
         neg_L_to_s_grad = 2 * neg_freq * neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(B,1,1,1) + 1e-5))
         neg_L_to_s_grad = neg_L_to_s_grad.view(B, self.Cout, -1)  # [B,Cout,Hout*Wout]
-
         # neg_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
-        # neg_input_spike_sum_unfold [B, Cin*Kh*Kw, Hout*Wout] → [Cin*Kh*Kw, B*Hout*Wout]
+        neg_L_to_s_grad = neg_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1)
         # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
-        neg_weight_grad = -1 * (neg_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1) @ neg_input_spike_sum_unfold.permute(1, 0, 2).reshape(patch, -1).T) / B
+        neg_weight_grad = -1 * (neg_L_to_s_grad @ neg_input_spike_sum_unfold.T) / B
         neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_loss.backward()
         with torch.no_grad():
@@ -360,13 +379,7 @@ class ConvLayer(nn.Module):
                     if isinstance(m, nn.Conv2d):         
                         weight_grad = (pos_weight_grad + neg_weight_grad)
                         weight_grad = weight_grad.view(m.weight.shape)
-                        m.weight.data += self.lr * weight_grad
-        
-        pos_pool_out = torch.empty(T, B, self.Cout, self.Hp, self.Wp).cuda()
-        neg_pool_out = torch.empty(T, B, self.Cout, self.Hp, self.Wp).cuda()
-        for t in range(T):
-            pos_pool_out[t] = self.layer[2](pos_out[t])  # MaxPool2d
-            neg_pool_out[t] = self.layer[2](neg_out[t])  # MaxPool2d
+                        m.weight.data += self.lr * weight_grad            
         return pos_pool_out.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_pool_out.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
 
     def predict(self, x):
