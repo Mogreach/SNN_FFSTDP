@@ -365,13 +365,13 @@ class ConvLayer(nn.Module):
 
 
         # Delta loss processing
-        weight_grad, delta_loss = delta_loss_gradient_calculation_cnn(pos_input_spike_sum, pos_freq, pos_goodness, pos_ln_var, pos_ln_mean,
-                                                                neg_input_spike_sum, neg_freq, neg_goodness, neg_ln_var, neg_ln_mean,
-                                                                self.threshold, self.v_threshold, B, self.Cout)
+        weight_grad, delta_loss = delta_loss_gradient_calculation_cnn(pos_input_spike_sum_unfold, pos_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+                                                                      neg_input_spike_sum_unfold, neg_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+                                                                      self.threshold, self.v_threshold, B, self.Cout)
         delta_loss.backward()
         with torch.no_grad():
             for m in self.layer.modules():
-                if isinstance(m, nn.Linear):
+                if isinstance(m, nn.Conv2d):
                     w_grad = m.weight.grad
                     pos_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(), dim=0)
                     neg_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(), dim=0)

@@ -20,7 +20,7 @@ import numpy as np
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.optim import Adam, SGD
-from src.loss import Custom_Loss, gradient_calculation_mlp, delta_loss_gradient_calculation_mlp
+from src.loss import gradient_calculation_mlp, delta_loss_gradient_calculation_mlp
 from spikingjelly.activation_based import (
     neuron,
     encoding,
