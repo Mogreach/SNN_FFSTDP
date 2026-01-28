@@ -29,6 +29,7 @@ from spikingjelly.activation_based import (
     monitor,
     learning,
 )
+from src.loss import gradient_calculation_cnn, delta_loss_gradient_calculation_cnn
 from src.generate_neg_sample import *
 def pos_derivative(x, theta):
     """
@@ -304,7 +305,6 @@ class ConvLayer(nn.Module):
         #===========================================================
         pos_ln_mean = torch.zeros((B),device='cuda')
         pos_ln_var = torch.zeros((B),device='cuda')
-        self.opt.zero_grad()
         for t in range(T):
             pos_spike, pos_ln_mean, pos_ln_var = self.forward(pos_encoded[t], pos_ln_mean, pos_ln_var)
             pos_out[t] = pos_spike
@@ -320,26 +320,22 @@ class ConvLayer(nn.Module):
         #------------------------------------------------------
         pos_freq = pos_out.mean(0)  # [B,Cout,Hout,Wout]
         pos_goodness = self.cal_goodness(pos_freq)
-        pos_L_to_s_grad = 2 * pos_freq * pos_derivative(pos_goodness,self.threshold) * (self.v_threshold / torch.sqrt(pos_ln_var.view(B,1,1,1) + 1e-5))
-        pos_L_to_s_grad = pos_L_to_s_grad.view(B, self.Cout, -1)  # [B,Cout,Hout*Wout]
-        # pos_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
-        pos_L_to_s_grad = pos_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1)
-        # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
-        pos_weight_grad = -1 * (pos_L_to_s_grad @ pos_input_spike_sum_unfold.T) / B
-        pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
-        pos_loss.backward()
-        with torch.no_grad():
-            for m in self.layer.modules():
-                if isinstance(m, nn.Conv2d):
-                    w_grad = m.weight.grad
-                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+        # pos_weight_grad, pos_loss = gradient_calculation_cnn(pos_input_spike_sum_unfold, pos_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+        #                                                     self.threshold, self.v_threshold, B, self.Cout, True)
+        # pos_loss.backward()
+        # with torch.no_grad():
+        #     for m in self.layer.modules():
+        #         if isinstance(m, nn.Conv2d):
+        #             w_grad = m.weight.grad
+        #             pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+        # self.opt.zero_grad()
         functional.reset_net(self.layer)
+
         #===========================================================
         # Negative sample processing
         #===========================================================
         neg_ln_mean = torch.zeros((B),device='cuda')
         neg_ln_var = torch.zeros((B),device='cuda')
-        self.opt.zero_grad()
         for t in range(T):
             neg_spike, neg_ln_mean, neg_ln_var = self.forward(neg_encoded[t], neg_ln_mean, neg_ln_var)
             neg_out[t] = neg_spike
@@ -355,20 +351,31 @@ class ConvLayer(nn.Module):
         #------------------------------------------------------
         neg_freq = neg_out.mean(0)  # [B,Cout,Hout,Wout]
         neg_goodness = self.cal_goodness(neg_freq)
-        neg_L_to_s_grad = 2 * neg_freq * neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(B,1,1,1) + 1e-5))
-        neg_L_to_s_grad = neg_L_to_s_grad.view(B, self.Cout, -1)  # [B,Cout,Hout*Wout]
-        # neg_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
-        neg_L_to_s_grad = neg_L_to_s_grad.permute(1, 0, 2).reshape(self.Cout, -1)
-        # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
-        neg_weight_grad = -1 * (neg_L_to_s_grad @ neg_input_spike_sum_unfold.T) / B
-        neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
-        neg_loss.backward()
+        # neg_weight_grad, neg_loss = gradient_calculation_cnn(neg_input_spike_sum_unfold, neg_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+        #                                                     self.threshold, self.v_threshold, B, self.Cout, False)
+        # neg_loss.backward()
+        # with torch.no_grad():
+        #     for m in self.layer.modules():
+        #         if isinstance(m, nn.Conv2d):
+        #             w_grad = m.weight.grad
+        #             neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-neg_weight_grad.flatten(),dim=0)
+        # self.opt.zero_grad()
+        # weight_grad = pos_weight_grad + neg_weight_grad
+        functional.reset_net(self.layer)
+
+
+        # Delta loss processing
+        weight_grad, delta_loss = delta_loss_gradient_calculation_cnn(pos_input_spike_sum, pos_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+                                                                neg_input_spike_sum, neg_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+                                                                self.threshold, self.v_threshold, B, self.Cout)
+        delta_loss.backward()
         with torch.no_grad():
             for m in self.layer.modules():
-                if isinstance(m, nn.Conv2d):
+                if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
-                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-neg_weight_grad.flatten(),dim=0)
-        functional.reset_net(self.layer)
+                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(), dim=0)
+                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(), dim=0)
+        self.opt.zero_grad()
 
         # Update weights
         if frozen:
@@ -377,7 +384,6 @@ class ConvLayer(nn.Module):
             with torch.no_grad():
                 for m in self.layer.modules():
                     if isinstance(m, nn.Conv2d):         
-                        weight_grad = (pos_weight_grad + neg_weight_grad)
                         weight_grad = weight_grad.view(m.weight.shape)
                         m.weight.data += self.lr * weight_grad            
         return pos_pool_out.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_pool_out.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()

@@ -20,7 +20,7 @@ import numpy as np
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.optim import Adam, SGD
-from src.loss import Custom_Loss
+from src.loss import Custom_Loss, gradient_calculation_mlp, delta_loss_gradient_calculation_mlp
 from spikingjelly.activation_based import (
     neuron,
     encoding,
@@ -31,38 +31,6 @@ from spikingjelly.activation_based import (
     learning,
 )
 from src.generate_neg_sample import *
-def pos_derivative(x, theta):
-    """
-    计算 log(1 + exp(-x + theta)) 关于 x 的导数。
-
-    参数:
-        x (np.ndarray): 输入值。
-        theta (float): 参数 theta。
-
-    返回:
-        np.ndarray: 导数值。
-    """
-    # 计算 Sigmoid 函数
-    sigmoid = -1 / (1 + torch.exp(x - theta))
-    
-    # 返回导数
-    return sigmoid
-def neg_derivative(y, theta):
-    """
-    计算 log(1 + exp(y - theta)) 关于 y 的导数。
-
-    参数:
-        y (np.ndarray): 输入值。
-        theta (float): 参数 theta。
-
-    返回:
-        np.ndarray: 导数值。
-    """
-    # 计算 Sigmoid 函数
-    sigmoid = 1 / (1 + torch.exp(theta - y))
-    
-    # 返回导数
-    return sigmoid
 
 
 def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
@@ -319,20 +287,19 @@ class Layer(nn.Module):
             pos_spike, pos_ln_mean, pos_ln_var = self.forward(pos_encoded[t], pos_ln_mean, pos_ln_var)
             pos_output_spike[t] += pos_spike
         pos_out_freq = pos_output_spike.mean(0)
-        self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold/ torch.sqrt(pos_ln_var.view(N,1) + 1e-5)) # * pos_ln_mean.view(N,1)
-        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold/ torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
-        # pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
-        # pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
-        # pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
+
+        # Single forward propagation
+        # pos_weight_grad, pos_loss = gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,self.threshold, self.v_threshold, N, True)
         # pos_loss.backward()
         # with torch.no_grad():
         #     for m in self.layer.modules():
         #         if isinstance(m, nn.Linear):
         #             w_grad = m.weight.grad
         #             pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+        # self.opt.zero_grad()
         functional.reset_net(self.layer)
+
         # Negative sample processing
         neg_input_spike_sum = neg_encoded.sum(0)
         neg_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
@@ -342,37 +309,33 @@ class Layer(nn.Module):
             neg_spike, neg_ln_mean, neg_ln_var = self.forward(neg_encoded[t], neg_ln_mean, neg_ln_var)
             neg_output_spike[t] += neg_spike
         neg_out_freq = neg_output_spike.mean(0)
-        self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        # neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5)) # * neg_ln_mean.view(N,1)
-        # neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
-        # neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
-        # neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
+
+        # Single forward propagation
+        # neg_weight_grad, neg_loss = gradient_calculation_mlp(neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,self.threshold, self.v_threshold, N, False)
         # neg_loss.backward()
         # with torch.no_grad():
         #     for m in self.layer.modules():
         #         if isinstance(m, nn.Linear):
         #             w_grad = m.weight.grad
         #             neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+        # self.opt.zero_grad()
+        # weight_grad = pos_weight_grad + neg_weight_grad
         functional.reset_net(self.layer)
 
-        delta = 8*(pos_goodness - neg_goodness)
-        self.opt.zero_grad()
-        pos_L_to_s_grad = 8 * pos_derivative(delta,0) * 2 * pos_out_freq  * (self.v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
-        pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
-        pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
-       
-        neg_L_to_s_grad = -8 * pos_derivative(delta,0) * 2 * neg_out_freq * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
-        neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
-        neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
-        delta_loss = torch.log(1 + torch.exp(-8*delta)).mean()
+        # Delta loss processing
+        weight_grad, delta_loss = delta_loss_gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+                                                                neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+                                                                self.threshold, self.v_threshold, N)
         delta_loss.backward()
         with torch.no_grad():
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
-                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),(-pos_weight_grad-neg_weight_grad).flatten(),dim=0)
-                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),(-pos_weight_grad-neg_weight_grad).flatten(),dim=0)
+                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(),dim=0)
+                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(), -weight_grad.flatten(),dim=0)
+        self.opt.zero_grad()
+
         # Update weights
         if frozen:
             pass
@@ -380,7 +343,7 @@ class Layer(nn.Module):
             with torch.no_grad():
                 for m in self.layer.modules():
                     if isinstance(m, nn.Linear):         
-                        m.weight += self.lr * (pos_weight_grad + neg_weight_grad) 
+                        m.weight += self.lr * weight_grad 
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         N = x.shape[1]

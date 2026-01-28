@@ -1,126 +1,100 @@
 import torch
-import torch.nn as nn
-import numpy as np
-import torch
-from spikingjelly.activation_based import neuron, surrogate
-from scipy.interpolate import interp1d
-import matplotlib.pyplot as plt
+def pos_derivative(x, theta):
+    """
+    计算 log(1 + exp(-x + theta)) 关于 x 的导数。
 
-class Custom_Loss():
-    def __init__(self):
-        self.grad_interpolator = self.compute_f_in_to_grad_function()
-    def plot_grad(self,grad):
-        # 将张量转换为 NumPy 数组以进行可视化
-        grad_np = grad.cpu().numpy()  # 如果在 GPU 上，先移动到 CPU
-        # 绘制热力图
-        plt.figure(figsize=(12, 6))  # 设置图像大小
-        plt.imshow(grad_np, cmap='viridis', aspect='auto')  # 使用 'viridis' 颜色映射，自动调整纵横比
-        plt.colorbar(label='Gradient Magnitude')  # 添加颜色条并标注
-        plt.title('Gradient Heatmap')  # 图像标题
-        plt.xlabel('Input Dimension (784)')  # x 轴标签
-        plt.ylabel('Batch Dimension (500)')  # y 轴标签
-        plt.tight_layout()  # 自动调整子图参数
-        plt.show()
-    def compute_f_in_to_grad_function(self):
-        # 设置参数
-        T = 128 # 总时间步
-        x = torch.arange(-0.2, 1.2, 0.04)  # 输入值范围
-        f_in_values = np.linspace(0, 1, T)  # f_in 的取值范围
-        # if_node = neuron.IFNode(v_reset=None)  # 定义脉冲神经元
-        if_node = neuron.IFNode(v_reset= None, v_threshold= 0.5, surrogate_function=surrogate.ATan())
-        # 创建网格
-        X, F_IN = np.meshgrid(x, f_in_values)
-        Z = np.zeros_like(X)  # 存储 firing_rate 的值
+    参数:
+        x (np.ndarray): 输入值。
+        theta (float): 参数 theta。
 
-        # 计算 firing_rate
-        for i, f_in in enumerate(f_in_values):
-            s_list = []
-            active_steps = int(f_in * T)  # 有效时间步数
-            for t in range(T):
-                if t < active_steps:  # 有效时间步，使用输入 x
-                    s_list.append(if_node(torch.tensor(X[i, :], dtype=torch.float32)).unsqueeze(0))
-                else:  # 非有效时间步，输入为 0
-                    s_list.append(if_node(torch.zeros_like(torch.tensor(X[i, :]))).unsqueeze(0))
-            
-            # 计算发放率
-            out_spikes = torch.cat(s_list).numpy()
-            Z[i, :] = np.mean(out_spikes, axis=0)  # 平均发放率
+    返回:
+        np.ndarray: 导数值。
+    """
+    # 计算 Sigmoid 函数
+    sigmoid = -1 / (1 + torch.exp(x - theta))
+    
+    # 返回导数
+    return sigmoid
+def neg_derivative(y, theta):
+    """
+    计算 log(1 + exp(y - theta)) 关于 y 的导数。
 
-        # 计算 firing_rate 关于 x 的导数
-        Z_grad = np.gradient(Z, x.numpy(), axis=1).mean(axis=1)
+    参数:
+        y (np.ndarray): 输入值。
+        theta (float): 参数 theta。
 
-        # 构造插值函数
-        grad_interpolator = interp1d(f_in_values, Z_grad, kind='cubic', fill_value="extrapolate")
+    返回:
+        np.ndarray: 导数值。
+    """
+    # 计算 Sigmoid 函数
+    sigmoid = 1 / (1 + torch.exp(theta - y))
+    
+    # 返回导数
+    return sigmoid
 
-        return grad_interpolator
-    def FF_Loss_step(self, x_in_pos, x_in_neg, g_pos,g_neg,v_pos,v_neg,in_features, out_features, T, threshold):    
-    # 假设 param 是一个权重矩阵 w (形状: [out_features, in_features])
-        pos_goodness =g_pos.pow(2).mean(1)
-        neg_goodness =g_neg.pow(2).mean(1)
-        # loss = torch.log(1 + torch.exp(torch.cat([
-        #     -pos_goodness + threshold,
-        #     neg_goodness - threshold]))).mean()
-        loss = torch.log(1 + torch.exp(4*(-pos_goodness + neg_goodness))).mean()
-    # 公式为 ∂L/∂f，L 是损失，f是频率
-        fr_grad_pos = torch.autograd.grad(
-            outputs=loss, 
-            inputs=g_pos, 
-            retain_graph=True,
-            create_graph=False
-        )[0].sum(0)
-        fr_grad_neg = torch.autograd.grad(
-            outputs=loss, 
-            inputs=g_neg, 
-            retain_graph=True,
-            create_graph=False
-        )[0].sum(0)
-        surrogate_function = surrogate.ATan(alpha=3, spiking=False)
-        sf_pos_grad = (surrogate_function(v_pos)*g_pos).sum(0)
-        sf_neg_grad = (surrogate_function(v_neg)*g_neg).sum(0)
+def gradient_calculation_mlp(input_spike_sum, out_freq, goodness, ln_var, ln_mean,
+                            loss_threshold, v_threshold, N, is_pos):
+    if is_pos:
+        derivative = pos_derivative(goodness, loss_threshold)
+        loss = torch.log(1 + torch.exp(loss_threshold - goodness)).mean()
+    else:
+        derivative = neg_derivative(goodness, loss_threshold)
+        loss = torch.log(1 + torch.exp(goodness - loss_threshold)).mean()
+    L_to_s_grad = 2 * out_freq* derivative * (v_threshold/ torch.sqrt(ln_var.view(N,1) + 1e-5)) # * ln_mean.view(N,1)
+    L_to_s_grad = L_to_s_grad.transpose(0,1)
+    weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
+    
+    return weight_grad, loss
+def delta_loss_gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+                         neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+                         alpha, v_threshold, N):
+        delta = alpha * (pos_goodness - neg_goodness)
+        pos_L_to_s_grad = alpha * pos_derivative(delta,0) * 2 * pos_out_freq  * (v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
+        pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
+        pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
+       
+        neg_L_to_s_grad = -alpha * pos_derivative(delta,0) * 2 * neg_out_freq * (v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
+        neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
+        neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
 
-        pos_grad = ((fr_grad_pos * sf_pos_grad).view(out_features,1)) @ (((x_in_pos).mean(0)).view(1,in_features))
-        neg_grad = ((fr_grad_neg * sf_neg_grad).view(out_features,1)) @ (((x_in_neg).mean(0)).view(1,in_features))
-        grad = pos_grad + neg_grad
-        return loss, grad
-    def Frequency_FF_Loss(self, g_pos,g_neg,in_pos,in_neg,in_features, out_features, T, threshold, in_pos_freq, in_neg_freq, out_pos_freq, out_neg_freq):    
-    # 假设 param 是一个权重矩阵 w (形状: [out_features, in_features])
-        pos_goodness =out_pos_freq.pow(2).mean(1)
-        neg_goodness =out_neg_freq.pow(2).mean(1)
-        loss = torch.log(1 + torch.exp(torch.cat([
-            -pos_goodness + threshold,
-            neg_goodness - threshold]))).mean()
-        loss = torch.log(1 + torch.exp(T*(-pos_goodness + neg_goodness))).mean()
-    # 公式为 ∂L/∂f，L 是损失，f是频率
-        fr_grad_pos = torch.autograd.grad(
-            outputs=loss, 
-            inputs=out_pos_freq, 
-            retain_graph=True,
-            create_graph=False
-        )[0].sum(0)
-        fr_grad_neg = torch.autograd.grad(
-            outputs=loss, 
-            inputs=out_neg_freq, 
-            retain_graph=True,
-            create_graph=False
-        )[0].sum(0)
-        # approximate_grad = self.grad_interpolator
-        # surrogate_function = surrogate.ATan(alpha=3, spiking=False)
-        # sf_pos_grad = (surrogate_function(v_pos)*g_pos).sum(0).mean(0)
-        # sf_neg_grad = (surrogate_function(v_neg)*g_neg).sum(0).mean(0)
+        delta_loss = torch.log(1 + torch.exp(-alpha * delta)).mean()
+        weight_grad = pos_weight_grad + neg_weight_grad
 
-    # 公式为 ∂f/∂x，f是损失，x是输入总电流
-        # f_in_grad_pos = torch.tensor(approximate_grad(in_pos_freq.detach().cpu().numpy()),device=in_pos_freq.device).to(dtype=torch.float32)
-        # f_in_grad_neg = torch.tensor(approximate_grad(in_neg_freq.detach().cpu().numpy()),device=in_neg_freq.device).to(dtype=torch.float32)
-        # pos_grad = (fr_grad_pos.view(out_features,1)) @ (((in_pos_freq).mean(0)).view(1,in_features))
-        # neg_grad = (fr_grad_neg.view(out_features,1)) @ (((in_neg_freq).mean(0)).view(1,in_features))
-        
-        # pos_grad = ((fr_grad_pos * sf_pos_grad).view(out_features,1)) @ (((in_pos_freq).mean(0)).view(1,in_features))
-        # neg_grad = ((fr_grad_neg * sf_neg_grad).view(out_features,1)) @ (((in_neg_freq).mean(0)).view(1,in_features))
-        pos_grad = ((fr_grad_pos).view(out_features,1)) @ ((in_pos.sum(0).mean(0)).view(1,in_features))
-        neg_grad = ((fr_grad_neg).view(out_features,1)) @ ((in_neg.sum(0).mean(0)).view(1,in_features))
+        return weight_grad, delta_loss
+def gradient_calculation_cnn(input_spike_sum_unfold, out_freq, goodness, ln_var, ln_mean,
+                         loss_threshold, v_threshold, B, Cout, is_pos):
+    if is_pos:
+        derivative = pos_derivative(goodness, loss_threshold)
+        loss = torch.log(1 + torch.exp(loss_threshold - goodness)).mean()
+    else:
+        derivative = neg_derivative(goodness, loss_threshold)
+        loss = torch.log(1 + torch.exp(goodness - loss_threshold)).mean()
+    L_to_s_grad = 2 * out_freq * derivative * (v_threshold / torch.sqrt(ln_var.view(B,1,1,1) + 1e-5))
+    L_to_s_grad = L_to_s_grad.view(B, Cout, -1)  # [B,Cout,Hout*Wout]
+    # L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
+    L_to_s_grad = L_to_s_grad.permute(1, 0, 2).reshape(Cout, -1)
+    # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
+    weight_grad = -1 * (L_to_s_grad @ input_spike_sum_unfold.T) / B
+    return weight_grad, loss
+def delta_loss_gradient_calculation_cnn(pos_input_spike_sum_unfold, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,
+                         neg_input_spike_sum_unfold, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,
+                         alpha, v_threshold, B, Cout):
+    delta = alpha * (pos_goodness - neg_goodness)
+    pos_L_to_s_grad = alpha * pos_derivative(delta,0) * 2 * pos_out_freq  * (v_threshold / torch.sqrt(pos_ln_var.view(B,1,1,1) + 1e-5))
+    pos_L_to_s_grad = pos_L_to_s_grad.view(B, Cout, -1)  # [B,Cout,Hout*Wout]
+    # pos_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
+    pos_L_to_s_grad = pos_L_to_s_grad.permute(1, 0, 2).reshape(Cout, -1)
+    # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
+    pos_weight_grad = -1 * (pos_L_to_s_grad @ pos_input_spike_sum_unfold.T) / B
 
+    neg_L_to_s_grad = -alpha * pos_derivative(delta,0) * 2 * neg_out_freq * (v_threshold / torch.sqrt(neg_ln_var.view(B,1,1,1) + 1e-5))
+    neg_L_to_s_grad = neg_L_to_s_grad.view(B, Cout, -1)  # [B,Cout,Hout*Wout]
+    # neg_L_to_s_grad [B, Cout, Hout*Wout] → [Cout, B*Hout*Wout]
+    neg_L_to_s_grad = neg_L_to_s_grad.permute(1, 0, 2).reshape(Cout, -1)
+    # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
+    neg_weight_grad = -1 * (neg_L_to_s_grad @ neg_input_spike_sum_unfold.T) / B
 
-        grad = -(pos_grad + neg_grad)
-        return loss, grad
-
-
+    delta_loss = torch.log(1 + torch.exp(-alpha * delta)).mean()
+    weight_grad = pos_weight_grad + neg_weight_grad
+    
+    return weight_grad, delta_loss

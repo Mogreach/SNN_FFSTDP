@@ -102,9 +102,9 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-loss_threshold",
-            default=0.5,
+            default=8,
             type=float,
-            help="threshold of loss function",
+            help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )
         self.parser.add_argument(
             "-save-model", action="store_true", help="save the model or not"
