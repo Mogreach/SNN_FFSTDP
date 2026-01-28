@@ -19,3 +19,33 @@ test Acc: 79.57999968528748 %
 Testing completed. Total time: 0h 0m 5s
 Namespace(dataset='FashionMNIST', dims=[784, 256, 10], T=16, device='cuda:0', b=100, epochs=250, j=8, data_dir='./data', out_dir='./logs', resume=None, amp=False, opt='adam', momentum=0.9, lr=0.0015625, tau=2.0, v_threshold_pos=1.2, v_threshold_neg=-1.0, loss_threshold=0.6, save_model=False)
 ./logs/FashionMNIST/T16_b100_adam_lr0.0015625/2025-12-17_22-37-37
+
+
+
+MNIST:
+    tdLN-MLP constrast:
+    # 784-512-512-10 未tdLN："./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-15_12-11-53/checkpoint_last.pth")
+    # 784-512-10 tdLN："./SNN-forwardforward/logs/MNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-22_20-18-51/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/MNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-22_20-18-51/checkpoint_last.pth") 
+
+FashionMNIST
+
+    tdLN-MLP constrast:
+    # 784-512-10 未tdLN："./SNN-forwardforward/logs/FashionMNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-22_22-25-19/checkpoint_last.pth")
+    # 784-512-10 tdLN: "./SNN-forwardforward/logs/FashionMNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-23_00-45-43/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/MLP/T8_b1000_adam_lr0.00390625/2026-01-23_00-45-43/checkpoint_last.pth")
+
+    tdLN-MLP-no-IF constrast:
+    # 784-512-512-10 no tdLN + no IF："./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-24_14-18-16/checkpoint_last.pth")
+    # 784-512-512-10 tdLN + no IF："./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-23_00-51-57/checkpoint_last.pth")
+    # 784-512-512-10 tdBN + no IF："./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-24_23-50-58/checkpoint_last.pth"
+    # net.load("./SNN-forwardforward/logs/FashionMNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-24_23-50-58/checkpoint_last.pth")
+    # 784-512-512-10 tdLBN + no IF："./SNN-forwardforward/logs/MNIST/MLP/T16_b1000_adam_lr0.00390625/2026-01-24_23-56-44/checkpoint_last.pth"
+
+    delta Loss constrast:
+    "D:\OneDrive\SNN_FFSTDP\SNN-forwardforward\logs\FashionMNIST\MLP\T16_b1000_adam_lr0.00390625\2026-01-27_12-41-58"
+    "D:\OneDrive\SNN_FFSTDP\SNN-forwardforward\logs\FashionMNIST\MLP\T16_b1000_adam_lr0.00390625\2026-01-28_12-59-20"
