@@ -12,12 +12,12 @@ License       : MIT
 import argparse
 class ConfigParser:
     def __init__(self):
-        self.parser = argparse.ArgumentParser(description="MLP Fashion tdLN no IF node")
+        self.parser = argparse.ArgumentParser(description="CNN/Fashion/tdLN/no IF node/delta loss")
         # argparse
         self.parser.add_argument(
             "-model",
             type=str,
-            default="MLP",
+            default="CNN",
             choices=["CNN", "MLP"],
             help="Network architecture type"
         )
@@ -48,10 +48,10 @@ class ConfigParser:
             "-T", default=16, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
-        self.parser.add_argument("-b", default=1000,type=int, help="batch size")
+        self.parser.add_argument("-b", default=512,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=200,
+            default=20,
             type=int,
             metavar="N",
             help="number of total epochs to run",
@@ -102,7 +102,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-loss_threshold",
-            default=8,
+            default=4,
             type=float,
             help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )

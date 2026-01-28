@@ -334,7 +334,8 @@ def main():
                 spike_out_neg_sum += spike_out_neg
 
             # 累加的goodness先求所有层的平均值，在求batch的平均值计算loss
-            loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
+            # loss = (torch.log(1+ torch.exp(-goodness_pos_sum/batch_samples + args.loss_threshold)) + torch.log(1+ torch.exp(goodness_neg_sum/batch_samples - args.loss_threshold))) / 2
+            loss = torch.log(1+torch.exp(-args.loss_threshold * (goodness_pos_sum/batch_samples - goodness_neg_sum/batch_samples)))
             print(f"Epoch: {i+1}/{epochs}, Loss: {loss.mean():.4f}")
             for l in range(len(net.layers)-1):
                 goodness_pos_of_layer_list[l].append(goodness_pos_sum[l]/batch_samples)
