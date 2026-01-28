@@ -8,7 +8,7 @@ import seaborn as sns
 import torch
 import torch.utils.data as data
 import torchvision
-from src.ff_snn_net import Net, spike_encoder
+from src.ff_snn_mlp import Net, spike_encoder
 from src.generate_neg_sample import *
 import torch.nn.functional as F
 from config import ConfigParser

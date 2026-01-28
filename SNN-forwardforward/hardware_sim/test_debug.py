@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 from config import ConfigParser
 from hardware_sim_config import *
-from src.ff_snn_net import Net
+from src.ff_snn_mlp import Net
 from gen_model_weight_coe import quantize_tensor_int
 def get_y_neg(y,device):
     y_neg = y.clone()

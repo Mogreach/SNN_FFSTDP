@@ -9,7 +9,7 @@ import torch.utils.data as data
 import torch.nn.functional as F
 import numpy as np
 import math
-from src.ff_snn_net import Net
+from src.ff_snn_mlp import Net
 from config import ConfigParser
 from hardware_sim_config import *
 def quantize_to_int(x_fp, scale, bits=16):

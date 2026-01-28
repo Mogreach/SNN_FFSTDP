@@ -24,7 +24,7 @@ import numpy as np
 from tqdm import tqdm
 from spikingjelly.activation_based import encoding, functional
 import torch.nn.functional as F
-from src.ff_snn_net import Net
+from src.ff_snn_mlp import Net
 from src.ff_snn_cnn import ConvNet
 from config import ConfigParser
 from src.dataset import GroupedSortedMNIST, AugmentedMNIST
