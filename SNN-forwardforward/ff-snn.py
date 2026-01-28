@@ -312,7 +312,7 @@ def main():
             cos_neg_sum = 0
             spike_out_pos_sum = 0
             spike_out_neg_sum = 0
-            if i > (0.6*epochs):
+            if i > (0.8*epochs):
                 frozen = True
             for x, y in train_data_loader:
                 batch_samples += 1

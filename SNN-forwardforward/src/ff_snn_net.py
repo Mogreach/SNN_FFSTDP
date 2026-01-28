@@ -296,7 +296,7 @@ class Layer(nn.Module):
     def cal_goodness(self, freq):
         # goodness = self.T * freq.pow(2)
         goodness = self.T * freq.abs().pow(2) * freq.sign()
-        return goodness
+        return goodness.mean(dim=1,keepdim=True)
 
     def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
@@ -304,7 +304,7 @@ class Layer(nn.Module):
         x = self.layer[1](x)   # Linear
         mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1)
         var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False)
-        x = ((self.v_threshold * (x - mean.view(-1,1))) / torch.sqrt(var.view(-1,1) + 1e-5))
+        x = ((0.9*self.v_threshold * (x - mean.view(-1,1))) / torch.sqrt(var.view(-1,1) + 1e-5))
         x = self.layer[2](x)   # IFNode  
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
         return x, mean, var
@@ -321,16 +321,17 @@ class Layer(nn.Module):
         pos_out_freq = pos_output_spike.mean(0)
         self.opt.zero_grad()
         pos_goodness = self.cal_goodness(pos_out_freq)
-        pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
-        pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
-        pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
-        pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
-        pos_loss.backward()
-        with torch.no_grad():
-            for m in self.layer.modules():
-                if isinstance(m, nn.Linear):
-                    w_grad = m.weight.grad
-                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold/ torch.sqrt(pos_ln_var.view(N,1) + 1e-5)) # * pos_ln_mean.view(N,1)
+        # pos_L_to_s_grad = 2 * pos_out_freq*pos_derivative(pos_goodness,self.threshold) * (self.v_threshold/ torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
+        # pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
+        # pos_loss = torch.log(1 + torch.exp(-pos_goodness + self.threshold)).mean()
+        # pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
+        # pos_loss.backward()
+        # with torch.no_grad():
+        #     for m in self.layer.modules():
+        #         if isinstance(m, nn.Linear):
+        #             w_grad = m.weight.grad
+        #             pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
         functional.reset_net(self.layer)
         # Negative sample processing
         neg_input_spike_sum = neg_encoded.sum(0)
@@ -343,17 +344,35 @@ class Layer(nn.Module):
         neg_out_freq = neg_output_spike.mean(0)
         self.opt.zero_grad()
         neg_goodness = self.cal_goodness(neg_out_freq)
-        neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
+        # neg_L_to_s_grad = 2*neg_out_freq*neg_derivative(neg_goodness,self.threshold) * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5)) # * neg_ln_mean.view(N,1)
+        # neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
+        # neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
+        # neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
+        # neg_loss.backward()
+        # with torch.no_grad():
+        #     for m in self.layer.modules():
+        #         if isinstance(m, nn.Linear):
+        #             w_grad = m.weight.grad
+        #             neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+        functional.reset_net(self.layer)
+
+        delta = 8*(pos_goodness - neg_goodness)
+        self.opt.zero_grad()
+        pos_L_to_s_grad = 8 * pos_derivative(delta,0) * 2 * pos_out_freq  * (self.v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
+        pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
+        pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
+       
+        neg_L_to_s_grad = -8 * pos_derivative(delta,0) * 2 * neg_out_freq * (self.v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
         neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
-        neg_loss = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
-        neg_loss.backward()
+        delta_loss = torch.log(1 + torch.exp(-8*delta)).mean()
+        delta_loss.backward()
         with torch.no_grad():
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
-                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
-        functional.reset_net(self.layer)
+                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),(-pos_weight_grad-neg_weight_grad).flatten(),dim=0)
+                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),(-pos_weight_grad-neg_weight_grad).flatten(),dim=0)
         # Update weights
         if frozen:
             pass

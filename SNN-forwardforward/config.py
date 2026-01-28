@@ -12,12 +12,12 @@ License       : MIT
 import argparse
 class ConfigParser:
     def __init__(self):
-        self.parser = argparse.ArgumentParser(description="Fashion no tdLN + no IF node")
+        self.parser = argparse.ArgumentParser(description="MLP Fashion tdLN no IF node")
         # argparse
         self.parser.add_argument(
             "-model",
             type=str,
-            default="CNN",
+            default="MLP",
             choices=["CNN", "MLP"],
             help="Network architecture type"
         )
@@ -30,8 +30,8 @@ class ConfigParser:
                 default = [
                             # in_ch, out_ch, k, s, p
                             (1,  16, 3, 1, 1),
-                            (16, 32, 3, 2, 1),
-                            (32, 64, 3, 2, 1),
+                            (16, 32, 3, 1, 1),
+                            (32, 64, 3, 1, 1),
                         ],
                 help="configuration of convolutional layers: (in_channels, out_channels, kernel_size, stride, padding)",
                 type=eval,
@@ -102,7 +102,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-loss_threshold",
-            default=0.25,
+            default=0.5,
             type=float,
             help="threshold of loss function",
         )
