@@ -1,4 +1,4 @@
-module sram_synaptic #(
+module sram_synaptic_sim #(
     parameter  ADDR_WIDTH = 8,
     parameter  DATA_WIDTH = 32,
     parameter  SRAM_DEPTH = 256
@@ -26,7 +26,7 @@ module sram_synaptic #(
         reg [DATA_WIDTH-1:0] Qr;
 
         initial begin
-        $readmemb("D:/OneDrive/SNN_FFSTDP/Gen_out/weights_weight.txt", SRAM);
+        $readmemb("D:/OneDrive/SNN_FFSTDP/Gen_out/MNIST/weights_weight.txt", SRAM);
         end
 
         always @(posedge CK) begin

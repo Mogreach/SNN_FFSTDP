@@ -161,7 +161,7 @@ if __name__ == "__main__":
     args = config.parse()
     device = torch.device("cuda")
     net = Net(dims=[784,256, 10],tau=args.tau, epoch=args.epochs, T=T, lr=args.lr,
-              v_threshold_pos=V_THRESHOLD_POS,v_threshold_neg=V_THRESHOLD_NEG, opt=args.opt, loss_threshold=THETA)
+              v_threshold=V_THRESHOLD_POS,v_threshold_neg=V_THRESHOLD_NEG, opt=args.opt, loss_threshold=THETA)
     net.load(NET_PATH)
     layer_weights = {}
     layer_weights_int8 = {}
@@ -183,7 +183,7 @@ if __name__ == "__main__":
         # 2. 4 个 8-bit 合并为 32-bit
         save_coe_file(packed_data_hex, f"./{out_dir}/weights_{layer_name}.coe")
         save_txt_file(packed_data_bin, f"./{out_dir}/weights_{layer_name}.txt")
-    print("COE 文件已生成！")
+    print("COE 文件已生成！") #此处COE文件生成有问题！！！！，每行不对齐
 
 
 
