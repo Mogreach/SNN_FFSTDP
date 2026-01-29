@@ -28,7 +28,7 @@ module sram_pre_neuron #(
         reg [DATA_WIDTH-1:0] Qr;
 
         initial begin
-        $readmemh("D:/WorkSpace/Temporary/SNN_FF_STDP/user/data/pre_neuron_state.txt", SRAM);
+        $readmemh("D:/WorkSpace/Temporary/SNN_FFSTDP/user/data/pre_neuron_state.txt", SRAM);
         end
 
         always @(posedge CK) begin
