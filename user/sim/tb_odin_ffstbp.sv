@@ -69,7 +69,7 @@ module ODIN_ffstdp_tb();
   initial begin
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/simulation_spikes.bin", "rb"); // 以二进制方式读取
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.bin", "rb"); // 以二进制方式读取
-      file = $fopen("D:/WorkSpace/Temporary/SNN_FF_STDP/user/data/all_spikes.bin", "rb");
+      file = $fopen("D:/WorkSpace/Temporary/SNN_FFSTDP/user/data/all_spikes.bin", "rb");
       
       if (file == 0) begin
           $display("Error: Cannot open file!");
