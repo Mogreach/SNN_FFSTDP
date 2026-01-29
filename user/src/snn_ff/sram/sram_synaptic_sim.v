@@ -26,7 +26,7 @@ module sram_synaptic_sim #(
         reg [DATA_WIDTH-1:0] Qr;
 
         initial begin
-        $readmemb("D:/OneDrive/SNN_FFSTDP/Gen_out/MNIST/weights_weight.txt", SRAM);
+        $readmemb("D:/WorkSpace/Temporary/SNN_FF_STDP/user/data/weights_weight.txt", SRAM);
         end
 
         always @(posedge CK) begin

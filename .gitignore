@@ -150,3 +150,8 @@ prj/
 doc/
 Gen_out/
 NA/
+user/data/all_spikes.bin
+user/data/pre_neuron_state.txt
+user/data/post_neuron_state.txt
+user/data/weights_weight.coe
+user/data/weights_weight.txt

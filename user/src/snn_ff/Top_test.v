@@ -40,7 +40,8 @@ module Top_test
     parameter POST_NEUR_DATA_WIDTH = 20, // 单个突触后神经元状态数据位宽
     parameter POST_NEUR_MEM_WIDTH = 13, // 单个突触后神经元膜电位数据位宽
     parameter POST_NEUR_SPIKE_CNT_WIDTH = 6, // 单个突触后神经元脉冲计数数据位宽
-    parameter WEIGHT_WIDTH = 9 // 单个突触权重数据位宽
+    parameter WEIGHT_WIDTH = 9, // 单个突触权重数据位宽
+    parameter GRAD_WIDTH = 9
 )
 (
     input  wire                         CLK                        ,
@@ -60,7 +61,8 @@ module Top_test
     parameter POST_NEUR_WORD_ADDR_WIDTH= POST_NEUR_ADDR_WIDTH - POST_NEUR_BYTE_ADDR_WIDTH;
     parameter SYN_ARRAY_DATA_WIDTH = POST_NEUR_PARALLEL * WEIGHT_WIDTH; // 突触阵列数据位宽
     parameter SYN_ARRAY_ADDR_WIDTH = $clog2(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL); // 突触阵列地址位宽 
-
+    parameter GRAD_ARRAY_DATA_WIDTH = POST_NEUR_PARALLEL * GRAD_WIDTH; // 突触梯度阵列数据位宽
+    parameter GRAD_ARRAY_ADDR_WIDTH = $clog2(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL); // 突触梯度阵列地址位宽
     reg                                 SCK                         ;
     reg                                 MOSI                        ;
     wire                                MISO                        ;
@@ -91,9 +93,12 @@ ODIN_ffstdp#(
     .POST_NEUR_DATA_WIDTH                  (POST_NEUR_DATA_WIDTH),
     .POST_NEUR_MEM_WIDTH                   (POST_NEUR_MEM_WIDTH),
     .POST_NEUR_SPIKE_CNT_WIDTH             (POST_NEUR_SPIKE_CNT_WIDTH),
-    .SYN_ARRAY_DATA_WIDTH                  (SYN_ARRAY_DATA_WIDTH),
-    .SYN_ARRAY_ADDR_WIDTH                  (SYN_ARRAY_ADDR_WIDTH),
-    .WEIGHT_WIDTH                          (WEIGHT_WIDTH       )  
+    .SYN_ARRAY_DATA_WIDTH     (SYN_ARRAY_DATA_WIDTH),
+    .SYN_ARRAY_ADDR_WIDTH     (SYN_ARRAY_ADDR_WIDTH),
+    .GRAD_ARRAY_DATA_WIDTH    (GRAD_ARRAY_DATA_WIDTH),
+    .GRAD_ARRAY_ADDR_WIDTH    (GRAD_ARRAY_ADDR_WIDTH),
+    .WEIGHT_WIDTH             (WEIGHT_WIDTH),
+    .GRAD_WIDTH               (GRAD_WIDTH)
 )
  u_ODIN_ffstdp(
 // Global input     -------------------------------
@@ -101,10 +106,6 @@ ODIN_ffstdp#(
     .RST                                (RST                       ),
     .IS_POS                             (IS_POS                    ),// 0: negative, 1: positive
     .IS_TRAIN                           (IS_TRAIN                  ),// 0: inference, 1: training
-// SPI slave        -------------------------------
-    .SCK                                (SCK                       ),
-    .MOSI                               (MOSI                      ),
-    .MISO                               (MISO                      ),
 // Input 12-bit AER -------------------------------
     .AERIN_ADDR                         (AERIN_ADDR                ),
     .AERIN_REQ                          (AERIN_REQ                 ),
@@ -114,10 +115,7 @@ ODIN_ffstdp#(
     .AEROUT_REQ                         (AEROUT_REQ                ),
     .AEROUT_ACK                         (AEROUT_ACK                ),
     .GOODNESS                           (GOODNESS                  ),
-    .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         ),
-// Debug ------------------------------------------
-    .SCHED_FULL                         (SCHED_FULL                ),
-    .ctrl_state                         (ctrl_state                )
+    .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         )
 );
 
 always @(posedge CLK or posedge RST)
@@ -136,5 +134,5 @@ always @(posedge CLK or posedge RST)
         else
             AEROUT_ACK_delay <= {AEROUT_ACK_delay[4:0],AEROUT_ACK_reg};
     end
-assign AEROUT_ACK = AEROUT_ACK_delay[5];                                                                
+assign AEROUT_ACK = AEROUT_ACK_delay[5];                                                           
 endmodule

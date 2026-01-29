@@ -36,27 +36,13 @@ module if_neuron #(
     wire signed [POST_NEUR_MEM_WIDTH-1:0] syn_weight_ext;
     wire signed [POST_NEUR_MEM_WIDTH-1:0] state_syn;
 
-    // assign spike_out       = ~state_core_next_i[11] & (state_core_next_i >= param_thr) & time_step_event;
-    
     assign state_core_next =  spike_out ? 'd0 : state_core_next_i;
 
     assign post_spike_cnt_next = post_spike_cnt_next_i;
-    // 权重S2.5对齐膜电位S5.6
-    // assign syn_weight_ext  = syn_weight[7] ? {4'hF,syn_weight[6:5],syn_weight[4:0],1'b0} : {4'h0,syn_weight[6:5],syn_weight[4:0],1'b0};
-    // // 权重S3.4对齐膜电位S5.6
-    // // assign syn_weight_ext  = syn_weight[7] ? {3'hF,syn_weight[6:4],syn_weight[3:0],2'b0} : {3'h0,syn_weight[6:4],syn_weight[3:0],2'b0};
-    // assign state_syn = state_core + syn_weight_ext;
-//  assign overflow = (state_core[POST_NEUR_MEM_WIDTH-1]==syn_weight_ext[POST_NEUR_MEM_WIDTH-1]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core[POST_NEUR_MEM_WIDTH-1]);
+
     assign state_syn = state_core_reg + syn_weight_reg;
     assign overflow = (state_core_reg[POST_NEUR_MEM_WIDTH-1]==syn_weight_reg[WEIGHT_WIDTH-1]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core_reg[POST_NEUR_MEM_WIDTH-1]);
 
-    // if_neur_mem_adder u_if_neur_mem_adder (
-    // .A(state_core),  // input wire [11 : 0] A
-    // .B(syn_weight_ext),  // input wire [11 : 0] B
-    // .S(state_syn)  // output wire [11 : 0] S
-    // );
-
-    // assign spike_out       = (state_core_next_i >= param_thr) & time_step_event;
     always @(posedge CLK)           
     begin         
         state_core_reg <= state_core;                               
@@ -67,7 +53,7 @@ module if_neuron #(
     always @(*) begin 
         if (time_step_event) begin
             state_core_next_i = state_core;
-            post_spike_cnt_next_i = (spike_out)? post_spike_cnt + 1: post_spike_cnt;
+            post_spike_cnt_next_i = state_core[POST_NEUR_MEM_WIDTH]? post_spike_cnt + 1'b1 : post_spike_cnt; // 增加ReLU判断: 膜电位小于0时才触发
             spike_out       = (state_core >= param_thr)? 1'b1: 1'b0;
         end
         else if (time_ref_event)begin 

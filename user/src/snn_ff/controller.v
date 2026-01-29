@@ -193,9 +193,11 @@ module controller #(
     assign tstep_event    = !AERIN_ADDR[AER_WIDTH-1] && AERIN_ADDR[AER_WIDTH-2];
     assign tref_event     = AERIN_ADDR[AER_WIDTH-1] && !AERIN_ADDR[AER_WIDTH-2];
     assign CTRL_TSTEP_EVENT_negedge = !CTRL_TSTEP_EVENT & CTRL_TSTEP_EVENT_int;
-    assign tref_finish = (CTRL_TREF_EVENT && (pre_neur_cnt == INPUT_NEURON))? 1'b1 : 1'b0; // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
+    assign tref_finish = IS_TRAIN? (CTRL_TREF_EVENT && (pre_neur_cnt == INPUT_NEURON))
+                                 : (CTRL_TREF_EVENT && (post_neur_cnt == (OUTPUT_NEURON / POST_NEUR_PARALLEL))); // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
 	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
     assign ctrl_state = state;
+
     //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
@@ -569,12 +571,19 @@ module controller #(
             end
 
             // 当历遍突触前最后一个神经元时，每两个周期更新突触后脉冲计数
-            if ((ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1) && (pre_neur_cnt == INPUT_NEURON - 1'b1)) begin
-                CTRL_POST_NEUR_WE   = 1'b1;
+            if(IS_TRAIN) begin
+                if ((ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1) && (pre_neur_cnt == INPUT_NEURON - 1'b1)) begin
+                    CTRL_POST_NEUR_WE   = 1'b1;
+                end else begin
+                    CTRL_POST_NEUR_WE   = 1'b0;
+                end
             end else begin
-                CTRL_POST_NEUR_WE   = 1'b0;
+                if ((ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1)) begin
+                    CTRL_POST_NEUR_WE   = 1'b1;
+                end else begin
+                    CTRL_POST_NEUR_WE   = 1'b0;
+                end
             end
-
 
         end
         PUSH : begin

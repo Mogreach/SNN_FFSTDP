@@ -69,7 +69,7 @@ module ODIN_ffstdp_tb();
   initial begin
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/simulation_spikes.bin", "rb"); // 以二进制方式读取
       // file = $fopen("D:/BaiduSyncdisk/SNN_FFSTBP/sim/python/all_spikes.bin", "rb"); // 以二进制方式读取
-      file = $fopen("D:/OneDrive/SNN_FFSTDP/Gen_out/MNIST/all_spikes.bin", "rb");
+      file = $fopen("D:/WorkSpace/Temporary/SNN_FF_STDP/user/data/all_spikes.bin", "rb");
       
       if (file == 0) begin
           $display("Error: Cannot open file!");
@@ -134,26 +134,10 @@ module ODIN_ffstdp_tb();
 
     // Stimulus
     #20;
-    IS_TRAIN = 1;
+    IS_TRAIN = 0;
     IS_POS = 1;
     
-    // 重复调用 aer_send 任务
-    // for (int sample=0; sample < 5 ; sample++) begin
-    //   for (int t =0; t < 16 ; t++) begin
-    //     int send_count = 0;
-    //     for (int i = 0; i < 784; i++) begin
-    //       if (send_count < 256 && $urandom % 2 == 0) begin
-    //         aer_send (.addr_in({1'b0, 1'b0, cnt[9:0]}), .addr_out(AERIN_ADDR), .ack(AERIN_ACK), .req(AERIN_REQ));
-    //         send_count++;
-    //       end
-    //       wait_ns(10);
-    //     end
-    //     wait_ns(10);
-    //     aer_send (.addr_in({1'b0,1'b1,10'hFF}), .addr_out(AERIN_ADDR), .ack(AERIN_ACK), .req(AERIN_REQ));
-    //   end
-    // end
-
-          // 遍历 N 个样本，每个样本有 T 个时间步
+    // 遍历 N 个样本，每个样本有 T 个时间步
     for (int n = 0; n < N; n++) begin
         int sample_index;
         int time_index;

@@ -28,7 +28,7 @@ module sram_post_neuron #(
         reg [DATA_WIDTH-1:0] Qr;
 
         initial begin
-        $readmemh("D:/OneDrive/SNN_FFSTDP/Gen_out/MNIST/post_neuron_state.txt", SRAM);
+        $readmemh("D:/WorkSpace/Temporary/SNN_FF_STDP/user/data/post_neuron_state.txt", SRAM);
         end
 
         always @(posedge CK) begin
