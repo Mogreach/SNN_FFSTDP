@@ -10,7 +10,6 @@ module goodness_moving_avg #(
 
     input  wire [CORE_NUM-1:0]                core_valid,
     input  wire [CORE_NUM-1:0]                core_clear_goodness,
-
     input  wire [CORE_NUM * POST_NEUR_PARALLEL * POST_NEUR_MEM_WIDTH-1:0] core_mem_bus,
 
     output wire  [CORE_NUM * GOODNESS_WIDTH - 1 :0] avg_mem_bus

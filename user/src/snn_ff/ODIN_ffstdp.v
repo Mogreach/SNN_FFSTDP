@@ -55,7 +55,7 @@ module ODIN_ffstdp #(
     input  wire                 RST,
     input  wire                 IS_POS,      // 0: negative, 1: positive
     input  wire                 IS_TRAIN,    // 0: inference, 1: training
-    input  wire        [              15:0] AVG_GOODNESS,
+    input  wire        [GOODNESS_WIDTH-1:0] AVG_GOODNESS,
     // Input 12-bit AER -------------------------------
     input  wire [AER_WIDTH-1:0] AERIN_ADDR,
     input  wire                 AERIN_REQ,

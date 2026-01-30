@@ -32,7 +32,7 @@ module synaptic_core #(
     input wire IS_TRAIN,
     // Global inputs ------------------------------------------
     input wire CLK,
-    input  wire        [              15:0] AVG_GOODNESS,
+    input  wire        [GOODNESS_WIDTH-1:0] AVG_GOODNESS,
     // Inputs from controller ---------------------------------
     input wire                            CTRL_SYNARRAY_CS,
     input wire                            CTRL_SYNARRAY_WE,

@@ -41,7 +41,8 @@ module Top_test
     parameter POST_NEUR_MEM_WIDTH = 13, // 单个突触后神经元膜电位数据位宽
     // parameter POST_NEUR_SPIKE_CNT_WIDTH = 6, // 单个突触后神经元脉冲计数数据位宽
     parameter WEIGHT_WIDTH = 9, // 单个突触权重数据位宽
-    parameter GRAD_WIDTH = 9
+    parameter GRAD_WIDTH = 9,
+    parameter GOODNESS_WIDTH = 20
 )
 (
     input  wire                         CLK                        ,
@@ -74,7 +75,11 @@ module Top_test
     
     wire                                ONE_SAMPLE_FINISH           ;
     wire                                SCHED_FULL                  ;
-    
+    wire [POST_NEUR_MEM_WIDTH * POST_NEUR_PARALLEL -1:0] POST_NEUR_MEM_BUS; // 突触后神经元膜电位
+    wire GOODNESS_ACC_VALID;
+    wire GOODNESS_CLEAR;
+    wire [GOODNESS_WIDTH-1:0] AVG_GOODNESS;
+
     assign PROCESS_DONE = ONE_SAMPLE_FINISH;
 ODIN_ffstdp#(
     .TIME_STEP                             (TIME_STEP          ),
@@ -97,7 +102,8 @@ ODIN_ffstdp#(
     .GRAD_ARRAY_DATA_WIDTH    (GRAD_ARRAY_DATA_WIDTH),
     .GRAD_ARRAY_ADDR_WIDTH    (GRAD_ARRAY_ADDR_WIDTH),
     .WEIGHT_WIDTH             (WEIGHT_WIDTH),
-    .GRAD_WIDTH               (GRAD_WIDTH)
+    .GRAD_WIDTH               (GRAD_WIDTH),
+    .GOODNESS_WIDTH            (GOODNESS_WIDTH)
 )
  u_ODIN_ffstdp(
 // Global input     -------------------------------
@@ -115,7 +121,10 @@ ODIN_ffstdp#(
     .AEROUT_REQ                         (AEROUT_REQ                ),
     .AEROUT_ACK                         (AEROUT_ACK                ),
     .GOODNESS                           (GOODNESS                  ),
-    .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         )
+    .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         ),
+    .POST_NEUR_MEM_BUS                  (POST_NEUR_MEM_BUS         ),
+    .GOODNESS_ACC_VALID                 (GOODNESS_ACC_VALID        ),
+    .GOODNESS_CLEAR                     (GOODNESS_CLEAR       )
 );
 
 always @(posedge CLK or posedge RST)
@@ -134,5 +143,23 @@ always @(posedge CLK or posedge RST)
         else
             AEROUT_ACK_delay <= {AEROUT_ACK_delay[4:0],AEROUT_ACK_reg};
     end
-assign AEROUT_ACK = AEROUT_ACK_delay[5];                                                           
+assign AEROUT_ACK = AEROUT_ACK_delay[5];     
+
+
+goodness_moving_avg #(
+	.CORE_NUM            	( 1    ),
+	.POST_NEUR_PARALLEL  	( POST_NEUR_PARALLEL    ),
+	.POST_NEUR_MEM_WIDTH 	( POST_NEUR_MEM_WIDTH   ),
+	.GOODNESS_WIDTH      	( GOODNESS_WIDTH   ),
+	.AVG_SHIFT           	( OUTPUT_NEURON / POST_NEUR_PARALLEL  )
+    )
+u_goodness_moving_avg(
+	.clk                 	( CLK                  ),
+	.rst                 	( RST                  ),
+	.core_valid          	( GOODNESS_ACC_VALID   ),
+	.core_clear_goodness 	( core_clear_goodness  ),
+	.core_mem_bus        	( POST_NEUR_MEM_BUS    ),
+	.avg_mem_bus         	( AVG_GOODNESS         )
+);
+                                                      
 endmodule
