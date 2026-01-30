@@ -36,7 +36,7 @@ module Top_test
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter POST_NEUR_ADDR_WIDTH = 10,
 
-    parameter PRE_NEUR_DATA_WIDTH = 8, // 单个突触前神经元脉冲计数数据位宽
+    // parameter PRE_NEUR_DATA_WIDTH = 8, // 单个突触前神经元脉冲计数数据位宽
     parameter POST_NEUR_DATA_WIDTH = 20, // 单个突触后神经元状态数据位宽
     parameter POST_NEUR_MEM_WIDTH = 13, // 单个突触后神经元膜电位数据位宽
     // parameter POST_NEUR_SPIKE_CNT_WIDTH = 6, // 单个突触后神经元脉冲计数数据位宽
@@ -64,6 +64,7 @@ module Top_test
     parameter GRAD_ARRAY_DATA_WIDTH = POST_NEUR_PARALLEL * GRAD_WIDTH; // 突触梯度阵列数据位宽
     parameter GRAD_ARRAY_ADDR_WIDTH = $clog2(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL); // 突触梯度阵列地址位宽
     parameter POST_NEUR_SPIKE_CNT_WIDTH = TIME_STEP; // 单个突触后神经元脉冲计数数据位宽
+    parameter PRE_NEUR_DATA_WIDTH = TIME_STEP; // 单个突触前神经元脉冲计数数据位宽
 
     wire               [AER_WIDTH-1: 0]        AEROUT_ADDR                 ;
     wire                                AEROUT_REQ                  ;

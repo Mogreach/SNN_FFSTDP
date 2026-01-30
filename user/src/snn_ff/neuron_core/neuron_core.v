@@ -45,6 +45,7 @@ module neuron_core #(
     input wire  CTRL_POST_NEUR_CS,
     input wire  CTRL_POST_NEUR_WE,
     input wire  CTRL_PRE_CNT_EN,
+    input wire [clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
     // SPI inputs
     input wire  SPI_GATE_ACTIVITY_sync,
     input wire  [POST_NEUR_ADDR_WIDTH-1:0] SPI_POST_NEUR_ADDR,
@@ -87,13 +88,19 @@ module neuron_core #(
     always @(*) begin
         NEUR_STATE = post_neuron_sram_out_array[post_neuron_byte_addr];
     end
-    pre_neuron pre_neuron_0( 
+    pre_neuron pre_neuron_0
+    (
+        .PRE_NEUR_SPIKE_CNT_WIDTH (PRE_NEUR_DATA_WIDTH),
+        .TIME_STEP (TIME_STEP),
+    )
+    ( 
     .pre_spike_cnt(pre_neuron_sram_out),          // 突触前神经元发放脉冲数量 from SRAM
     .neuron_event(CTRL_NEUR_EVENT),               // synaptic event trigger
     .neuron_event_pulse(CTRL_PRE_CNT_EN),
     .time_ref_event(CTRL_TREF_EVENT),                // time reference event trigger
-    .pre_spike_cnt_next(pre_neuron_sram_in)          // 突触前神经元发放脉冲数量 to SRAM
-);
+    .pre_spike_cnt_next(pre_neuron_sram_in),          // 突触前神经元发放脉冲数量 to SRAM
+    .current_time_step(CURRENT_TIME_STEP)
+    );
 
     genvar i;
     // 神经元状态更新模块 + SPI初始化

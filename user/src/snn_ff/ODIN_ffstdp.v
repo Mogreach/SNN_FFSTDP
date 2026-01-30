@@ -121,6 +121,7 @@ module ODIN_ffstdp #(
     wire CTRL_POST_NEUR_CS;
     wire CTRL_POST_NEUR_WE;
     wire CTRL_PRE_CNT_EN;  // 预神经元计数使能信号
+    wire [$clog2(TIME_STEP)-1:0]CURRENT_TIME_STEP;
     wire CTRL_AEROUT_POP_TSTEP;
     wire CTRL_AEROUT_PUSH_NEUR;
     wire CTRL_AEROUT_TREF_FINISH;
@@ -280,6 +281,7 @@ module ODIN_ffstdp #(
         .CTRL_POST_NEUR_CS       (CTRL_POST_NEUR_CS),         // 后神经元选择信号
         .CTRL_POST_NEUR_WE       (CTRL_POST_NEUR_WE),         // 后神经元写使能信号
         .CTRL_PRE_CNT_EN         (CTRL_PRE_CNT_EN),           // 预计数使能信号
+        .CURRENT_TIME_STEP       (CURRENT_TIME_STEP),
 
         // Training and Inference Events --------------------------
         .CTRL_NEUR_EVENT (CTRL_NEUR_EVENT),   // 神经元事件
@@ -431,6 +433,7 @@ module ODIN_ffstdp #(
         .CTRL_POST_NEUR_CS       (CTRL_POST_NEUR_CS),         // 后神经元选择信号
         .CTRL_POST_NEUR_WE       (CTRL_POST_NEUR_WE),         // 后神经元写使能信号
         .CTRL_PRE_CNT_EN         (CTRL_PRE_CNT_EN),           // 预计数器使能信号
+        .CURRENT_TIME_STEP       (CURRENT_TIME_STEP),
 
         // SPI inputs ----------------------------------------
         .SPI_GATE_ACTIVITY_sync(SPI_GATE_ACTIVITY_sync),  // SPI激活同步信号

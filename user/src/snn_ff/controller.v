@@ -107,6 +107,9 @@ module controller #(
     output reg  CTRL_NEUR_EVENT,
     output reg  CTRL_TSTEP_EVENT,
     output reg  CTRL_TREF_EVENT,
+
+    // Outputs to pre-neuron
+    output wire [clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
         
     // Outputs to scheduler -----------------------------------
     output reg            CTRL_SCHED_POP_N,
@@ -123,11 +126,6 @@ module controller #(
     output wire    [  3:0]                     ctrl_state                  
 );
 
-
-
-
-
-    
 	//----------------------------------------------------------------------------------
 	//	PARAMETERS 
 	//----------------------------------------------------------------------------------
@@ -176,8 +174,8 @@ module controller #(
     reg [R_W_SRAM_CLK_neur_act_LOG2-1:0]ctrl_neur_act_cnt;
     reg [R_W_SRAM_CLK_tstep_act_LOG2-1:0]ctrl_tstep_act_cnt;
     reg [R_W_SRAM_CLK_tref_LOG2-1:0]ctrl_tref_cnt;
-
-    reg  [POST_NEUR_SPIKE_CNT_WIDTH-1:0]  T_step_cnt;
+    
+    reg  [clog2(TIME_STEP):0]  T_step_cnt;
     reg          CTRL_TSTEP_EVENT_int;
     reg  [$clog2(OUTPUT_NEURON)-1:0]  post_neur_cnt;
     reg          post_neur_cnt_inc;
@@ -198,6 +196,7 @@ module controller #(
 	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
     assign ctrl_state = state;
 
+    assign CURRENT_TIME_STEP = T_step_cnt[clog2(TIME_STEP)-1:0];
     //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
