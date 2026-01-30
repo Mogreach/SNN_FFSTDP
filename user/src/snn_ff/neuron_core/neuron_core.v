@@ -126,6 +126,7 @@ module neuron_core #(
             wire post_neuron_enable = post_neuron_sram_out_array[i][POST_NEUR_DATA_WIDTH-1];
 
             if_neuron #(
+                .TIME_STEP                             (TIME_STEP          ),
                 .AER_WIDTH                             (AER_WIDTH          ),
                 .POST_NEUR_MEM_WIDTH                   (POST_NEUR_MEM_WIDTH),
                 .POST_NEUR_SPIKE_CNT_WIDTH             (POST_NEUR_SPIKE_CNT_WIDTH),
@@ -142,7 +143,8 @@ module neuron_core #(
                 .neuron_event                          (CTRL_NEUR_EVENT    ),// synaptic event trigger
                 .time_step_event                       (CTRL_TSTEP_EVENT   ),
                 .time_ref_event                        (CTRL_TREF_EVENT    ),// time reference event trigger
-                .spike_out                             (IF_neuron_event_out[i]) // neuron spike event output  
+                .spike_out                             (IF_neuron_event_out[i]), // neuron spike event output  
+                .current_time_step                     (CURRENT_TIME_STEP)
             );
             // assign NEUR_EVENT_OUT[i] = post_neuron_enable? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
             assign NEUR_EVENT_OUT[i] = post_neuron_enable? IF_neuron_event_out[i] : 1'b0;

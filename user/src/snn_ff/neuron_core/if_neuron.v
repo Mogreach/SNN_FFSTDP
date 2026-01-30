@@ -1,5 +1,6 @@
 
 module if_neuron #(
+    parameter TIME_STEP = 8,
     parameter AER_WIDTH = 12,
     parameter POST_NEUR_MEM_WIDTH = 12,
     parameter POST_NEUR_SPIKE_CNT_WIDTH = 7,
@@ -18,7 +19,7 @@ module if_neuron #(
     input  wire                 neuron_event,               // synaptic event trigger
     input  wire                 time_step_event,
     input  wire                 time_ref_event,                // time reference event trigger
-    
+    input wire [clog2(TIME_STEP)-1:0] current_time_step,
     output reg                 spike_out                // neuron spike event output  
 );
     localparam max_value = (1 << (POST_NEUR_MEM_WIDTH-1)) - 1;
@@ -42,7 +43,11 @@ module if_neuron #(
 
     assign state_syn = state_core_reg + syn_weight_reg;
     assign overflow = (state_core_reg[POST_NEUR_MEM_WIDTH-1]==syn_weight_reg[WEIGHT_WIDTH-1]) && (state_syn[POST_NEUR_MEM_WIDTH-1]!=state_core_reg[POST_NEUR_MEM_WIDTH-1]);
-
+    
+    // One-hot encoding for current time step; cover all time steps
+    wire  [TIME_STEP-1:0] time_one_hot_flag = ({{TIME_STEP-1{1'b0}},1'b1} << current_time_step);
+    wire  [POST_NEUR_SPIKE_CNT_WIDTH-1:0] post_spike_cnt_next_ii = post_spike_cnt | time_one_hot_flag;
+    
     always @(posedge CLK)           
     begin         
         state_core_reg <= state_core;                               
@@ -53,7 +58,7 @@ module if_neuron #(
     always @(*) begin 
         if (time_step_event) begin
             state_core_next_i = state_core;
-            post_spike_cnt_next_i = state_core[POST_NEUR_MEM_WIDTH]? post_spike_cnt + 1'b1 : post_spike_cnt; // 增加ReLU判断: 膜电位小于0时才触发
+            post_spike_cnt_next_i = state_core[POST_NEUR_MEM_WIDTH]? post_spike_cnt : post_spike_cnt_next_ii; // 膜电位大于0,标记当前时间步，设为1
             spike_out       = (state_core >= param_thr)? 1'b1: 1'b0;
         end
         else if (time_ref_event)begin 
