@@ -3,10 +3,11 @@ module ffstdp_update #(
     parameter PRE_CNT_WIDTH = 8,  //计数0-31
     parameter POST_CNT_WIDTH = 7,
     parameter WEIGHT_WIDTH = 8,
-    parameter GRAD_WIDTH = 8
+    parameter GRAD_WIDTH = 8,
+    parameter GOODNESS_WIDTH = 20
 ) (
     // Inputs
-    input  wire        [              15:0] AVG_GOODNESS,
+    input  wire        [GOODNESS_WIDTH-1:0] AVG_GOODNESS,
     // General
     input  wire                             CLK,
     input  wire                             CTRL_TREF_EVENT,

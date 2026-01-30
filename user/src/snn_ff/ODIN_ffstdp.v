@@ -48,6 +48,7 @@ module ODIN_ffstdp #(
     parameter GRAD_ARRAY_ADDR_WIDTH = 16,
     parameter WEIGHT_WIDTH = 8,
     parameter GRAD_WIDTH = 8,
+    parameter GOODNESS_WIDTH = 20
 ) (
     // Global input     -------------------------------
     input  wire                 CLK,
@@ -67,7 +68,9 @@ module ODIN_ffstdp #(
     output wire                 ONE_SAMPLE_FINISH,
     output wire [         31:0] GOODNESS,
     // Connect to GOODNESS module
-    output wire [         31:0] POST_MEM           // 突触后神经元膜电位 
+    output wire [POST_NEUR_MEM_WIDTH * POST_NEUR_PARALLEL -1:0] POST_NEUR_MEM_BUS, // 突触后神经元膜电位 
+    output wire GOODNESS_ACC_VALID,
+    output wire GOODNESS_CLEAR
 );
 
     //----------------------------------------------------------------------------------
@@ -299,7 +302,10 @@ module ODIN_ffstdp #(
         .CTRL_AEROUT_PUSH_NEUR  (CTRL_AEROUT_PUSH_NEUR),    // AER 输出推送神经元事件
         .CTRL_AEROUT_POP_TSTEP  (CTRL_AEROUT_POP_TSTEP),    // AER 输出弹出时间步事件
         .CTRL_AEROUT_TREF_FINISH(CTRL_AEROUT_TREF_FINISH),  // AER 输出时间参考完成事件
-        .ctrl_state             (ctrl_state)
+        .ctrl_state             (ctrl_state),
+        // Output to GOODNESS moving average module------------------
+        .GOODNESS_ACC_VALID     (GOODNESS_ACC_VALID),
+        .GOODNESS_CLEAR         (GOODNESS_CLEAR)
     );
 
     //----------------------------------------------------------------------------------
@@ -362,7 +368,8 @@ module ODIN_ffstdp #(
         .GRAD_ARRAY_DATA_WIDTH    (GRAD_ARRAY_DATA_WIDTH),
         .GRAD_ARRAY_ADDR_WIDTH    (GRAD_ARRAY_ADDR_WIDTH),
         .WEIGHT_WIDTH             (WEIGHT_WIDTH),
-        .GRAD_WIDTH               (GRAD_WIDTH)
+        .GRAD_WIDTH               (GRAD_WIDTH),
+        .GOODNESS_WIDTH           (GOODNESS_WIDTH)
     ) u_synaptic_core (
         .IS_POS                  (IS_POS),
         .IS_TRAIN                (IS_TRAIN),        
@@ -443,7 +450,8 @@ module ODIN_ffstdp #(
         .NEUR_STATE     (NEUR_STATE),      // 神经元状态
         .NEUR_EVENT_OUT (NEUR_EVENT_OUT),  // 神经元事件输出
         .PRE_NEUR_S_CNT (PRE_NEUR_S_CNT),  // 预神经元脉冲计数
-        .POST_NEUR_S_CNT(POST_NEUR_S_CNT)
+        .POST_NEUR_S_CNT(POST_NEUR_S_CNT),
+        .POST_NEUR_MEM_BUS(POST_NEUR_MEM_BUS)
     );
 
 

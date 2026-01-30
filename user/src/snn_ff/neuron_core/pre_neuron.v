@@ -8,7 +8,7 @@ module pre_neuron
     input  wire                 neuron_event,               // synaptic event trigger
     input  wire                 neuron_event_pulse,
     input  wire                 time_ref_event,                // time reference event trigger
-    input wire [clog2(TIME_STEP)-1:0] current_time_step,
+    input wire [$clog2(TIME_STEP)-1:0] current_time_step,
     output reg [PRE_NEUR_SPIKE_CNT_WIDTH-1:0] pre_spike_cnt_next          // 突触前神经元发放脉冲数量 to SRAM
 );
     //neuron_event：神经元事件，只更新累加膜电位，以及输入神经元的脉冲数

@@ -45,7 +45,7 @@ module neuron_core #(
     input wire  CTRL_POST_NEUR_CS,
     input wire  CTRL_POST_NEUR_WE,
     input wire  CTRL_PRE_CNT_EN,
-    input wire [clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
+    input wire [$clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
     // SPI inputs
     input wire  SPI_GATE_ACTIVITY_sync,
     input wire  [POST_NEUR_ADDR_WIDTH-1:0] SPI_POST_NEUR_ADDR,
@@ -54,7 +54,9 @@ module neuron_core #(
     output reg [POST_NEUR_DATA_WIDTH-1:0] NEUR_STATE,
     output wire [POST_NEUR_PARALLEL-1:0] NEUR_EVENT_OUT,
     output wire [PRE_NEUR_DATA_WIDTH-1:0] PRE_NEUR_S_CNT,
-    output wire [POST_NEUR_SPIKE_CNT_WIDTH * POST_NEUR_PARALLEL -1 :0] POST_NEUR_S_CNT
+    output wire [POST_NEUR_SPIKE_CNT_WIDTH * POST_NEUR_PARALLEL -1 :0] POST_NEUR_S_CNT,
+    // ReLU(mem) as Goodness output
+    output wire [POST_NEUR_MEM_WIDTH * POST_NEUR_PARALLEL -1:0] POST_NEUR_MEM_BUS
 );
 
     localparam POST_NEUR_SRAM_DATA_WIDTH = POST_NEUR_PARALLEL * POST_NEUR_DATA_WIDTH;
@@ -88,11 +90,12 @@ module neuron_core #(
     always @(*) begin
         NEUR_STATE = post_neuron_sram_out_array[post_neuron_byte_addr];
     end
-    pre_neuron pre_neuron_0
-    (
+    pre_neuron 
+    #(
         .PRE_NEUR_SPIKE_CNT_WIDTH (PRE_NEUR_DATA_WIDTH),
-        .TIME_STEP (TIME_STEP),
+        .TIME_STEP (TIME_STEP)
     )
+    pre_neuron_0
     ( 
     .pre_spike_cnt(pre_neuron_sram_out),          // 突触前神经元发放脉冲数量 from SRAM
     .neuron_event(CTRL_NEUR_EVENT),               // synaptic event trigger
@@ -149,6 +152,7 @@ module neuron_core #(
             // assign NEUR_EVENT_OUT[i] = post_neuron_enable? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
             assign NEUR_EVENT_OUT[i] = post_neuron_enable? IF_neuron_event_out[i] : 1'b0;
             assign POST_NEUR_S_CNT[i*POST_NEUR_SPIKE_CNT_WIDTH +: POST_NEUR_SPIKE_CNT_WIDTH] = post_neuron_spike_cnt;
+            assign POST_NEUR_MEM_BUS[i*POST_NEUR_MEM_WIDTH +: POST_NEUR_MEM_WIDTH] = post_neuron_mem;
         end
     endgenerate
 

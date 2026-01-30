@@ -25,7 +25,8 @@ module synaptic_core #(
     parameter GRAD_ARRAY_ADDR_WIDTH = 16,
 
     parameter WEIGHT_WIDTH = 8,
-    parameter GRAD_WIDTH = 8
+    parameter GRAD_WIDTH = 8,
+    parameter GOODNESS_WIDTH = 20
 ) (
     input wire IS_POS,
     input wire IS_TRAIN,
@@ -89,7 +90,8 @@ module synaptic_core #(
                 .PRE_CNT_WIDTH (POST_NEUR_SPIKE_CNT_WIDTH),
                 .POST_CNT_WIDTH(POST_NEUR_SPIKE_CNT_WIDTH),
                 .WEIGHT_WIDTH  (WEIGHT_WIDTH),
-                .GRAD_WIDTH    (GRAD_WIDTH)
+                .GRAD_WIDTH    (GRAD_WIDTH),
+                .GOODNESS_WIDTH(GOODNESS_WIDTH)
             ) ffstdp_update_0 (
                 // Inputs
                 // General

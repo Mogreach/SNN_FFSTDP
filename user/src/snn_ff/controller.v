@@ -109,7 +109,7 @@ module controller #(
     output reg  CTRL_TREF_EVENT,
 
     // Outputs to pre-neuron
-    output wire [clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
+    output wire [$clog2(TIME_STEP)-1:0] CURRENT_TIME_STEP,
         
     // Outputs to scheduler -----------------------------------
     output reg            CTRL_SCHED_POP_N,
@@ -122,6 +122,9 @@ module controller #(
     output  reg            CTRL_AEROUT_PUSH_NEUR,
     output  reg            CTRL_AEROUT_POP_TSTEP,
     output  wire           CTRL_AEROUT_TREF_FINISH,
+    // Output to GOODNESS moving average module------------------
+    output  wire            GOODNESS_ACC_VALID,
+    output  wire            GOODNESS_CLEAR,
     //debug
     output wire    [  3:0]                     ctrl_state                  
 );
@@ -175,7 +178,7 @@ module controller #(
     reg [R_W_SRAM_CLK_tstep_act_LOG2-1:0]ctrl_tstep_act_cnt;
     reg [R_W_SRAM_CLK_tref_LOG2-1:0]ctrl_tref_cnt;
     
-    reg  [clog2(TIME_STEP):0]  T_step_cnt;
+    reg  [$clog2(TIME_STEP):0]  T_step_cnt;
     reg          CTRL_TSTEP_EVENT_int;
     reg  [$clog2(OUTPUT_NEURON)-1:0]  post_neur_cnt;
     reg          post_neur_cnt_inc;
@@ -196,7 +199,9 @@ module controller #(
 	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
     assign ctrl_state = state;
 
-    assign CURRENT_TIME_STEP = T_step_cnt[clog2(TIME_STEP)-1:0];
+    assign CURRENT_TIME_STEP = T_step_cnt[$clog2(TIME_STEP)-1:0];
+    assign GOODNESS_ACC_VALID = CTRL_TSTEP_EVENT && post_neur_cnt_inc;
+    assign GOODNESS_CLEAR = tref_finish;
     //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
