@@ -17,7 +17,7 @@ module pre_neuron
 
     // One-hot encoding for current time step; cover all time steps
     wire  [TIME_STEP-1:0] time_one_hot_flag = ({{TIME_STEP-1{1'b0}},1'b1} << current_time_step);
-    wire  [PRE_NEUR_SPIKE_CNT_WIDTH-1:0] pre_spike_cnt_next_i = current_time_step | time_one_hot_flag;
+    wire  [PRE_NEUR_SPIKE_CNT_WIDTH-1:0] pre_spike_cnt_next_i = pre_spike_cnt | time_one_hot_flag;
 
     always @(*) begin 
         if (neuron_event) begin
