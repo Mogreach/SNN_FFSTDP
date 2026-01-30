@@ -54,6 +54,7 @@ module ODIN_ffstdp #(
     input  wire                 RST,
     input  wire                 IS_POS,      // 0: negative, 1: positive
     input  wire                 IS_TRAIN,    // 0: inference, 1: training
+    input  wire        [              15:0] AVG_GOODNESS,
     // Input 12-bit AER -------------------------------
     input  wire [AER_WIDTH-1:0] AERIN_ADDR,
     input  wire                 AERIN_REQ,
@@ -66,8 +67,7 @@ module ODIN_ffstdp #(
     output wire                 ONE_SAMPLE_FINISH,
     output wire [         31:0] GOODNESS,
     // Connect to GOODNESS module
-    output wire [         31:0] POST_MEM,           // 突触后神经元膜电位 
-    input  wire                 AVG_GOODNESS
+    output wire [         31:0] POST_MEM           // 突触后神经元膜电位 
 );
 
     //----------------------------------------------------------------------------------
@@ -363,11 +363,10 @@ module ODIN_ffstdp #(
         .GRAD_WIDTH               (GRAD_WIDTH)
     ) u_synaptic_core (
         .IS_POS                  (IS_POS),
-        .IS_TRAIN                (IS_TRAIN),
+        .IS_TRAIN                (IS_TRAIN),        
+        .AVG_GOODNESS            (AVG_GOODNESS),
         // Global inputs ------------------------------------------
         .CLK                     (CLK),
-        // Inputs from SPI configuration registers ----------------
-        .SPI_GATE_ACTIVITY_sync  (SPI_GATE_ACTIVITY_sync),
         // Inputs from controller ---------------------------------
         .CTRL_SYNARRAY_CS        (CTRL_SYNARRAY_CS),
         .CTRL_SYNARRAY_WE        (CTRL_SYNARRAY_WE),

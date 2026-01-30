@@ -31,10 +31,7 @@ module synaptic_core #(
     input wire IS_TRAIN,
     // Global inputs ------------------------------------------
     input wire CLK,
-
-    // Inputs from SPI configuration registers ----------------
-    input wire SPI_GATE_ACTIVITY_sync,
-
+    input  wire        [              15:0] AVG_GOODNESS,
     // Inputs from controller ---------------------------------
     input wire                            CTRL_SYNARRAY_CS,
     input wire                            CTRL_SYNARRAY_WE,
@@ -100,6 +97,7 @@ module synaptic_core #(
                 .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
                 .IS_POS         (IS_POS),
                 .IS_TRAIN       (IS_TRAIN),
+                .AVG_GOODNESS   (AVG_GOODNESS),
                 // From neuron 
                 .POST_SPIKE_CNT (POST_NEUR_S_CNT_array[i]),
                 .PRE_SPIKE_CNT  (PRE_NEUR_S_CNT),
