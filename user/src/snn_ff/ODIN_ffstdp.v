@@ -63,7 +63,7 @@ module ODIN_ffstdp #(
     output wire                 AERIN_ACK,
 
     // Output 10-bit AER -------------------------------
-    output wire [AER_IN_WIDTH-1:0] AEROUT_ADDR,
+    output wire [AER_OUT_WIDTH-1:0] AEROUT_ADDR,
     output wire                 AEROUT_REQ,
     input  wire                 AEROUT_ACK,
     output wire                 ONE_SAMPLE_FINISH,
