@@ -3,7 +3,7 @@
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_WIDTH = 12,
+    parameter AER_IN_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH= 10,
@@ -39,7 +39,7 @@
     // Outputs ------------------------------------------------
     output wire                 SCHED_EMPTY,
     output wire                 SCHED_FULL,
-    output wire [AER_WIDTH-1:0] SCHED_DATA_OUT
+    output wire [AER_IN_WIDTH-1:0] SCHED_DATA_OUT
 );
 
     reg                    SPI_OPEN_LOOP_sync_int, SPI_OPEN_LOOP_sync;
@@ -48,7 +48,7 @@
 
     wire                   empty_main;
     wire                   full_main;
-    wire [AER_WIDTH-1:0] data_out_main;
+    wire [AER_IN_WIDTH-1:0] data_out_main;
 
 
     // Sync barrier from SPI
@@ -68,7 +68,7 @@
     // FIFO instances
 
     fifo #(
-        .width(AER_WIDTH),
+        .width(AER_IN_WIDTH),
         .depth(128),
         .depth_addr(7)
     ) fifo_spike_0 (

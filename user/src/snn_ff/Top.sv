@@ -42,9 +42,9 @@ module top_lrf_odins #(
     localparam POST_NEUR_PARALLEL = (CORE_C > 8) ? 8 : CORE_C; //并行度
     localparam CORE_NUM = CORE_W * CORE_H;// Core 总数量
     // 每个 core 对应一个空间位置（输出 feature map）
-    localparam MAP_IN_AER_WIDTH = $clog2(FM_C * FM_W * FM_H) + 2; // 映射前 AER 宽度
+    localparam MAP_IN_AER_WIDTH = 2 + $clog2(FM_C) + $clog2(FM_H) + $clog2(FM_W); // 映射前 AER 宽度
     // localparam MAP_OUT_AER_WIDTH = $clog2(LRF_W) + $clog2(LRF_W) + $clog2(FM_C) + 2;
-    localparam MAP_OUT_AER_WIDTH = $clog2(LRF_W*LRF_W*FM_C) + 2; // 映射后 AER 宽度
+    localparam MAP_OUT_AER_WIDTH = 2 + $clog2(FM_C) + $clog2(LRF_H) + $clog2(LRF_W); // 映射后 AER 宽度
     // 用于表示 (x,y) 展平后的地址
     localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
     localparam OUTPUT_NEURON = CORE_C; // 每个 core 输出神经元数量
@@ -100,34 +100,31 @@ module top_lrf_odins #(
     wire [CORE_W*CORE_H-1:0] 	MAP_OUT_AERIN_IDX;
     wire [CORE_W*CORE_H-1:0]    MAP_OUT_AERIN_ACK = core_aer_ack;
 
-    aer_lrf_mapper #(
-        .MAP_IN_AER_WIDTH 	(MAP_IN_AER_WIDTH  ), // 映射前 AER 地址宽度
-        .MAP_OUT_AER_WIDTH	(MAP_OUT_AER_WIDTH ), // 映射后 AER 地址宽度
-        .FM_W    (FM_W),     // 输入空间宽度
-        .FM_H    (FM_H),     // 输入空间高度
-        .FM_C    (FM_C),     // 输入空间通道数
-        .CORE_W  (CORE_W),   // core 阵列宽度
-        .CORE_H  (CORE_H),   // core 阵列高度
-        .CORE_C  (CORE_C),   // core 输出通道数
-        .LRF_W   (LRF_W),    // 局部感受野宽度
-        .LRF_H   (LRF_H)     // 局部感受野高度)
-    )
-    u_aer_lrf_mapper(
-        .clk                 	( clk                  ),
-        .rst                 	( rst                  ),
+    aer_in_lrf_mapper #(
+        .MAP_IN_AER_WIDTH (MAP_IN_AER_WIDTH),
+        .MAP_OUT_AER_WIDTH(MAP_OUT_AER_WIDTH),
+        .FM_C(FM_C),
+        .FM_W(FM_W),
+        .FM_H(FM_H),
+        .CORE_W(CORE_W),
+        .CORE_H(CORE_H),
+        .CORE_C(CORE_C),
+        .LRF_W(LRF_W),
+        .LRF_H(LRF_H)
+    ) u_aer_lrf_mapper (
+        .clk(clk),
+        .rst(rst),
         // 上游 AER 接口
-        .MAP_IN_AERIN_REQ    	( MAP_IN_AERIN_REQ     ),
-        .MAP_IN_AERIN_EVENT  	( MAP_IN_AERIN_EVENT   ),
-        .MAP_IN_AERIN_IDX    	( MAP_IN_AERIN_IDX     ),
-        .MAP_IN_AERIN_ACK    	( MAP_IN_AERIN_ACK     ),
+        .MAP_IN_AERIN_REQ(MAP_IN_AERIN_REQ),
+        .MAP_IN_AERIN_EVENT(MAP_IN_AERIN_EVENT),
+        .MAP_IN_AERIN_IDX(MAP_IN_AERIN_IDX),
+        .MAP_IN_AERIN_ACK(MAP_IN_AERIN_ACK),
         // 下游（core）AER 接口
-        .MAP_OUT_AERIN_REQ   	( MAP_OUT_AERIN_REQ    ),
-        .MAP_OUT_AERIN_EVENT 	( MAP_OUT_AERIN_EVENT  ),
-        .MAP_OUT_AERIN_IDX   	( MAP_OUT_AERIN_IDX    ),
-        .MAP_OUT_AERIN_ACK   	( MAP_OUT_AERIN_ACK    )
+        .MAP_OUT_AERIN_REQ(MAP_OUT_AERIN_REQ),
+        .MAP_OUT_AERIN_EVENT(MAP_OUT_AERIN_EVENT),
+        .MAP_OUT_AERIN_IDX(MAP_OUT_AERIN_IDX),
+        .MAP_OUT_AERIN_ACK(MAP_OUT_AERIN_ACK)
     );
-
-
 
     // ============================================================
     // ODIN Core Array
