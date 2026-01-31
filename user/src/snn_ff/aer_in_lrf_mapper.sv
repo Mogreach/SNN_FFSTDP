@@ -1,4 +1,4 @@
-module aer_lrf_mapper #(
+module aer_in_lrf_mapper #(
     parameter MAP_IN_AER_WIDTH   = 12,   // 映射前AER 宽度
     parameter MAP_OUT_AER_WIDTH  = 12,   // 映射后AER 宽度
     parameter FM_C         = 16,   // 输入通道数
@@ -47,7 +47,6 @@ module aer_lrf_mapper #(
     localparam DX_W = $clog2(LRF_W);
     localparam DY_W = $clog2(LRF_H);
     
-    reg [DX_W-1:0] LRF_X_idx;
     // 高位优先编码
     wire [LRF_W-1:0] LRF_x_idx_condition_priority;
     wire [LRF_H-1:0] LRF_y_idx_condition_priority;

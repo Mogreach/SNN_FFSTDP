@@ -32,7 +32,7 @@ module tb_aer_lrf_mapper;
     logic [CORE_W*CORE_H-1:0] MAP_OUT_AERIN_ACK;
 
     // ================= DUT =================
-    aer_lrf_mapper #(
+    aer_in_lrf_mapper #(
         .MAP_IN_AER_WIDTH (MAP_IN_AER_WIDTH),
         .MAP_OUT_AER_WIDTH(MAP_OUT_AER_WIDTH),
         .FM_C(FM_C),
