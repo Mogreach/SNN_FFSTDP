@@ -84,18 +84,22 @@ module aer_lrf_mapper #(
     // 映射核心编号和使能
     wire [LRF_W*LRF_H-1:0] LRF_core_en;
     // 每个感受野位置下对应的核心编号[H，W]
-    wire [LRF_W*LRF_H-1:0][X_BITS + Y_BITS -1:0] LRF_core_id;
+    wire [X_BITS + Y_BITS -1:0] LRF_core_id [LRF_W*LRF_H-1:0];
 
     genvar ix, iy;
     generate
         for (iy = 0; iy < LRF_H; iy = iy + 1) begin : GEN_Y
             for (ix = 0; ix < LRF_W; ix = ix + 1) begin : GEN_X
-                localparam int LRF_IDX = iy * LRF_W + ix;
+                localparam LRF_IDX = iy * LRF_W + ix;
                 // 相对感受野中心的偏移
-                localparam offset_x = ix - RX;
-                localparam offset_y = iy - RY;
-                wire [X_BITS-1:0] map_out2core_x = in_x + offset_x;
-                wire [Y_BITS-1:0] map_out2core_y = in_y + offset_y;
+                localparam int offset_x = 
+                    (ix < RX) ? (ix - RX + 1) : (ix - RX);
+
+                localparam int offset_y =
+                    (iy < RY) ? (iy - RY + 1) : (iy - RY);
+
+                wire [X_BITS-1:0] map_out2core_x = in_x -ix;
+                wire [Y_BITS-1:0] map_out2core_y = in_y -iy;
                 // [H，W]紧凑型编号
                 wire [MAP_OUT_AER_WIDTH-2-1:0] core_id = map_out2core_y * CORE_W + map_out2core_x;
                 // ============ 核心使能 ============
@@ -124,53 +128,44 @@ module aer_lrf_mapper #(
     localparam int DY_BITS = $clog2(LRF_H);
     localparam int DX_BITS = $clog2(LRF_W);
     localparam int IDX_BITS = C_BITS + DY_BITS + DX_BITS;
-
+    wire [DY_BITS-1:0] DY [0:LRF_H-1];
+    wire [DX_BITS-1:0] DX [0:LRF_W-1];
     genvar gy, gx, gk;
     generate
-        for (gy = 0; gy < LRF_H; gy++) begin
-            for (gx = 0; gx < LRF_W; gx++) begin
-                localparam int j = gy*LRF_W + gx;
-                localparam logic [DY_BITS-1:0] DY = gy;
-                localparam logic [DX_BITS-1:0] DX = gx;
-                always @(*) begin
-                    // 初始化
-                    for (k = 0; k < CORE_H*CORE_W; k = k + 1) begin
-                        MAP_OUT_AERIN_IDX_r[k]   = {MAP_OUT_AER_WIDTH{1'b0}};
-                        MAP_OUT_AERIN_EVENT_r[k] = {2'b11, {MAP_OUT_AER_WIDTH-2{1'b1}}}; // 无效事件
-                    end
-                    if (LRF_core_en[j]) begin
-                        MAP_OUT_AERIN_IDX_r[LRF_core_id[j]] = { in_c, DY, DX };
-                        MAP_OUT_AERIN_EVENT_r[LRF_core_id[j]] = {event_type, MAP_OUT_AERIN_IDX_r[LRF_core_id[j]][MAP_OUT_AER_WIDTH-3:0]};
-                    end
-                end
+        for (gy = 0; gy < LRF_H; gy++) begin : gen_lrf_h
+            for (gx = 0; gx < LRF_W; gx++) begin : gen_lrf_w
+                assign DY[gy] = gy;
+                assign DX[gx] = gx;
             end
         end
-
         for (gk = 0; gk < CORE_H*CORE_W; gk = gk + 1) begin
             assign MAP_OUT_AERIN_IDX[gk]   = ((|event_type) && !(&event_type)) ? {MAP_OUT_AER_WIDTH-2{1'b0}} : MAP_OUT_AERIN_IDX_r[gk];
             assign MAP_OUT_AERIN_EVENT[gk] = ((|event_type) && !(&event_type)) ? map_out_aer_non_neur_event : MAP_OUT_AERIN_EVENT_r[gk];
         end
     endgenerate
+    always @(*) begin
+        // 初始化
+        for (k = 0; k < CORE_H*CORE_W; k = k + 1) begin
+            MAP_OUT_AERIN_IDX_r[k]   = {MAP_OUT_AER_WIDTH{1'b0}};
+            MAP_OUT_AERIN_EVENT_r[k] = {2'b11, {MAP_OUT_AER_WIDTH-2{1'b1}}}; // 无效事件
+        end
+        // 遍历 LRF
+        for (k = 0; k < LRF_H; k = k + 1) begin
+            for (l = 0; l < LRF_W; l = l + 1) begin
+                    int idx;
+                    idx = k * LRF_W + l;
+                if (LRF_core_en[idx]) begin
+                        // IDX: 可自定义线性化地址
+                    // MAP_OUT_AERIN_IDX_r[LRF_core_id[l]] = {in_c, local_dy[j], local_dx[j]};
+                    // MAP_OUT_AERIN_EVENT_r[k] = {event_type, MAP_OUT_AERIN_IDX_r[i][MAP_OUT_AER_WIDTH-3:0]};
+                    MAP_OUT_AERIN_IDX_r[LRF_core_id[idx]] = { in_c, DY[k], DX[l] };
+                    MAP_OUT_AERIN_EVENT_r[LRF_core_id[idx]] = {event_type, MAP_OUT_AERIN_IDX_r[LRF_core_id[idx]][MAP_OUT_AER_WIDTH-3:0]};
+                end
+            end
+        end
+    end
 
     // 所有被命中的核心 ACK 后才 ACK 输入
     assign MAP_IN_AERIN_ACK = &(MAP_OUT_AERIN_ACK | ~MAP_OUT_AERIN_REQ);
-    // always @(*) begin
-    //     // 初始化
-    //     for (k = 0; k < CORE_H*CORE_W; k = k + 1) begin
-    //         MAP_OUT_AERIN_IDX_r[k]   = {MAP_OUT_AER_WIDTH{1'b0}};
-    //         MAP_OUT_AERIN_EVENT_r[k] = {2'b11, {MAP_OUT_AER_WIDTH-2{1'b1}}}; // 无效事件
-    //     end
-    //     // 遍历 LRF
-    //     for (k = 0; k < LRF_H; k = k + 1) begin
-    //         for (l = 0; l < LRF_W*LRF_H; l = l + 1) begin
-    //             localparam local_dy = k;
-    //             localparam local_dx = l;
-    //             if (LRF_core_en[l]) begin
-    //                     // IDX: 可自定义线性化地址
-    //                 MAP_OUT_AERIN_IDX_r[LRF_core_id[l]] = {in_c, local_dy[j], local_dx[j]};
-    //                 MAP_OUT_AERIN_EVENT_r[k] = {event_type, MAP_OUT_AERIN_IDX_r[i][MAP_OUT_AER_WIDTH-3:0]};
-    //             end
-    //         end
-    //     end
-    // end
+
 endmodule
