@@ -48,7 +48,8 @@ module top_lrf_odins #(
     // 用于表示 (x,y) 展平后的地址
     localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
     localparam OUTPUT_NEURON = CORE_C; // 每个 core 输出神经元数量
-    localparam AER_WIDTH = MAP_OUT_AER_WIDTH; // AER 地址宽度
+    localparam AER_IN_WIDTH = MAP_OUT_AER_WIDTH; // 每个 core 输入AER 地址宽度
+    localparam AER_OUT_WIDTH = 2 + $clog2(OUTPUT_NEURON); // 每个 core 输出 AER 输出地址宽度
     localparam PRE_NEUR_ADDR_WIDTH = MAP_OUT_AER_WIDTH - 2; // 突触前神经元地址宽度
     localparam PRE_NEUR_WORD_ADDR_WIDTH= MAP_OUT_AER_WIDTH - 2;
     localparam PRE_NEUR_BYTE_ADDR_WIDTH = 0;
@@ -161,7 +162,8 @@ module top_lrf_odins #(
                 .TIME_STEP                             (TIME_STEP          ),
                 .INPUT_NEURON                          (INPUT_NEURON       ),
                 .OUTPUT_NEURON                         (OUTPUT_NEURON      ),
-                .AER_WIDTH                             (AER_WIDTH          ),
+                .AER_IN_WIDTH                          (AER_IN_WIDTH          ),
+                .AER_OUT_WIDTH                         (AER_OUT_WIDTH          ),
                 .PRE_NEUR_ADDR_WIDTH                   (PRE_NEUR_ADDR_WIDTH),
                 .PRE_NEUR_WORD_ADDR_WIDTH              (PRE_NEUR_WORD_ADDR_WIDTH),
                 .PRE_NEUR_BYTE_ADDR_WIDTH              (PRE_NEUR_BYTE_ADDR_WIDTH),

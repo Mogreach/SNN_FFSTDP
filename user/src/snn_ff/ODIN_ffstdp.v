@@ -28,6 +28,7 @@ module ODIN_ffstdp #(
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
     parameter AER_IN_WIDTH = 12,
+    parameter AER_OUT_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH = 10,
@@ -159,7 +160,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_IN_WIDTH                (AER_IN_WIDTH),
+        .AER_OUT_WIDTH                (AER_OUT_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -178,13 +179,8 @@ module ODIN_ffstdp #(
         // Global input -----------------------------------
         .CLK                     (CLK),
         .RST                     (RST),
-        // Inputs from SPI configuration latches ----------
-        .SPI_GATE_ACTIVITY_sync  (SPI_GATE_ACTIVITY_sync),
-        .SPI_AER_SRC_CTRL_nNEUR  (SPI_AER_SRC_CTRL_nNEUR),
         // Neuron data inputs -----------------------------
         .NEUR_EVENT_OUT          (NEUR_EVENT_OUT),
-        // Input from scheduler ---------------------------
-        .SCHED_DATA_OUT          (SCHED_DATA_OUT),
         // Input from controller --------------------------
         .CTRL_TREF_EVENT         (CTRL_TREF_EVENT),
         .CTRL_POST_NEUR_CS       (CTRL_POST_NEUR_CS),
