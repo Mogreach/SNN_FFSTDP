@@ -1,3 +1,4 @@
+// 计算各核心的平均goodness，移动平均法，一次计算POST_NEUR_PARALLEL个神经元的平均值
 module goodness_moving_avg #(
     parameter CORE_NUM              = 4,
     parameter POST_NEUR_PARALLEL     = 8,
@@ -32,7 +33,7 @@ generate
             assign mem_relu_bus_each_core[n*(POST_NEUR_MEM_WIDTH-1) +: POST_NEUR_MEM_WIDTH-1] = mem_sign_bus_each_core[n] ? 'd0 : mem_bus_each_neur[POST_NEUR_MEM_WIDTH-2:0]; 
         end
         // Adder tree to sum ReLU mems
-        wire [POST_NEUR_MEM_WIDTH-1 + (POST_NEUR_PARALLEL)-1:0] mem_sum_each_core;
+        wire [POST_NEUR_MEM_WIDTH-1 + $clog2(POST_NEUR_PARALLEL)-1:0] mem_sum_each_core;
         adder_tree #(
             .N     	(POST_NEUR_PARALLEL),
             .WIDTH 	(POST_NEUR_MEM_WIDTH-1)
@@ -57,9 +58,10 @@ generate
                 mem_valid_reg <= core_valid[c];  
             end
         end
-
+        
         // EMA update
         reg [GOODNESS_WIDTH-1 : 0] move_avg_mem;
+        wire [GOODNESS_WIDTH-1 : 0] move_avg_mem_next = move_avg_mem - (move_avg_mem >>> AVG_SHIFT) + (mem_avg_each_core_reg >>> AVG_SHIFT);
         always @(posedge clk or posedge rst) begin
             if (rst) begin
                 move_avg_mem <= 'd0;
@@ -68,7 +70,7 @@ generate
                 move_avg_mem <= 'd0;
             end
             else if (mem_valid_reg) begin
-                move_avg_mem <= move_avg_mem - (move_avg_mem >>> AVG_SHIFT) + (mem_avg_each_core_reg >>> AVG_SHIFT);
+                move_avg_mem <= move_avg_mem_next;
             end
             else begin
                 move_avg_mem <= move_avg_mem;
