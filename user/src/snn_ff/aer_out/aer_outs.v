@@ -119,7 +119,7 @@ module aer_outs #(
     assign                              AEROUT_ACK_sync_negedge     = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
     assign                              aer_out_addr_last_negedge   = !aer_out_addr_last & aer_out_addr_last_int;
 
-    assign                              aer_out_start               = fifo_rd_en_int;// 无效事件11则不传输;   
+    assign                              aer_out_start               = fifo_rd_en_int  && (!(&aer_out_fifo_dout[AER_OUT_WIDTH-1:AER_OUT_WIDTH-2]));// 无效事件11则不传输;   
     assign                              AEROUT_CTRL_FINISH          = aer_out_addr_last_negedge;
 
     assign                              ctrl_tref_finish_delay_posedge= !ctrl_tref_finish_delay[5] && ctrl_tref_finish_delay[4];
