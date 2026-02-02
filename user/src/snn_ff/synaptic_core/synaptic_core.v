@@ -128,7 +128,8 @@ module synaptic_core #(
     sram_synaptic_sim #(
         .DATA_WIDTH(SYN_ARRAY_DATA_WIDTH),
         .ADDR_WIDTH(SYN_ARRAY_ADDR_WIDTH),
-        .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
+        .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
+        // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
     ) u_sram_synaptic_bank (
         // Global inputs
         .CK(CLK),               // Clock (synchronous read/write)
@@ -144,7 +145,8 @@ module synaptic_core #(
     sram_synaptic_sim #(
         .DATA_WIDTH(GRAD_ARRAY_DATA_WIDTH),
         .ADDR_WIDTH(GRAD_ARRAY_ADDR_WIDTH),
-        .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
+        .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
+        // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
     ) u_sram_synaptic_gradient_bank (
         // Global inputs
         .CK(CLK),                 // Clock (synchronous read/write)

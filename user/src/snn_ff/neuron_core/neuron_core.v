@@ -168,9 +168,10 @@ module neuron_core #(
     endgenerate
 
     sram_pre_neuron#(
-    .ADDR_WIDTH     (PRE_NEUR_ADDR_WIDTH              ),
+    .ADDR_WIDTH     (PRE_NEUR_ADDR_WIDTH             ),
     .DATA_WIDTH     (PRE_NEUR_DATA_WIDTH             ),
-    .SRAM_DEPTH     (INPUT_NEURON            )
+    .SRAM_DEPTH     (1<<PRE_NEUR_ADDR_WIDTH          )
+    // .SRAM_DEPTH     (INPUT_NEURON            )
     )
     neurarray_pre(
     // Global inputs
@@ -187,7 +188,8 @@ module neuron_core #(
     sram_post_neuron#(
     .ADDR_WIDTH     (POST_NEUR_SRAM_ADDR_WIDTH),
     .DATA_WIDTH     (POST_NEUR_SRAM_DATA_WIDTH         ),
-    .SRAM_DEPTH     (OUTPUT_NEURON / POST_NEUR_PARALLEL)
+    .SRAM_DEPTH     (1<<POST_NEUR_SRAM_ADDR_WIDTH)
+    // .SRAM_DEPTH     (OUTPUT_NEURON / POST_NEUR_PARALLEL)
     )
     neurarray_post(
     // Global inputs
