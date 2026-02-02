@@ -69,6 +69,7 @@ module synaptic_core #(
     wire [POST_NEUR_SPIKE_CNT_WIDTH-1:0] POST_NEUR_S_CNT_array [0:POST_NEUR_PARALLEL-1];
 
     assign synarray_addr = CTRL_SYNARRAY_ADDR;
+    assign grad_array_addr = CTRL_SYNARRAY_ADDR;
 
     genvar i;
     generate

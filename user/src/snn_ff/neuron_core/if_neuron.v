@@ -57,8 +57,8 @@ module if_neuron #(
 
     always @(*) begin 
         if (time_step_event) begin
-            state_core_next_i = state_core[POST_NEUR_MEM_WIDTH]? 'd0 : state_core; // ReLU
-            post_spike_cnt_next_i = state_core[POST_NEUR_MEM_WIDTH]? post_spike_cnt : post_spike_cnt_next_ii; // 膜电位大于0,标记当前时间步，设为1
+            state_core_next_i = state_core[POST_NEUR_MEM_WIDTH-1]? 'd0 : state_core; // ReLU
+            post_spike_cnt_next_i = state_core[POST_NEUR_MEM_WIDTH-1]? post_spike_cnt : post_spike_cnt_next_ii; // 膜电位大于0,标记当前时间步，设为1
             spike_out       = (state_core >= param_thr)? 1'b1: 1'b0;
         end
         else if (time_ref_event)begin 

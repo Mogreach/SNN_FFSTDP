@@ -2,11 +2,11 @@ module aer_in_lrf_mapper #(
     parameter MAP_IN_AER_WIDTH   = 12,   // 映射前AER 宽度
     parameter MAP_OUT_AER_WIDTH  = 12,   // 映射后AER 宽度
     parameter FM_C         = 16,   // 输入通道数
-    parameter FM_W        = 32,   // 输入特征图宽
-    parameter FM_H        = 32,   // 输入特征图高
-    parameter CORE_W      = 16,   // 核心阵列宽
-    parameter CORE_H      = 16,   // 核心阵列高
-    parameter CORE_C      = 3,    // 输出通道数
+    parameter FM_W        = 16,   // 输入特征图宽
+    parameter FM_H        = 16,   // 输入特征图高
+    parameter CORE_W      = 8,   // 核心阵列宽
+    parameter CORE_H      = 8,   // 核心阵列高
+    parameter CORE_C      = 4,    // 输出通道数
     parameter LRF_W       = 3,    // 局部感受野宽
     parameter LRF_H       = 3,    // 局部感受野高
     parameter STRIDE      = 1
@@ -38,7 +38,7 @@ module aer_in_lrf_mapper #(
 
     assign {in_c, in_y, in_x} = MAP_IN_AERIN_IDX; // 输入特征图通道、高度、宽度对应的位
     wire [1:0] event_type = MAP_IN_AERIN_EVENT[(MAP_IN_AER_WIDTH-1) -: 2];
-    wire [MAP_OUT_AER_WIDTH-1: 0] map_out_aer_non_neur_event = {event_type,{MAP_OUT_AER_WIDTH{1'b1}}};
+    wire [MAP_OUT_AER_WIDTH-1: 0] map_out_aer_non_neur_event = {event_type,{MAP_OUT_AER_WIDTH-2{1'b1}}};
     wire [MAP_OUT_AER_WIDTH-1: 0] map_out_aer_invalid_event = {2'b11,{MAP_OUT_AER_WIDTH{1'b1}}};
 
     localparam RX = LRF_W / 2;
@@ -111,18 +111,30 @@ module aer_in_lrf_mapper #(
     endgenerate
 
     reg [CORE_H*CORE_W-1:0] MAP_OUT_AERIN_REQ_r;
+    reg [CORE_H*CORE_W-1:0] MAP_OUT_AERIN_ACK_r;
     reg [MAP_OUT_AER_WIDTH-1:0] MAP_OUT_AERIN_IDX_r   [0:CORE_H*CORE_W-1];
     reg [MAP_OUT_AER_WIDTH-1:0] MAP_OUT_AERIN_EVENT_r [0:CORE_H*CORE_W-1];
 
     integer k, l;
     always @(*) begin
-        MAP_OUT_AERIN_REQ_r = 'd0;
+        MAP_OUT_AERIN_REQ_r = {CORE_H*CORE_W{1'b0}};
+        MAP_OUT_AERIN_ACK_r = {CORE_H*CORE_W{1'b1}};
         for (l = 0; l < LRF_W*LRF_H; l = l + 1) begin
-            if (LRF_core_en[l])
+            if (LRF_core_en[l]) begin
                 MAP_OUT_AERIN_REQ_r[LRF_core_id[l]] = MAP_IN_AERIN_REQ;
+                MAP_OUT_AERIN_ACK_r[LRF_core_id[l]] = MAP_OUT_AERIN_ACK[LRF_core_id[l]];
+            end
+            // else begin
+            //     MAP_OUT_AERIN_REQ_r[LRF_core_id[l]] = 1'b0;
+            //     MAP_OUT_AERIN_ACK_r[LRF_core_id[l]] = 1'b1;
+            // end
         end
     end
-    assign MAP_OUT_AERIN_REQ = ((|event_type) && !(&event_type))? {CORE_H*CORE_W{1'b1}} : MAP_OUT_AERIN_REQ_r;
+    assign MAP_OUT_AERIN_REQ = MAP_IN_AERIN_REQ ? ((!event_type[1] && event_type[0])? {CORE_H*CORE_W{MAP_IN_AERIN_REQ}} : MAP_OUT_AERIN_REQ_r) : {CORE_H*CORE_W{1'b0}};
+    // assign MAP_OUT_AERIN_REQ = ((|event_type) && !(&event_type))? {CORE_H*CORE_W{1'b1}} : MAP_OUT_AERIN_REQ_r;
+    // 所有被命中的核心 ACK 后才 ACK 输入
+    // assign MAP_IN_AERIN_ACK = (&MAP_OUT_AERIN_ACK_r && |MAP_OUT_AERIN_REQ && !(|event_type)) || (!(&MAP_OUT_AERIN_ACK_r) && |MAP_OUT_AERIN_REQ && (|event_type));
+    assign MAP_IN_AERIN_ACK = MAP_IN_AERIN_REQ && (&MAP_OUT_AERIN_ACK_r);
 
     localparam int DY_BITS = $clog2(LRF_H);
     localparam int DX_BITS = $clog2(LRF_W);
@@ -164,7 +176,6 @@ module aer_in_lrf_mapper #(
         end
     end
 
-    // 所有被命中的核心 ACK 后才 ACK 输入
-    assign MAP_IN_AERIN_ACK = &(MAP_OUT_AERIN_ACK | ~MAP_OUT_AERIN_REQ);
+
 
 endmodule

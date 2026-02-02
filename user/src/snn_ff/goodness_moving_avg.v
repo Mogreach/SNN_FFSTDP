@@ -48,8 +48,14 @@ generate
         reg [POST_NEUR_MEM_WIDTH - 1 - 1 :0] mem_avg_each_core_reg;
         reg mem_valid_reg;
         always @(posedge clk) begin
-            mem_avg_each_core_reg <= mem_avg_each_core;
-            mem_valid_reg <= core_valid[c];
+            if (rst) begin
+                mem_avg_each_core_reg <= 'd0;
+                mem_valid_reg <= 1'b0;
+            end
+            else begin
+                mem_avg_each_core_reg <= mem_avg_each_core;
+                mem_valid_reg <= core_valid[c];  
+            end
         end
 
         // EMA update

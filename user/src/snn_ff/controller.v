@@ -102,6 +102,8 @@ module controller #(
     output reg   CTRL_POST_NEUR_CS,
     output reg   CTRL_POST_NEUR_WE,
     output reg   CTRL_PRE_CNT_EN,
+    output wire  CTRL_GRAD_ARRAY_CS,
+    output wire  CTRL_GRAD_ARRAY_WE,
 
     //训练推理事件
     output reg  CTRL_NEUR_EVENT,
@@ -202,6 +204,9 @@ module controller #(
     assign CURRENT_TIME_STEP = T_step_cnt[$clog2(TIME_STEP)-1:0];
     assign GOODNESS_ACC_VALID = CTRL_TSTEP_EVENT && post_neur_cnt_inc;
     assign GOODNESS_CLEAR = tref_finish;
+
+    assign CTRL_GRAD_ARRAY_CS = CTRL_SYNARRAY_CS;
+    assign CTRL_GRAD_ARRAY_WE = CTRL_SYNARRAY_WE;
     //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
@@ -247,31 +252,18 @@ module controller #(
 	always @(*)
 		case(state)
 			WAIT 		:	
-                                // if (SPI_GATE_ACTIVITY_sync)
-            //                 // AER输入事件类型
-            //                     if      (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b01))                   nextstate = W_NEUR;
-            //                     else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b01))                   nextstate = R_NEUR;
-            //                     else if (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b10))                   nextstate = W_SYN;
-            //                     else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b10))                   nextstate = R_SYN;
-            //                     else                                                                            nextstate = WAIT;
-                            // else
                             if (SCHED_FULL)                                                                 
                                 //SCHED_DATA_OUT[11:10] == 2'b01
-                                if( |SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2])                               nextstate = TSTEP_ACT;
+                                if( SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b01)                nextstate = TSTEP_ACT;
                                 else                                                                        nextstate = NEUR_ACT;
                             else if (AERIN_REQ_sync)
                                 if (neuron_event || tstep_event)                                            nextstate = PUSH;
                                 else                                                                        nextstate = WAIT;
                             else if (~SCHED_EMPTY)                                                          
-                                if( |SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2])                               nextstate = TSTEP_ACT;
-                                else                                                                        nextstate = NEUR_ACT;
+                                if( SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b01)                 nextstate = TSTEP_ACT;
+                                else if (SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b00)            nextstate = NEUR_ACT;
+                                else                                                                        nextstate = WAIT;
                             else                                                                            nextstate = WAIT;
-			W_NEUR    	:   if      (ctrl_cnt == 32'd1 )                                                    nextstate = WAIT_SPIDN;
-							else					                                                            nextstate = W_NEUR;
-			R_NEUR    	:                                                                                       nextstate = WAIT_SPIDN;
-			W_SYN    	:   if      (ctrl_cnt == 32'd1 )                                                        nextstate = WAIT_SPIDN;
-							else					                                                            nextstate = W_SYN;
-			R_SYN    	:                                                                                       nextstate = WAIT_SPIDN;
 			TREF    	:   if      (tref_finish)                                                               nextstate = WAIT;
 							else					                                                            nextstate = TREF;
             PUSH        :                                                                                       nextstate = WAIT_REQDN;
@@ -289,8 +281,6 @@ module controller #(
                                 if  ((T_step_cnt == TIME_STEP))                                                 nextstate = TREF;
                                 else                                                                            nextstate = WAIT;
                             else                                                                                nextstate =POP_TSTEP;   
-			WAIT_SPIDN 	:   if      (~CTRL_PROG_EVENT_sync && ~CTRL_READBACK_EVENT_sync)                        nextstate = WAIT;
-							else					                                                            nextstate = WAIT_SPIDN;
 			WAIT_REQDN 	:   if      (~AERIN_REQ_sync)                                                           nextstate = WAIT;
 							else					                                                            nextstate = WAIT_REQDN;
 			default		:							                                                            nextstate = WAIT;
@@ -355,170 +345,6 @@ module controller #(
     // Output logic      
     always @(*) begin
         case(state)
-        W_NEUR : begin
-            // To synaptic_core
-            CTRL_SYNARRAY_ADDR  = 'd0;
-            CTRL_SYNARRAY_CS    = 1'b0;
-            CTRL_SYNARRAY_WE    = 1'b0;
-            // sram关键控制信号
-            CTRL_PRE_NEUR_CS    = 1'b0;
-            CTRL_PRE_NEUR_WE    = 1'b0;
-            CTRL_POST_NEUR_CS   = 1'b0;
-            CTRL_POST_NEUR_WE   = 1'b0;
-            CTRL_SYNA_WR_EVENT  = 1'b0;
-            CTRL_SYNA_RD_EVENT  = 1'b0;
-            CTRL_SYNA_PROG_DATA = 'd0;
-            CTRL_PRE_CNT_EN     = 1'b0;
-            // To neuron
-            // SPI控制读写事件
-            CTRL_WR_NEUR_EVENT  = 1'b0;
-            CTRL_RD_NEUR_EVENT  = 1'b0;
-            // SPI控制编入数据
-            CTRL_POST_NEUR_PROG_DATA = 'd0;
-            // 控制器神经元地址
-            CTRL_PRE_NEURON_ADDRESS = 'd0;
-            CTRL_POST_NEURON_ADDRESS = 'd0;
-            // 事件类型
-            CTRL_NEUR_EVENT     = 1'b0;
-            CTRL_TSTEP_EVENT    = 1'b0;
-            CTRL_TREF_EVENT     = 1'b0;
-            // To scheduler
-            CTRL_SCHED_VIRTS    = 'd0;
-            CTRL_SCHED_ADDR     = 'd0;
-            CTRL_SCHED_EVENT_IN = 1'b0;
-            CTRL_SCHED_POP_N    = 1'b1;
-            // To aer_out
-            CTRL_AEROUT_PUSH_NEUR = 1'b0;
-            CTRL_AEROUT_POP_NEUR  = 1'b0;
-            CTRL_AEROUT_POP_TSTEP = 1'b0; 
-            // 其他信号
-            AERIN_ACK           = 1'b0;
-            post_neur_cnt_inc   = 1'b0;
-            pre_neur_cnt_inc    = 1'b0; 
-        end
-        R_NEUR : begin
-            // To synaptic_core
-            CTRL_SYNARRAY_ADDR  = 'd0;
-            CTRL_SYNARRAY_CS    = 1'b0;
-            CTRL_SYNARRAY_WE    = 1'b0;
-            // sram关键控制信号
-            CTRL_PRE_NEUR_CS    = 1'b0;
-            CTRL_PRE_NEUR_WE    = 1'b0;
-            CTRL_POST_NEUR_CS   = 1'b0;
-            CTRL_POST_NEUR_WE   = 1'b0;
-            CTRL_SYNA_WR_EVENT  = 1'b0;
-            CTRL_SYNA_RD_EVENT  = 1'b0;
-            CTRL_SYNA_PROG_DATA = 'd0;
-            CTRL_PRE_CNT_EN     = 1'b0;
-            // To neuron
-            // SPI控制读写事件
-            CTRL_WR_NEUR_EVENT  = 1'b0;
-            CTRL_RD_NEUR_EVENT  = 1'b0;
-            // SPI控制编入数据
-            CTRL_POST_NEUR_PROG_DATA = 'd0;
-            // 控制器神经元地址
-            CTRL_PRE_NEURON_ADDRESS = 'd0;
-            CTRL_POST_NEURON_ADDRESS = 'd0;
-            // 事件类型
-            CTRL_NEUR_EVENT     = 1'b0;
-            CTRL_TSTEP_EVENT    = 1'b0;
-            CTRL_TREF_EVENT     = 1'b0;
-            // To scheduler
-            CTRL_SCHED_VIRTS    = 'd0;
-            CTRL_SCHED_ADDR     = 'd0;
-            CTRL_SCHED_EVENT_IN = 1'b0;
-            CTRL_SCHED_POP_N    = 1'b1;
-            // To aer_out
-            CTRL_AEROUT_PUSH_NEUR = 1'b0;
-            CTRL_AEROUT_POP_NEUR  = 1'b0;
-            CTRL_AEROUT_POP_TSTEP = 1'b0; 
-            // 其他信号
-            AERIN_ACK           = 1'b0;
-            post_neur_cnt_inc   = 1'b0;
-            pre_neur_cnt_inc    = 1'b0; 
-        end
-        W_SYN : begin
-            // To synaptic_core
-            CTRL_SYNARRAY_ADDR  = 'd0;
-            CTRL_SYNARRAY_CS    = 1'b0;
-            CTRL_SYNARRAY_WE    = 1'b0;
-            // sram关键控制信号
-            CTRL_PRE_NEUR_CS    = 1'b0;
-            CTRL_PRE_NEUR_WE    = 1'b0;
-            CTRL_POST_NEUR_CS   = 1'b0;
-            CTRL_POST_NEUR_WE   = 1'b0;
-            CTRL_SYNA_WR_EVENT  = 1'b0;
-            CTRL_SYNA_RD_EVENT  = 1'b0;
-            CTRL_SYNA_PROG_DATA = 'd0;
-            CTRL_PRE_CNT_EN     = 1'b0;
-            // To neuron
-            // SPI控制读写事件
-            CTRL_WR_NEUR_EVENT  = 1'b0;
-            CTRL_RD_NEUR_EVENT  = 1'b0;
-            // SPI控制编入数据
-            CTRL_POST_NEUR_PROG_DATA = 'd0;
-            // 控制器神经元地址
-            CTRL_PRE_NEURON_ADDRESS = 'd0;
-            CTRL_POST_NEURON_ADDRESS = 'd0;
-            // 事件类型
-            CTRL_NEUR_EVENT     = 1'b0;
-            CTRL_TSTEP_EVENT    = 1'b0;
-            CTRL_TREF_EVENT     = 1'b0;
-            // To scheduler
-            CTRL_SCHED_VIRTS    = 'd0;
-            CTRL_SCHED_ADDR     = 'd0;
-            CTRL_SCHED_EVENT_IN = 1'b0;
-            CTRL_SCHED_POP_N    = 1'b1;
-            // To aer_out
-            CTRL_AEROUT_PUSH_NEUR = 1'b0;
-            CTRL_AEROUT_POP_NEUR  = 1'b0;
-            CTRL_AEROUT_POP_TSTEP = 1'b0; 
-            // 其他信号
-            AERIN_ACK           = 1'b0;
-            post_neur_cnt_inc   = 1'b0;
-            pre_neur_cnt_inc    = 1'b0; 
-        end
-        R_SYN : begin
-            // To synaptic_core
-            CTRL_SYNARRAY_ADDR  = 'd0;
-            CTRL_SYNARRAY_CS    = 1'b0;
-            CTRL_SYNARRAY_WE    = 1'b0;
-            // sram关键控制信号
-            CTRL_PRE_NEUR_CS    = 1'b0;
-            CTRL_PRE_NEUR_WE    = 1'b0;
-            CTRL_POST_NEUR_CS   = 1'b0;
-            CTRL_POST_NEUR_WE   = 1'b0;
-            CTRL_SYNA_WR_EVENT  = 1'b0;
-            CTRL_SYNA_RD_EVENT  = 1'b0;
-            CTRL_SYNA_PROG_DATA = 'd0;
-            CTRL_PRE_CNT_EN     = 1'b0;
-            // To neuron
-            // SPI控制读写事件
-            CTRL_WR_NEUR_EVENT  = 1'b0;
-            CTRL_RD_NEUR_EVENT  = 1'b0;
-            // SPI控制编入数据
-            CTRL_POST_NEUR_PROG_DATA = 'd0;
-            // 控制器神经元地址
-            CTRL_PRE_NEURON_ADDRESS = 'd0;
-            CTRL_POST_NEURON_ADDRESS = 'd0;
-            // 事件类型
-            CTRL_NEUR_EVENT     = 1'b0;
-            CTRL_TSTEP_EVENT    = 1'b0;
-            CTRL_TREF_EVENT     = 1'b0;
-            // To scheduler
-            CTRL_SCHED_VIRTS    = 'd0;
-            CTRL_SCHED_ADDR     = 'd0;
-            CTRL_SCHED_EVENT_IN = 1'b0;
-            CTRL_SCHED_POP_N    = 1'b1;
-            // To aer_out
-            CTRL_AEROUT_PUSH_NEUR = 1'b0;
-            CTRL_AEROUT_POP_NEUR  = 1'b0;
-            CTRL_AEROUT_POP_TSTEP = 1'b0; 
-            // 其他信号
-            AERIN_ACK           = 1'b0;
-            post_neur_cnt_inc   = 1'b0;
-            pre_neur_cnt_inc    = 1'b0; 
-        end
         TREF : begin
             // sram关键控制信号
             CTRL_SYNA_WR_EVENT  = 1'b0;

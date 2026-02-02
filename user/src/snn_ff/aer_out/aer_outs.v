@@ -119,7 +119,7 @@ module aer_outs #(
     assign                              AEROUT_ACK_sync_negedge     = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
     assign                              aer_out_addr_last_negedge   = !aer_out_addr_last & aer_out_addr_last_int;
 
-    assign                              aer_out_start               = fifo_rd_en_int && (!(&aer_out_fifo_dout[11:10]));// 无效事件11则不传输
+    assign                              aer_out_start               = fifo_rd_en_int;// 无效事件11则不传输;   
     assign                              AEROUT_CTRL_FINISH          = aer_out_addr_last_negedge;
 
     assign                              ctrl_tref_finish_delay_posedge= !ctrl_tref_finish_delay[5] && ctrl_tref_finish_delay[4];
@@ -131,7 +131,7 @@ module aer_outs #(
     generate
         for (i = 0; i<POST_NEUR_PARALLEL; i=i+1) begin
             assign post_neur_cnt[i] = POST_NEUR_S_CNT[i*POST_NEUR_SPIKE_CNT_WIDTH +: T_LOG2+1];
-            assign aer_out_fifo_din[AER_OUT_WIDTH*(POST_NEUR_PARALLEL-i)-1 -: AER_OUT_WIDTH]= NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,10'd0};
+            assign aer_out_fifo_din[AER_OUT_WIDTH*(POST_NEUR_PARALLEL-i)-1 -: AER_OUT_WIDTH]= NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,{AER_OUT_WIDTH-2{1'b0}}};
             // goodness_mult goodness_square (
             // .CLK                                (CLK                       ),// input wire CLK
             // .A                                  (post_neur_cnt[i]          ),// input wire [4 : 0] A
@@ -249,7 +249,6 @@ module aer_outs #(
     // .full(fifo_full),    // output wire full
     // .empty(fifo_empty)  // output wire empty
     // );
-    
     syncFIFO_diffWidth #(
     .DIN_WIDTH                             (AER_OUT_WIDTH * POST_NEUR_PARALLEL),
     .DOUT_WIDTH                            (AER_OUT_WIDTH          ),

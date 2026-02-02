@@ -27,10 +27,16 @@ module sram_post_neuron #(
         reg [DATA_WIDTH-1:0] SRAM[0:SRAM_DEPTH-1];
         reg [DATA_WIDTH-1:0] Qr;
 
+        // initial begin
+        // $readmemh("D:/WorkSpace/Temporary/SNN_FFSTDP/user/data/post_neuron_state.txt", SRAM);
+        // end
+        integer i;
         initial begin
-        $readmemh("D:/WorkSpace/Temporary/SNN_FFSTDP/user/data/post_neuron_state.txt", SRAM);
+            Qr = 'd0;
+            for (i = 0; i < SRAM_DEPTH; i = i + 1) begin
+                SRAM[i] = $urandom;  // 自动截断到 DATA_WIDTH
+            end
         end
-
         always @(posedge CK) begin
             Qr <= CS ? SRAM[A] : Qr;
             if (CS & WE) SRAM[A] <= D;

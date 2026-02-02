@@ -63,7 +63,8 @@ module neuron_core #(
     localparam POST_NEUR_SRAM_ADDR_WIDTH = $clog2((OUTPUT_NEURON/POST_NEUR_PARALLEL));
     
     // localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
-    localparam  neuron_thresold= 13'b0000_1010_01100; // 神经元阈值S5.6: 1.2
+    // localparam  neuron_thresold= 13'b0000_1010_01100; // 神经元阈值S5.6: 1.2
+    localparam  neuron_thresold= 13'b1111_1111_11111;
     // localparam  neuron_thresold= 12'b0_00001_000000; //神经元阈值S5.6: 1
     // Internal regs and wires definitions
     wire [PRE_NEUR_DATA_WIDTH-1:0] pre_neuron_sram_out;
@@ -80,8 +81,18 @@ module neuron_core #(
 
 
     // assign NEUR_STATE = (post_neuron_sram_out >> ({5'b0,post_neuron_byte_addr} << 5))[31:0]; //右移post_neuron_byte_address * 32
-    assign post_neuron_sram_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_SRAM_ADDR_WIDTH + POST_NEUR_BYTE_ADDR_WIDTH - 1 : POST_NEUR_BYTE_ADDR_WIDTH];
-    assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_BYTE_ADDR_WIDTH-1:0];
+    // assign post_neuron_sram_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_SRAM_ADDR_WIDTH + POST_NEUR_BYTE_ADDR_WIDTH - 1 : POST_NEUR_BYTE_ADDR_WIDTH];
+    // assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_BYTE_ADDR_WIDTH-1:0];
+    generate
+        if (POST_NEUR_SRAM_ADDR_WIDTH > 0) begin
+            assign post_neuron_sram_addr = CTRL_POST_NEURON_ADDRESS[POST_NEUR_SRAM_ADDR_WIDTH + POST_NEUR_BYTE_ADDR_WIDTH - 1 : POST_NEUR_BYTE_ADDR_WIDTH];
+        end else begin
+            assign post_neuron_sram_addr = 0; // 当 SRAM 地址宽度为 0 时直接赋 0
+        end
+    endgenerate
+
+    assign post_neuron_byte_addr = (POST_NEUR_BYTE_ADDR_WIDTH>0) ? CTRL_POST_NEURON_ADDRESS[POST_NEUR_BYTE_ADDR_WIDTH-1:0] : 0;
+
     assign PRE_NEUR_S_CNT = pre_neuron_sram_out;
 
 
