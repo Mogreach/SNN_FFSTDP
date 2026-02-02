@@ -42,7 +42,8 @@ module top_lrf_odins #(
     // 全局控制信号（广播到所有核心）
     // ============================================================
     input  wire                          IS_POS,       // 正 / 负 STDP
-    input  wire                          IS_TRAIN     // 0: 推理 1: 训练
+    input  wire                          IS_TRAIN,     // 0: 推理 1: 训练
+    output wire                          ONE_SAMPLE_FINISH
 );
 
     localparam POST_NEUR_PARALLEL = (CORE_C > 8) ? 8 : 4; //并行度
@@ -51,13 +52,15 @@ module top_lrf_odins #(
     localparam MAP_IN_AER_WIDTH = 2 + $clog2(FM_C) + $clog2(FM_H) + $clog2(FM_W); // 映射前 AER 宽度
     // localparam MAP_OUT_AER_WIDTH = $clog2(LRF_W) + $clog2(LRF_W) + $clog2(FM_C) + 2;
     localparam MAP_OUT_AER_WIDTH = 2 + $clog2(FM_C) + $clog2(LRF_H) + $clog2(LRF_W); // 映射后 AER 宽度
-    // 该层的输出 AER 宽度
-    localparam AER_OUT_NEXT_LAYER_WIDTH = 2 + $clog2(CORE_NUM);
+
     // 用于表示 (x,y) 展平后的地址
     localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
     localparam OUTPUT_NEURON = CORE_C; // 每个 core 输出神经元数量
     localparam AER_IN_WIDTH = MAP_OUT_AER_WIDTH; // 每个 core 输入AER 地址宽度
     localparam AER_OUT_WIDTH = 2 + $clog2(OUTPUT_NEURON); // 每个 core 输出 AER 输出地址宽度
+    // 该层的输出 AER 宽度
+    localparam AER_OUT_NEXT_LAYER_WIDTH = 2 + $clog2(CORE_C) + $clog2(CORE_W*CORE_H);
+    // 突触前神经元地址宽度
     localparam PRE_NEUR_ADDR_WIDTH = MAP_OUT_AER_WIDTH - 2; // 突触前神经元地址宽度
     localparam PRE_NEUR_WORD_ADDR_WIDTH= MAP_OUT_AER_WIDTH - 2;
     localparam PRE_NEUR_BYTE_ADDR_WIDTH = 0;
@@ -157,7 +160,7 @@ module top_lrf_odins #(
             // core 内部输出状态（可用于监控 / 聚合）
             // ----------------------------------------------------
             wire [GOODNESS_WIDTH-1:0] GOODNESS;            // 本 core 的 goodness 累积
-            wire        ONE_SAMPLE_FINISH;   // 单样本处理完成
+            // wire        ONE_SAMPLE_FINISH;   // 单样本处理完成
             wire        GOODNESS_ACC_VALID;  // goodness 更新有效
 
             // ----------------------------------------------------
@@ -251,12 +254,13 @@ module top_lrf_odins #(
     );
     // outports wire
     wire                                	    evt_req;
-    wire [AER_OUT_WIDTH+$clog2(CORE_NUM)-1:0] 	evt_addr;
+    wire [AER_OUT_NEXT_LAYER_WIDTH-1:0] 	    evt_addr;
     wire                                	    evt_ack;
 
     aer_core_event_arbiter #(
         .CORE_NUM      	(CORE_NUM),
-        .AER_OUT_WIDTH 	(AER_OUT_WIDTH))
+        .AER_OUT_NEXT_LAYER_WIDTH (AER_OUT_NEXT_LAYER_WIDTH),
+        .AER_OUT_CORE_WIDTH 	(AER_OUT_WIDTH))
     u_aer_core_event_arbiter(
         .clk       	( clk        ),
         .rst       	( rst        ),
