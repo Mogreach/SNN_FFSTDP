@@ -19,8 +19,8 @@ module tb_top_lrf_odins();
     localparam GOODNESS_WIDTH = 20;
 
     localparam CLK_PERIOD = 4;
-    localparam AERIN_WIDTH = 2 + $clog2(FM_C) + $clog2(FM_H) + $clog2(FM_W);
-    localparam AEROUT_WIDTH = 2 + $clog2(CORE_C) + $clog2(CORE_W*CORE_H);
+    localparam AERIN_LAYER_WIDTH = 2 + $clog2(FM_C) + $clog2(FM_H) + $clog2(FM_W);
+    localparam AEROUT_LAYER_WIDTH = 2 + $clog2(CORE_C) + $clog2(CORE_W)+ $clog2(CORE_H);
 
 
     // ------------------------------------------------------------
@@ -138,8 +138,8 @@ module tb_top_lrf_odins();
     // Stimulus task
     // ------------------------------------------------------------
     task automatic aer_send(
-        input  logic [AERIN_WIDTH-1:0] addr_in,
-        ref    logic [AERIN_WIDTH-1:0] addr_out,
+        input  logic [AERIN_LAYER_WIDTH-1:0] addr_in,
+        ref    logic [AERIN_LAYER_WIDTH-1:0] addr_out,
         ref    logic                    ack,
         ref    logic                    req
     );
@@ -158,7 +158,7 @@ module tb_top_lrf_odins();
     task automatic auto_ack(
         ref logic req,
         ref logic ack,
-        ref logic [AEROUT_WIDTH-1:0] addr,
+        ref logic [AEROUT_LAYER_WIDTH-1:0] addr,
         ref logic [11:0] neur,
         ref logic verbose
     );

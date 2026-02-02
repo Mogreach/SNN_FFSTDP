@@ -1,5 +1,7 @@
 // 多核心仲裁轮询输出事件模块
 module aer_core_event_arbiter #(
+    parameter CORE_W        = 4,
+    parameter CORE_H        = 4,
     parameter CORE_NUM      = 16,
     parameter AER_OUT_NEXT_LAYER_WIDTH = 12,
     parameter AER_OUT_CORE_WIDTH = 8  // 不含核心ID位
@@ -122,10 +124,15 @@ module aer_core_event_arbiter #(
     always @(posedge clk) begin
         cur_ack_delay <= cur_ack;
     end
+    wire [$clog2(CORE_H)-1:0] core_h;
+    wire [$clog2(CORE_W)-1:0] core_w;
+
+    assign core_h = cur_core / CORE_W;
+    assign core_w = cur_core % CORE_W;
     // Output
     always @(*) begin
         evt_req = cur_req;
-        evt_addr = {cur_event_type,cur_event_id,cur_core};
+        evt_addr = {cur_event_type,cur_event_id,core_h,core_w};
     end
 
     

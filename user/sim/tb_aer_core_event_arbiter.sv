@@ -4,7 +4,7 @@ module tb_aer_core_event_arbiter;
 
     // -------------------- 参数 --------------------
     localparam CORE_NUM      = 4;
-    localparam AER_OUT_WIDTH = 8;
+    localparam AER_OUT_CORE_WIDTH = 8;
 
     localparam CLK_PERIOD = 10;
 
@@ -13,11 +13,11 @@ module tb_aer_core_event_arbiter;
     reg  rst;
 
     reg  [CORE_NUM-1:0] core_req;
-    reg  [CORE_NUM*AER_OUT_WIDTH-1:0] core_addr;
+    reg  [CORE_NUM*AER_OUT_CORE_WIDTH-1:0] core_addr;
     wire [CORE_NUM-1:0] core_ack;
 
     wire evt_req;
-    wire [AER_OUT_WIDTH+$clog2(CORE_NUM)-1:0] evt_addr;
+    wire [AER_OUT_CORE_WIDTH+$clog2(CORE_NUM)-1:0] evt_addr;
     reg  evt_ack;
 
     integer i;
@@ -25,7 +25,7 @@ module tb_aer_core_event_arbiter;
     // -------------------- DUT --------------------
     aer_core_event_arbiter #(
         .CORE_NUM(CORE_NUM),
-        .AER_OUT_WIDTH(AER_OUT_WIDTH)
+        .AER_OUT_CORE_WIDTH(AER_OUT_CORE_WIDTH)
     ) dut (
         .clk(clk),
         .rst(rst),
@@ -44,14 +44,14 @@ module tb_aer_core_event_arbiter;
     // -------------------- REQ-ACK Task --------------------
     task automatic send_core_event(
         input integer core_idx,
-        input [AER_OUT_WIDTH-1:0] addr
+        input [AER_OUT_CORE_WIDTH-1:0] addr
     );
     begin
         // 等待上一事件 ACK 拉低
         wait(core_ack[core_idx]==0);
 
         // 拉高 core_req
-        core_addr[core_idx*AER_OUT_WIDTH +: AER_OUT_WIDTH] = addr;
+        core_addr[core_idx*AER_OUT_CORE_WIDTH +: AER_OUT_CORE_WIDTH] = addr;
         @(posedge clk);
         core_req[core_idx] = 1'b1;
 

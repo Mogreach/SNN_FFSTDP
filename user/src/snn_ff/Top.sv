@@ -56,10 +56,10 @@ module top_lrf_odins #(
     // 用于表示 (x,y) 展平后的地址
     localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
     localparam OUTPUT_NEURON = CORE_C; // 每个 core 输出神经元数量
-    localparam AER_IN_WIDTH = MAP_OUT_AER_WIDTH; // 每个 core 输入AER 地址宽度
-    localparam AER_OUT_WIDTH = 2 + $clog2(OUTPUT_NEURON); // 每个 core 输出 AER 输出地址宽度
+    localparam AER_IN_CORE_WIDTH = MAP_OUT_AER_WIDTH; // 每个 core 输入AER 地址宽度
+    localparam AER_OUT_CORE_WIDTH = 2 + $clog2(OUTPUT_NEURON); // 每个 core 输出 AER 输出地址宽度
     // 该层的输出 AER 宽度
-    localparam AER_OUT_NEXT_LAYER_WIDTH = 2 + $clog2(CORE_C) + $clog2(CORE_W*CORE_H);
+    localparam AER_OUT_NEXT_LAYER_WIDTH = 2 + $clog2(CORE_C) + $clog2(CORE_H)+ $clog2(CORE_W);
     // 突触前神经元地址宽度
     localparam PRE_NEUR_ADDR_WIDTH = MAP_OUT_AER_WIDTH - 2; // 突触前神经元地址宽度
     localparam PRE_NEUR_WORD_ADDR_WIDTH= MAP_OUT_AER_WIDTH - 2;
@@ -91,7 +91,7 @@ module top_lrf_odins #(
     // 每个 core 接收到的 AER 地址
     // 通常是同一个 AERIN_ADDR（广播）
     wire [CORE_NUM-1:0][MAP_OUT_AER_WIDTH-1:0] core_aer_event;
-    wire [CORE_NUM*AER_OUT_WIDTH-1:0] core_aer_out_event;
+    wire [CORE_NUM*AER_OUT_CORE_WIDTH-1:0] core_aer_out_event;
 
 
 
@@ -178,8 +178,8 @@ module top_lrf_odins #(
                 .TIME_STEP                             (TIME_STEP          ),
                 .INPUT_NEURON                          (INPUT_NEURON       ),
                 .OUTPUT_NEURON                         (OUTPUT_NEURON      ),
-                .AER_IN_WIDTH                          (AER_IN_WIDTH          ),
-                .AER_OUT_WIDTH                         (AER_OUT_WIDTH          ),
+                .AER_IN_CORE_WIDTH                          (AER_IN_CORE_WIDTH          ),
+                .AER_OUT_CORE_WIDTH                         (AER_OUT_CORE_WIDTH          ),
                 .PRE_NEUR_ADDR_WIDTH                   (PRE_NEUR_ADDR_WIDTH),
                 .PRE_NEUR_WORD_ADDR_WIDTH              (PRE_NEUR_WORD_ADDR_WIDTH),
                 .PRE_NEUR_BYTE_ADDR_WIDTH              (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -225,7 +225,7 @@ module top_lrf_odins #(
                 .GOODNESS_CLEAR         (GOODNESS_CLEAR)
             );
             // AER Output
-            assign core_aer_out_event[i*AER_OUT_WIDTH +: AER_OUT_WIDTH] = AEROUT_ADDR;
+            assign core_aer_out_event[i*AER_OUT_CORE_WIDTH +: AER_OUT_CORE_WIDTH] = AEROUT_ADDR;
             assign core_aer_out_req[i] = AEROUT_REQ;
             assign AERIN_ACK = core_aer_out_ack[i];
 
@@ -258,9 +258,11 @@ module top_lrf_odins #(
     wire                                	    evt_ack;
 
     aer_core_event_arbiter #(
+        .CORE_W         (CORE_W),
+        .CORE_H         (CORE_H),
         .CORE_NUM      	(CORE_NUM),
         .AER_OUT_NEXT_LAYER_WIDTH (AER_OUT_NEXT_LAYER_WIDTH),
-        .AER_OUT_CORE_WIDTH 	(AER_OUT_WIDTH))
+        .AER_OUT_CORE_WIDTH 	(AER_OUT_CORE_WIDTH))
     u_aer_core_event_arbiter(
         .clk       	( clk        ),
         .rst       	( rst        ),

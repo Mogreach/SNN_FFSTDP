@@ -41,9 +41,9 @@ module ffstdp_update #(
     );
 
     //------------CLK 1--------------------
-    // Positive derivative
+    // Positive derivative 需自行修改！！
     wire signed [  GRAD_WIDTH-1:0] L_to_s_derivative_pos = pre_spike_valid_sum * AVG_GOODNESS;
-    // Negative derivative
+    // Negative derivative 需自行修改！！
     wire signed [  GRAD_WIDTH-1:0] L_to_s_derivative_neg = pre_spike_valid_sum * (1'b1 - AVG_GOODNESS);
     // SRAM read delay registers
     reg signed  [WEIGHT_WIDTH-1:0] WSYN_CURR_reg;

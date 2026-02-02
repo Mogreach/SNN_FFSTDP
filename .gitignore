@@ -155,3 +155,4 @@ user/data/pre_neuron_state.txt
 user/data/post_neuron_state.txt
 user/data/weights_weight.coe
 user/data/weights_weight.txt
+user/src/*.png

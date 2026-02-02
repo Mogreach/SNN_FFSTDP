@@ -29,7 +29,7 @@ module controller #(
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_IN_WIDTH = 12,
+    parameter AER_IN_CORE_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH= 10,
@@ -55,7 +55,7 @@ module controller #(
     input  wire           IS_TRAIN,
     
     // Inputs from AER ----------------------------------------
-    input  wire   [AER_IN_WIDTH-1:0] AERIN_ADDR,
+    input  wire   [AER_IN_CORE_WIDTH-1:0] AERIN_ADDR,
     input  wire           AERIN_REQ,
     output reg            AERIN_ACK,
     
@@ -73,7 +73,7 @@ module controller #(
     // Inputs from scheduler ----------------------------------
     input  wire           SCHED_EMPTY,
     input  wire           SCHED_FULL,
-    input  wire    [AER_IN_WIDTH-1:0] SCHED_DATA_OUT,
+    input  wire    [AER_IN_CORE_WIDTH-1:0] SCHED_DATA_OUT,
     
     // Input from AER output ----------------------------------
     input  wire           AEROUT_CTRL_BUSY,
@@ -192,9 +192,9 @@ module controller #(
 	//----------------------------------------------------------------------------------
 	//	EVENT TYPE DECODING 
 	//----------------------------------------------------------------------------------
-    assign neuron_event   = !AERIN_ADDR[AER_IN_WIDTH-1] && !AERIN_ADDR[AER_IN_WIDTH-2];
-    assign tstep_event    = !AERIN_ADDR[AER_IN_WIDTH-1] && AERIN_ADDR[AER_IN_WIDTH-2];
-    assign tref_event     = AERIN_ADDR[AER_IN_WIDTH-1] && !AERIN_ADDR[AER_IN_WIDTH-2];
+    assign neuron_event   = !AERIN_ADDR[AER_IN_CORE_WIDTH-1] && !AERIN_ADDR[AER_IN_CORE_WIDTH-2];
+    assign tstep_event    = !AERIN_ADDR[AER_IN_CORE_WIDTH-1] && AERIN_ADDR[AER_IN_CORE_WIDTH-2];
+    assign tref_event     = AERIN_ADDR[AER_IN_CORE_WIDTH-1] && !AERIN_ADDR[AER_IN_CORE_WIDTH-2];
     assign CTRL_TSTEP_EVENT_negedge = !CTRL_TSTEP_EVENT & CTRL_TSTEP_EVENT_int;
     assign tref_finish = IS_TRAIN? (CTRL_TREF_EVENT && (pre_neur_cnt == INPUT_NEURON))
                                  : (CTRL_TREF_EVENT && (post_neur_cnt == (OUTPUT_NEURON / POST_NEUR_PARALLEL))); // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
@@ -254,14 +254,14 @@ module controller #(
 			WAIT 		:	
                             if (SCHED_FULL)                                                                 
                                 //SCHED_DATA_OUT[11:10] == 2'b01
-                                if( SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b01)                nextstate = TSTEP_ACT;
+                                if( SCHED_DATA_OUT[AER_IN_CORE_WIDTH-1:AER_IN_CORE_WIDTH-2] == 2'b01)                nextstate = TSTEP_ACT;
                                 else                                                                        nextstate = NEUR_ACT;
                             else if (AERIN_REQ_sync)
                                 if (neuron_event || tstep_event)                                            nextstate = PUSH;
                                 else                                                                        nextstate = WAIT;
                             else if (~SCHED_EMPTY)                                                          
-                                if( SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b01)                 nextstate = TSTEP_ACT;
-                                else if (SCHED_DATA_OUT[AER_IN_WIDTH-1:AER_IN_WIDTH-2] == 2'b00)            nextstate = NEUR_ACT;
+                                if( SCHED_DATA_OUT[AER_IN_CORE_WIDTH-1:AER_IN_CORE_WIDTH-2] == 2'b01)                 nextstate = TSTEP_ACT;
+                                else if (SCHED_DATA_OUT[AER_IN_CORE_WIDTH-1:AER_IN_CORE_WIDTH-2] == 2'b00)            nextstate = NEUR_ACT;
                                 else                                                                        nextstate = WAIT;
                             else                                                                            nextstate = WAIT;
 			TREF    	:   if      (tref_finish)                                                               nextstate = WAIT;
@@ -375,7 +375,7 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS  = pre_neur_cnt;
-            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt,post_neur_cnt[$clog2(POST_NEUR_PARALLEL) +: SYN_ARRAY_ADDR_WIDTH - PRE_NEUR_ADDR_WIDTH]};
+            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt,post_neur_cnt};
             
             CTRL_TREF_EVENT     = 1'b1;
             CTRL_PRE_NEUR_CS    = 1'b1;
@@ -455,7 +455,7 @@ module controller #(
             pre_neur_cnt_inc    = 1'b0;
 
             
-            CTRL_SCHED_VIRTS    = AERIN_ADDR[AER_IN_WIDTH-1:AER_IN_WIDTH-2];
+            CTRL_SCHED_VIRTS    = AERIN_ADDR[AER_IN_CORE_WIDTH-1:AER_IN_CORE_WIDTH-2];
             CTRL_SCHED_ADDR     = AERIN_ADDR[PRE_NEUR_ADDR_WIDTH-1:0];// 神经元地址
             CTRL_SCHED_EVENT_IN = 1'b1;
         end
@@ -492,7 +492,7 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS = SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0];
-            CTRL_SYNARRAY_ADDR  = {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS[$clog2(POST_NEUR_PARALLEL) +: SYN_ARRAY_ADDR_WIDTH - PRE_NEUR_ADDR_WIDTH]};
+            CTRL_SYNARRAY_ADDR  = {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS};
             CTRL_SYNARRAY_CS    = 1'b1;
             CTRL_SYNARRAY_WE    = 1'b0;
             CTRL_NEUR_EVENT     = 1'b1;

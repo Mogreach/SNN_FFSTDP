@@ -29,7 +29,7 @@ module aer_outs #(
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_OUT_WIDTH = 12,
+    parameter AER_OUT_CORE_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH= 10,
@@ -70,7 +70,7 @@ module aer_outs #(
     output wire           AEROUT_CTRL_FINISH,
     
 	// Output 8-bit AER link --------------------------
-	output reg  [  AER_OUT_WIDTH-1:0] AEROUT_ADDR, 
+	output reg  [  AER_OUT_CORE_WIDTH-1:0] AEROUT_ADDR, 
 	output reg  	      AEROUT_REQ,
 	input  wire 	      AEROUT_ACK,
 
@@ -102,8 +102,8 @@ module aer_outs #(
     
     
     
-    wire               [POST_NEUR_PARALLEL*AER_OUT_WIDTH-1: 0]                  aer_out_fifo_din                 ;
-    wire               [AER_OUT_WIDTH-1: 0]                                     aer_out_fifo_dout                ;
+    wire               [POST_NEUR_PARALLEL*AER_OUT_CORE_WIDTH-1: 0]                  aer_out_fifo_din                 ;
+    wire               [AER_OUT_CORE_WIDTH-1: 0]                                     aer_out_fifo_dout                ;
     wire               [    T_LOG2: 0]                                      post_neur_cnt[0:POST_NEUR_PARALLEL-1];
     reg                [2*(T_LOG2+1)-1: 0]                                  post_neur_goodness[0:POST_NEUR_PARALLEL-1];
     wire               [(2*(T_LOG2+1)*POST_NEUR_PARALLEL)-1: 0]             post_neur_goodness_bus;
@@ -119,7 +119,7 @@ module aer_outs #(
     assign                              AEROUT_ACK_sync_negedge     = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
     assign                              aer_out_addr_last_negedge   = !aer_out_addr_last & aer_out_addr_last_int;
 
-    assign                              aer_out_start               = fifo_rd_en_int  && (!(&aer_out_fifo_dout[AER_OUT_WIDTH-1:AER_OUT_WIDTH-2]));// 无效事件11则不传输;   
+    assign                              aer_out_start               = fifo_rd_en_int  && (!(&aer_out_fifo_dout[AER_OUT_CORE_WIDTH-1:AER_OUT_CORE_WIDTH-2]));// 无效事件11则不传输;   
     assign                              AEROUT_CTRL_FINISH          = aer_out_addr_last_negedge;
 
     assign                              ctrl_tref_finish_delay_posedge= !ctrl_tref_finish_delay[5] && ctrl_tref_finish_delay[4];
@@ -131,7 +131,7 @@ module aer_outs #(
     generate
         for (i = 0; i<POST_NEUR_PARALLEL; i=i+1) begin
             assign post_neur_cnt[i] = POST_NEUR_S_CNT[i*POST_NEUR_SPIKE_CNT_WIDTH +: T_LOG2+1];
-            assign aer_out_fifo_din[AER_OUT_WIDTH*(POST_NEUR_PARALLEL-i)-1 -: AER_OUT_WIDTH]= NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,{AER_OUT_WIDTH-2{1'b0}}};
+            assign aer_out_fifo_din[AER_OUT_CORE_WIDTH*(POST_NEUR_PARALLEL-i)-1 -: AER_OUT_CORE_WIDTH]= NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,{AER_OUT_CORE_WIDTH-2{1'b0}}};
             // goodness_mult goodness_square (
             // .CLK                                (CLK                       ),// input wire CLK
             // .A                                  (post_neur_cnt[i]          ),// input wire [4 : 0] A
@@ -218,7 +218,7 @@ module aer_outs #(
         end else begin
             // 只有当处于POP_TSTEP，且fifo已排空，且aerout不在传输中，且还没发送tstep_event，才开始发送tstep_event
             if (CTRL_AEROUT_POP_TSTEP && fifo_empty && !aer_out_trans && !AEROUT_CTRL_FINISH)begin
-                AEROUT_ADDR      <= {2'b01,{AER_OUT_WIDTH-2{1'b0}}};
+                AEROUT_ADDR      <= {2'b01,{AER_OUT_CORE_WIDTH-2{1'b0}}};
                 AEROUT_REQ       <= 1'b1;
                 aer_out_trans    <= 1'b1;
                 aer_out_addr_last <= 1'b1;
@@ -250,8 +250,8 @@ module aer_outs #(
     // .empty(fifo_empty)  // output wire empty
     // );
     syncFIFO_diffWidth #(
-    .DIN_WIDTH                             (AER_OUT_WIDTH * POST_NEUR_PARALLEL),
-    .DOUT_WIDTH                            (AER_OUT_WIDTH          ),
+    .DIN_WIDTH                             (AER_OUT_CORE_WIDTH * POST_NEUR_PARALLEL),
+    .DOUT_WIDTH                            (AER_OUT_CORE_WIDTH          ),
     .WADDR_WIDTH                           ($clog2(2*(POST_NEUR_PARALLEL-1))) 
     ) syncFIFO_diffWidth_u0 (
     .din                                   (aer_out_fifo_din   ),

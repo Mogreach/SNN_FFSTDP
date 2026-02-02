@@ -27,8 +27,8 @@ module ODIN_ffstdp #(
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_IN_WIDTH = 12,
-    parameter AER_OUT_WIDTH = 12,
+    parameter AER_IN_CORE_WIDTH = 12,
+    parameter AER_OUT_CORE_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH = 10,
@@ -58,12 +58,12 @@ module ODIN_ffstdp #(
     input  wire                 IS_TRAIN,    // 0: inference, 1: training
     input  wire        [GOODNESS_WIDTH-1:0] AVG_GOODNESS,
     // Input 12-bit AER -------------------------------
-    input  wire [AER_IN_WIDTH-1:0] AERIN_ADDR,
+    input  wire [AER_IN_CORE_WIDTH-1:0] AERIN_ADDR,
     input  wire                 AERIN_REQ,
     output wire                 AERIN_ACK,
 
     // Output 10-bit AER -------------------------------
-    output wire [AER_OUT_WIDTH-1:0] AEROUT_ADDR,
+    output wire [AER_OUT_CORE_WIDTH-1:0] AEROUT_ADDR,
     output wire                 AEROUT_REQ,
     input  wire                 AEROUT_ACK,
     output wire                 ONE_SAMPLE_FINISH,
@@ -134,7 +134,7 @@ module ODIN_ffstdp #(
 
     // Scheduler
     wire SCHED_EMPTY;
-    wire [AER_IN_WIDTH-1:0] SCHED_DATA_OUT;
+    wire [AER_IN_CORE_WIDTH-1:0] SCHED_DATA_OUT;
 
     // Neuron core
     wire [POST_NEUR_DATA_WIDTH-1:0] NEUR_STATE;
@@ -160,7 +160,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_OUT_WIDTH                (AER_OUT_WIDTH),
+        .AER_OUT_CORE_WIDTH                (AER_OUT_CORE_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -211,7 +211,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_IN_WIDTH                (AER_IN_WIDTH),
+        .AER_IN_CORE_WIDTH                (AER_IN_CORE_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -312,7 +312,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_IN_WIDTH                (AER_IN_WIDTH),
+        .AER_IN_CORE_WIDTH                (AER_IN_CORE_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -347,7 +347,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_IN_WIDTH                (AER_IN_WIDTH),
+        .AER_IN_CORE_WIDTH                (AER_IN_CORE_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -399,7 +399,7 @@ module ODIN_ffstdp #(
         .TIME_STEP                (TIME_STEP),
         .INPUT_NEURON             (INPUT_NEURON),
         .OUTPUT_NEURON            (OUTPUT_NEURON),
-        .AER_IN_WIDTH                (AER_IN_WIDTH),
+        .AER_IN_CORE_WIDTH                (AER_IN_CORE_WIDTH),
         .PRE_NEUR_ADDR_WIDTH      (PRE_NEUR_ADDR_WIDTH),
         .PRE_NEUR_WORD_ADDR_WIDTH (PRE_NEUR_WORD_ADDR_WIDTH),
         .PRE_NEUR_BYTE_ADDR_WIDTH (PRE_NEUR_BYTE_ADDR_WIDTH),

@@ -2,7 +2,7 @@ module neuron_core #(
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_IN_WIDTH = 12,
+    parameter AER_IN_CORE_WIDTH = 12,
 
     parameter PRE_NEUR_ADDR_WIDTH = 10,
     parameter PRE_NEUR_WORD_ADDR_WIDTH= 10,
@@ -141,7 +141,7 @@ module neuron_core #(
 
             if_neuron #(
                 .TIME_STEP                             (TIME_STEP          ),
-                .AER_IN_WIDTH                             (AER_IN_WIDTH          ),
+                .AER_IN_CORE_WIDTH                             (AER_IN_CORE_WIDTH          ),
                 .POST_NEUR_MEM_WIDTH                   (POST_NEUR_MEM_WIDTH),
                 .POST_NEUR_SPIKE_CNT_WIDTH             (POST_NEUR_SPIKE_CNT_WIDTH),
                 .WEIGHT_WIDTH                          (WEIGHT_WIDTH       ) 

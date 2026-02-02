@@ -29,7 +29,7 @@ module Top_test
     parameter TIME_STEP = 8,
     parameter INPUT_NEURON = 784,
     parameter OUTPUT_NEURON = 256,
-    parameter AER_IN_WIDTH = 12,
+    parameter AER_IN_CORE_WIDTH = 12,
 
     parameter POST_NEUR_PARALLEL = 8,
 
@@ -67,7 +67,7 @@ module Top_test
     parameter POST_NEUR_SPIKE_CNT_WIDTH = TIME_STEP; // 单个突触后神经元脉冲计数数据位宽
     parameter PRE_NEUR_DATA_WIDTH = TIME_STEP; // 单个突触前神经元脉冲计数数据位宽
 
-    wire               [AER_IN_WIDTH-1: 0]        AEROUT_ADDR                 ;
+    wire               [AER_IN_CORE_WIDTH-1: 0]        AEROUT_ADDR                 ;
     wire                                AEROUT_REQ                  ;
     wire                                AEROUT_ACK                  ;
     reg                                 AEROUT_ACK_reg              ;
@@ -85,7 +85,7 @@ ODIN_ffstdp#(
     .TIME_STEP                             (TIME_STEP          ),
     .INPUT_NEURON                          (INPUT_NEURON       ),
     .OUTPUT_NEURON                         (OUTPUT_NEURON      ),
-    .AER_IN_WIDTH                             (AER_IN_WIDTH          ),
+    .AER_IN_CORE_WIDTH                             (AER_IN_CORE_WIDTH          ),
     .PRE_NEUR_ADDR_WIDTH                   (PRE_NEUR_ADDR_WIDTH),
     .PRE_NEUR_WORD_ADDR_WIDTH              (PRE_NEUR_WORD_ADDR_WIDTH),
     .PRE_NEUR_BYTE_ADDR_WIDTH              (PRE_NEUR_BYTE_ADDR_WIDTH),

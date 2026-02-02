@@ -1,7 +1,7 @@
 
 module if_neuron #(
     parameter TIME_STEP = 8,
-    parameter AER_IN_WIDTH = 12,
+    parameter AER_IN_CORE_WIDTH = 12,
     parameter POST_NEUR_MEM_WIDTH = 12,
     parameter POST_NEUR_SPIKE_CNT_WIDTH = 7,
     parameter WEIGHT_WIDTH = 8
