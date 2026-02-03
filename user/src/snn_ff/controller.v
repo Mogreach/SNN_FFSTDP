@@ -147,20 +147,15 @@ module controller #(
     localparam R_W_SRAM_CLK_tref_LOG2 = $clog2(R_W_SRAM_CLK_tref);
     localparam AER_TOTAL_CLK_tref = R_W_SRAM_CLK_tref * (OUTPUT_NEURON / POST_NEUR_PARALLEL) - 1;
 	// FSM states 
-	localparam WAIT       = 4'd0; 
-    localparam W_NEUR     = 4'd1;
-    localparam R_NEUR     = 4'd2;
-    localparam W_SYN      = 4'd3;
-    localparam R_SYN      = 4'd4;
-    localparam PUSH       = 4'd5;
-    localparam POP_NEUR   = 4'd6;
-    localparam NEUR_ACT   = 4'd7;
-    localparam POP_NEUR_OUT  = 4'd8;
-    localparam TSTEP_ACT  = 4'd9;
-	localparam POP_TSTEP= 4'd10;
-    localparam TREF       = 4'd11;
-    localparam WAIT_SPIDN = 4'd12;
-    localparam WAIT_REQDN = 4'd13;
+	localparam WAIT          = 9'b000000001; 
+    localparam PUSH          = 9'b000000010;
+    localparam POP_NEUR      = 9'b000000100;
+    localparam NEUR_ACT      = 9'b000001000;
+    localparam POP_NEUR_OUT  = 9'b000010000;
+    localparam TSTEP_ACT     = 9'b000100000;
+	localparam POP_TSTEP     = 9'b001000000;
+    localparam TREF          = 9'b010000000;
+    localparam WAIT_REQDN    = 9'b100000000;
 
 	//----------------------------------------------------------------------------------
 	//	REGS & WIRES
@@ -186,7 +181,7 @@ module controller #(
     reg          post_neur_cnt_inc;
     reg  [$clog2(INPUT_NEURON)-1:0]   pre_neur_cnt;
     reg          pre_neur_cnt_inc;
-    reg  [  3:0] state, nextstate;
+    reg  [  8:0] state, nextstate;
 
     
 	//----------------------------------------------------------------------------------
@@ -196,8 +191,8 @@ module controller #(
     assign tstep_event    = !AERIN_ADDR[AER_IN_CORE_WIDTH-1] && AERIN_ADDR[AER_IN_CORE_WIDTH-2];
     assign tref_event     = AERIN_ADDR[AER_IN_CORE_WIDTH-1] && !AERIN_ADDR[AER_IN_CORE_WIDTH-2];
     assign CTRL_TSTEP_EVENT_negedge = !CTRL_TSTEP_EVENT & CTRL_TSTEP_EVENT_int;
-    assign tref_finish = IS_TRAIN? (CTRL_TREF_EVENT && (pre_neur_cnt == INPUT_NEURON))
-                                 : (CTRL_TREF_EVENT && (post_neur_cnt == (OUTPUT_NEURON / POST_NEUR_PARALLEL))); // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
+    assign tref_finish = (ctrl_tref_cnt == R_W_SRAM_CLK_tref - 1'b1) && CTRL_TREF_EVENT && (post_neur_cnt == (1 << (OUTPUT_NEURON / POST_NEUR_PARALLEL))) &&
+                         (IS_TRAIN? (pre_neur_cnt == INPUT_NEURON - 1'b1) : (1'b1)); // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
 	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
     assign ctrl_state = state;
 
@@ -375,7 +370,8 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS  = pre_neur_cnt;
-            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt,post_neur_cnt};
+            // {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS[POST_NEUR_ADDR_WIDTH-1 -:POST_NEUR_WORD_ADDR_WIDTH]}
+            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt[PRE_NEUR_ADDR_WIDTH-1:0],post_neur_cnt[POST_NEUR_ADDR_WIDTH-1 -:POST_NEUR_WORD_ADDR_WIDTH]};
             
             CTRL_TREF_EVENT     = 1'b1;
             CTRL_PRE_NEUR_CS    = 1'b1;
@@ -492,7 +488,7 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS = SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0];
-            CTRL_SYNARRAY_ADDR  = {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS};
+            CTRL_SYNARRAY_ADDR  = {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS[POST_NEUR_ADDR_WIDTH-1 -:POST_NEUR_WORD_ADDR_WIDTH]};
             CTRL_SYNARRAY_CS    = 1'b1;
             CTRL_SYNARRAY_WE    = 1'b0;
             CTRL_NEUR_EVENT     = 1'b1;

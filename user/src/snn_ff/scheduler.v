@@ -66,11 +66,10 @@
 
 
     // FIFO instances
-
     fifo #(
         .width(AER_IN_CORE_WIDTH),
         .depth(8),
-        .depth_addr(7)
+        .depth_addr(3)
     ) fifo_spike_0 (
         .clk(CLK),
         .rst_n(RSTN),

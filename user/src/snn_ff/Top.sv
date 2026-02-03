@@ -36,7 +36,7 @@ module top_lrf_odins #(
     // 输出 AER（事件地址表示输出空间位置）
     // ============================================================
     output wire                          AEROUT_REQ,  // 输出事件请求
-    output wire [2 + $clog2(CORE_C) + $clog2(CORE_W*CORE_H) - 1:0] AEROUT_ADDR, // 输出事件地址（x,y 编码）
+    output wire [2 + $clog2(CORE_C) + $clog2(CORE_W) + $clog2(CORE_H) - 1:0] AEROUT_ADDR, // 输出事件地址（x,y 编码）
     input  wire                          AEROUT_ACK,  // 输出事件应答
     // ============================================================
     // 全局控制信号（广播到所有核心）
@@ -54,7 +54,8 @@ module top_lrf_odins #(
     localparam MAP_OUT_AER_WIDTH = 2 + $clog2(FM_C) + $clog2(LRF_H) + $clog2(LRF_W); // 映射后 AER 宽度
 
     // 用于表示 (x,y) 展平后的地址
-    localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
+    // localparam INPUT_NEURON = LRF_H * LRF_W * FM_C; // 每个 core 输入神经元数量
+    localparam INPUT_NEURON = (1<<$clog2(LRF_H)) * (1<<$clog2(LRF_W)) * (1<<$clog2(FM_C)); // 每个 core 输入神经元数量
     localparam OUTPUT_NEURON = CORE_C; // 每个 core 输出神经元数量
     localparam AER_IN_CORE_WIDTH = MAP_OUT_AER_WIDTH; // 每个 core 输入AER 地址宽度
     localparam AER_OUT_CORE_WIDTH = 2 + $clog2(OUTPUT_NEURON); // 每个 core 输出 AER 输出地址宽度
