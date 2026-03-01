@@ -40,7 +40,7 @@ def gradient_calculation_mlp(input_spike_sum, out_freq, goodness, ln_var, ln_mea
     else:
         derivative = neg_derivative(goodness, loss_threshold)
         loss = torch.log(1 + torch.exp(goodness - loss_threshold)).mean()
-    L_to_s_grad = 2 * out_freq* derivative * (v_threshold/ torch.sqrt(ln_var.view(N,1) + 1e-5)) # * ln_mean.view(N,1)
+    L_to_s_grad = 2 * out_freq* derivative
     L_to_s_grad = L_to_s_grad.transpose(0,1)
     weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
     
@@ -49,11 +49,11 @@ def delta_loss_gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_g
                          neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,
                          alpha, v_threshold, N):
         delta = alpha * (pos_goodness - neg_goodness)
-        pos_L_to_s_grad = alpha * pos_derivative(delta,0) * 2 * pos_out_freq  * (v_threshold / torch.sqrt(pos_ln_var.view(N,1) + 1e-5))
+        pos_L_to_s_grad = alpha * pos_derivative(delta,0) * 2 * pos_out_freq
         pos_L_to_s_grad = pos_L_to_s_grad.transpose(0,1)
         pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
        
-        neg_L_to_s_grad = -alpha * pos_derivative(delta,0) * 2 * neg_out_freq * (v_threshold / torch.sqrt(neg_ln_var.view(N,1) + 1e-5))
+        neg_L_to_s_grad = -alpha * pos_derivative(delta,0) * 2 * neg_out_freq
         neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
 

@@ -17,12 +17,12 @@ class ConfigParser:
         self.parser.add_argument(
             "-model",
             type=str,
-            default="CNN",
+            default="MLP",
             choices=["CNN", "MLP"],
             help="Network architecture type"
         )
         self.parser.add_argument(
-            "-dataset", default="FashionMNIST", type=str, choices=["MNIST","FashionMNIST","CIFAR10"],help="Train dataset"
+            "-dataset", default="MNIST", type=str, choices=["MNIST","FashionMNIST","CIFAR10"],help="Train dataset"
         )
         if self.parser.parse_known_args()[0].model == "CNN":
             self.parser.add_argument(
@@ -45,13 +45,13 @@ class ConfigParser:
                 nargs="+",
             )
         self.parser.add_argument(
-            "-T", default=16, type=int, help="simulating time-steps"
+            "-T", default=8, type=int, help="simulating time-steps"
         )
         self.parser.add_argument("-device", default="cuda:0", help="device")
-        self.parser.add_argument("-b", default=512,type=int, help="batch size")
+        self.parser.add_argument("-b", default=1024,type=int, help="batch size")
         self.parser.add_argument(
             "-epochs",
-            default=20,
+            default=2,
             type=int,
             metavar="N",
             help="number of total epochs to run",
@@ -102,7 +102,7 @@ class ConfigParser:
         )
         self.parser.add_argument(
             "-loss_threshold",
-            default=4,
+            default=0.25,
             type=float,
             help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )
