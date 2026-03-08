@@ -234,6 +234,7 @@ def main():
     device = torch.device("cuda")
     out_dir = os.path.join(
         args.out_dir,
+        args.predict_type,
         args.dataset,
         args.model,   # 模型类型
         f"T{args.T}_b{args.b}_{args.opt}_lr{args.lr}",
