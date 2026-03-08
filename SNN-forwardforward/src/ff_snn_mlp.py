@@ -46,15 +46,15 @@ def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
     """
     B, C, H, W = images.shape
     spike_train = torch.zeros((T, B, C, H, W), device=images.device)
-    # v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
-    # for t in range(T):
-    #     v_mem += images  # 每步累加像素值
-    #     spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
-    #     spike_train[t] = spike
-    #     v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
-    # Possion编码
+    v_mem = torch.zeros((B, C, H, W), device=images.device)  # 初始化膜电位为0
     for t in range(T):
-        spike_train[t] += encoding.PoissonEncoder()(images)
+        v_mem += images  # 每步累加像素值
+        spike = (v_mem >= 1.0).to(torch.float)  # 触发放电
+        spike_train[t] = spike
+        v_mem = v_mem * (1.0 - spike)  # 膜电位重置：只有放电位置归零
+    # Possion编码
+    # for t in range(T):
+    #     spike_train[t] += encoding.PoissonEncoder()(images)
     return spike_train  # 形状为 [T, B, C, H, W]
 
 class tdLayerNorm(nn.Module):
@@ -263,7 +263,8 @@ class Layer(nn.Module):
     def cal_goodness(self, freq):
         # goodness = self.T * freq.pow(2)
         goodness = self.T * freq.abs().pow(2) * freq.sign()
-        return goodness.mean(dim=1,keepdim=True)
+        # return goodness.mean(dim=1,keepdim=True)
+        return goodness
 
     def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
@@ -296,6 +297,7 @@ class Layer(nn.Module):
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
                     pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+                    m.weight += self.lr * pos_weight_grad
         self.opt.zero_grad()
         functional.reset_net(self.layer)
 
@@ -318,6 +320,7 @@ class Layer(nn.Module):
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
                     neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+                    m.weight += self.lr * neg_weight_grad
         self.opt.zero_grad()
         weight_grad = pos_weight_grad + neg_weight_grad
         functional.reset_net(self.layer)
@@ -336,13 +339,13 @@ class Layer(nn.Module):
         # self.opt.zero_grad()
 
         # Update weights
-        if frozen:
-            pass
-        else:
-            with torch.no_grad():
-                for m in self.layer.modules():
-                    if isinstance(m, nn.Linear):         
-                        m.weight += self.lr * weight_grad 
+        # if frozen:
+        #     pass
+        # else:
+        #     with torch.no_grad():
+        #         for m in self.layer.modules():
+        #             if isinstance(m, nn.Linear):         
+        #                 m.weight += self.lr * weight_grad 
         return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
     def predict(self, x):
         N = x.shape[1]
