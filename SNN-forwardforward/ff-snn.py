@@ -17,6 +17,7 @@ import argparse
 import sys
 import datetime
 import torch
+import json
 import torch.utils.data as data
 from torch.utils.data import WeightedRandomSampler
 import torchvision
@@ -129,6 +130,35 @@ def plot_firing_rate_pos_neg(pos_firing_rate,neg_firing_rate,save_path):
     plt.savefig(save_path)
     print(f"Firing rate (pos/neg) plot saved to {save_path}")
 
+def compute_test_acc(net, test_data_loader, device):
+    test_acc = 0
+    test_count = 0
+    with torch.no_grad():
+        for x_te, y_te in test_data_loader:
+            test_count += 1
+            x_te, y_te = x_te.to(device), y_te.to(device)
+            test_acc += net.predict_winner(x_te).eq(y_te).cpu().float().mean().item()
+    if test_count == 0:
+        return 0.0
+    return 100 * test_acc / test_count
+
+def _mean_last_epoch(metric_per_layer_list):
+    values = []
+    for layer_list in metric_per_layer_list:
+        if not layer_list:
+            continue
+        v = layer_list[-1]
+        if torch.is_tensor(v):
+            if v.numel() == 1:
+                v = v.detach().cpu().item()
+            else:
+                v = v.detach().cpu().mean().item()
+        elif hasattr(v, "item"):
+            v = v.item()
+        values.append(float(v))
+    if not values:
+        return None
+    return float(np.mean(values))
 
 def main():
     config = ConfigParser()
@@ -285,6 +315,7 @@ def main():
 
     train_acc = 0
     train_acc_list = []
+    test_acc_first10 = []
 
     max_tran_acc = 0
     loss_of_layer_list = [[] for _ in range(len(net.layers))]
@@ -359,6 +390,16 @@ def main():
                     net.save(args, os.path.join(out_dir, "checkpoint_max.pth"))
                     max_tran_acc = train_acc
             logger.info(f"Epoch {i+1}: Train Loss = {loss.mean():.4f} Train Acc = {train_acc:.2f}%")
+            if i < 10:
+                test_acc_epoch = compute_test_acc(net, test_data_loader, device)
+                test_acc_first10.append(test_acc_epoch)
+                print(f"Test Acc (Epoch {i+1}): {test_acc_epoch:.2f}%")
+                if i == 9:
+                    avg_test_acc = sum(test_acc_first10) / len(test_acc_first10)
+                    print(f"Avg Test Acc (Epoch 1-10): {avg_test_acc:.2f}%")
+                    if avg_test_acc < 90.0:
+                        print("Early stop: Avg Test Acc (first 10 epochs) < 90%")
+                        break
         end_time = time.time()
         total_time = end_time - start_time
         hours, rem = divmod(total_time, 3600)
@@ -410,6 +451,16 @@ def main():
         save = True
         if save or args.save_model:
             net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
+        metrics = {
+            "test_acc": 100 * test_acc / test_count,
+            "last_epoch_loss_mean": _mean_last_epoch(loss_of_layer_list),
+            "last_epoch_goodness_pos_mean": _mean_last_epoch(goodness_pos_of_layer_list),
+            "last_epoch_goodness_neg_mean": _mean_last_epoch(goodness_neg_of_layer_list),
+            "last_epoch_firing_pos_mean": _mean_last_epoch(spike_out_pos_of_layer_list),
+            "last_epoch_firing_neg_mean": _mean_last_epoch(spike_out_neg_of_layer_list),
+        }
+        with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as metrics_f:
+            json.dump(metrics, metrics_f, ensure_ascii=False, indent=2)
     logger.info(f"Test Acc: {100 * test_acc / test_count}%")
     logging.basicConfig(
         filename="./logs/training.log",
