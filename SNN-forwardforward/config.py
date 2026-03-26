@@ -22,7 +22,11 @@ class ConfigParser:
             help="Network architecture type"
         )
         self.parser.add_argument(
-            "-dataset", default="MNIST", type=str, choices=["MNIST","FashionMNIST","CIFAR10"],help="Train dataset"
+            "-dataset",
+            default="MNIST",
+            type=str,
+            choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"],
+            help="Train dataset",
         )
         if self.parser.parse_known_args()[0].model == "CNN":
             self.parser.add_argument(
@@ -106,7 +110,7 @@ class ConfigParser:
             type=float,
             help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )
-        self,self.parser.add_argument(
+        self.parser.add_argument(
             "-predict_type", default="unsupervised", type=str, help="The type of prediction: supervised or unsupervised"
         )
         self.parser.add_argument(

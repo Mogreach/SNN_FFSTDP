@@ -16,6 +16,7 @@ import time
 import argparse
 import sys
 import datetime
+import json
 import torch
 import torch.utils.data as data
 from torch.utils.data import WeightedRandomSampler
@@ -128,6 +129,24 @@ def plot_firing_rate_pos_neg(pos_firing_rate,neg_firing_rate,save_path):
 
     plt.savefig(save_path)
     print(f"Firing rate (pos/neg) plot saved to {save_path}")
+
+def _mean_last_epoch(metric_per_layer_list):
+    values = []
+    for layer_metric in metric_per_layer_list:
+        if not layer_metric:
+            continue
+        v = layer_metric[-1]
+        if torch.is_tensor(v):
+            if v.numel() == 1:
+                v = v.detach().cpu().item()
+            else:
+                v = v.detach().cpu().mean().item()
+        elif hasattr(v, "item"):
+            v = v.item()
+        values.append(float(v))
+    if not values:
+        return None
+    return float(np.mean(values))
 
 
 def main():
@@ -266,6 +285,7 @@ def main():
             v_threshold_neg=args.v_threshold_neg,
             opt=args.opt,
             loss_threshold=args.loss_threshold,
+            num_classes=num_classes
         )
     elif args.model == "CNN":
         net = ConvNet(
@@ -410,6 +430,16 @@ def main():
         save = True
         if save or args.save_model:
             net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
+        metrics = {
+            "test_acc": 100 * test_acc / test_count,
+            "last_epoch_loss_mean": _mean_last_epoch(loss_of_layer_list),
+            "last_epoch_goodness_pos_mean": _mean_last_epoch(goodness_pos_of_layer_list),
+            "last_epoch_goodness_neg_mean": _mean_last_epoch(goodness_neg_of_layer_list),
+            "last_epoch_firing_pos_mean": _mean_last_epoch(spike_out_pos_of_layer_list),
+            "last_epoch_firing_neg_mean": _mean_last_epoch(spike_out_neg_of_layer_list),
+        }
+        with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as metrics_f:
+            json.dump(metrics, metrics_f, ensure_ascii=False, indent=2)
     logger.info(f"Test Acc: {100 * test_acc / test_count}%")
     logging.basicConfig(
         filename="./logs/training.log",
