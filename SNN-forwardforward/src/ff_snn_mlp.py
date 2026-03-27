@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+import time
 from tqdm import tqdm
 from torch.optim import Adam, SGD
 from src.loss import gradient_calculation_mlp, delta_loss_gradient_calculation_mlp
@@ -77,12 +78,22 @@ class tdLayerNorm(nn.Module):
         return ln_x
 
 class Net(torch.nn.Module):
-    def __init__(self, dims, tau, epoch, T, lr, v_threshold, v_threshold_neg, opt, loss_threshold):
+    def __init__(self, dims, tau, epoch, T, lr, v_threshold, v_threshold_neg, opt, loss_threshold,num_classes):
         super().__init__()
         self.T = T
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
+        self.last_manual_grad_peak_alloc_bytes = None
+        self.last_manual_grad_peak_reserved_bytes = None
+        self.last_manual_grad_time_ms = None
+        self.last_manual_grad_ops_est = None
+        self.last_backward_cmp_peak_alloc_bytes = None
+        self.last_backward_cmp_peak_reserved_bytes = None
+        self.last_backward_cmp_time_ms = None
         self.layers = []
         self.loss_threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
+        self.num_classes = num_classes 
         for d in range(len(dims) - 1):
             if(d==len(dims)-2):
                 self.layers += nn.ModuleList(
@@ -123,7 +134,7 @@ class Net(torch.nn.Module):
         for label in range(10):
             goodness = []
             label = torch.full((x.shape[0],), label)
-            h, _ = generate_pos_n_neg_sample(x, label, num_classes=10, type="embed_label_onehot")
+            h, _ = generate_pos_n_neg_sample(x, label, num_classes=self.num_classes, type="embed_label_onehot")
             h = spike_encoder(h, self.T)
             h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
             spike_in_of_label = h[:,:,0:10]
@@ -166,7 +177,7 @@ class Net(torch.nn.Module):
                 h_pos, h_neg, loss = layer.train(h_pos, h_neg, y, train_mode)
         return loss
     def train_ff_stdp(self, x, label, frozen):
-        x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=10, type = "embed_label_onehot")
+        x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=self.num_classes, type = "embed_label_onehot")
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
         in_pos = x_pos_encoded.flatten(2)
@@ -177,6 +188,15 @@ class Net(torch.nn.Module):
         return goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg
     def train_ff_stdp_step(self, input_pos, input_neg, label, frozen):
         T, B, _ = input_pos.shape
+        max_backward_peak_alloc = None
+        max_backward_peak_reserved = None
+        max_manual_peak_alloc = None
+        max_manual_peak_reserved = None
+        max_backward_cmp_peak_alloc = None
+        max_backward_cmp_peak_reserved = None
+        manual_time_total_ms = 0.0
+        manual_ops_total_est = 0.0
+        backward_cmp_time_total_ms = 0.0
         pos_goodness_per_layer = []
         neg_goodness_per_layer = []
         pos_cos_sim_per_layer = []
@@ -202,6 +222,42 @@ class Net(torch.nn.Module):
                 neg_spike_out_per_layer.append(input_neg.mean().detach().cpu())
                 pos_spike_in_of_output_layer = torch.cat((pos_spike_in_of_output_layer,input_pos),dim=2)
                 neg_spike_in_of_output_layer = torch.cat((neg_spike_in_of_output_layer,input_neg),dim=2)
+            layer_bp_alloc = getattr(layer, "last_backward_peak_alloc_bytes", None)
+            layer_bp_reserved = getattr(layer, "last_backward_peak_reserved_bytes", None)
+            if layer_bp_alloc is not None:
+                max_backward_peak_alloc = layer_bp_alloc if max_backward_peak_alloc is None else max(max_backward_peak_alloc, layer_bp_alloc)
+            if layer_bp_reserved is not None:
+                max_backward_peak_reserved = layer_bp_reserved if max_backward_peak_reserved is None else max(max_backward_peak_reserved, layer_bp_reserved)
+            layer_manual_alloc = getattr(layer, "last_manual_grad_peak_alloc_bytes", None)
+            layer_manual_reserved = getattr(layer, "last_manual_grad_peak_reserved_bytes", None)
+            layer_manual_time = getattr(layer, "last_manual_grad_time_ms", None)
+            layer_bp_cmp_alloc = getattr(layer, "last_backward_cmp_peak_alloc_bytes", None)
+            layer_bp_cmp_reserved = getattr(layer, "last_backward_cmp_peak_reserved_bytes", None)
+            layer_bp_cmp_time = getattr(layer, "last_backward_cmp_time_ms", None)
+            layer_manual_ops = getattr(layer, "last_manual_grad_ops_est", None)
+            if layer_manual_alloc is not None:
+                max_manual_peak_alloc = layer_manual_alloc if max_manual_peak_alloc is None else max(max_manual_peak_alloc, layer_manual_alloc)
+            if layer_manual_reserved is not None:
+                max_manual_peak_reserved = layer_manual_reserved if max_manual_peak_reserved is None else max(max_manual_peak_reserved, layer_manual_reserved)
+            if layer_bp_cmp_alloc is not None:
+                max_backward_cmp_peak_alloc = layer_bp_cmp_alloc if max_backward_cmp_peak_alloc is None else max(max_backward_cmp_peak_alloc, layer_bp_cmp_alloc)
+            if layer_bp_cmp_reserved is not None:
+                max_backward_cmp_peak_reserved = layer_bp_cmp_reserved if max_backward_cmp_peak_reserved is None else max(max_backward_cmp_peak_reserved, layer_bp_cmp_reserved)
+            if layer_manual_time is not None:
+                manual_time_total_ms += float(layer_manual_time)
+            if layer_manual_ops is not None:
+                manual_ops_total_est += float(layer_manual_ops)
+            if layer_bp_cmp_time is not None:
+                backward_cmp_time_total_ms += float(layer_bp_cmp_time)
+        self.last_backward_peak_alloc_bytes = max_backward_peak_alloc
+        self.last_backward_peak_reserved_bytes = max_backward_peak_reserved
+        self.last_manual_grad_peak_alloc_bytes = max_manual_peak_alloc
+        self.last_manual_grad_peak_reserved_bytes = max_manual_peak_reserved
+        self.last_manual_grad_time_ms = manual_time_total_ms if manual_time_total_ms > 0 else None
+        self.last_manual_grad_ops_est = manual_ops_total_est if manual_ops_total_est > 0 else None
+        self.last_backward_cmp_peak_alloc_bytes = max_backward_cmp_peak_alloc
+        self.last_backward_cmp_peak_reserved_bytes = max_backward_cmp_peak_reserved
+        self.last_backward_cmp_time_ms = backward_cmp_time_total_ms if backward_cmp_time_total_ms > 0 else None
         return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_out_per_layer, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_out_per_layer
 
     def save(self, args, path):
@@ -252,6 +308,15 @@ class Layer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
+        self.last_manual_grad_peak_alloc_bytes = None
+        self.last_manual_grad_peak_reserved_bytes = None
+        self.last_manual_grad_time_ms = None
+        self.last_manual_grad_ops_est = None
+        self.last_backward_cmp_peak_alloc_bytes = None
+        self.last_backward_cmp_peak_reserved_bytes = None
+        self.last_backward_cmp_time_ms = None
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
     def initialize(self):  # 初始化模型参数
@@ -278,6 +343,20 @@ class Layer(nn.Module):
         return x, mean, var
     def train_ff_stdp(self, pos_encoded, neg_encoded, frozen):
         _, N, __ = pos_encoded.shape
+        use_cuda_mem_stat = pos_encoded.is_cuda
+        device = pos_encoded.device
+        pos_manual_peak_alloc = None
+        pos_manual_peak_reserved = None
+        neg_manual_peak_alloc = None
+        neg_manual_peak_reserved = None
+        pos_manual_time_ms = None
+        neg_manual_time_ms = None
+        pos_bp_peak_alloc = None
+        pos_bp_peak_reserved = None
+        neg_bp_peak_alloc = None
+        neg_bp_peak_reserved = None
+        pos_bp_time_ms = None
+        neg_bp_time_ms = None
         # Positive sample processing
         pos_input_spike_sum = pos_encoded.sum(0)
         pos_output_spike = torch.zeros(self.T, N, self.out_features).cuda()
@@ -289,9 +368,35 @@ class Layer(nn.Module):
         pos_out_freq = pos_output_spike.mean(0)
         pos_goodness = self.cal_goodness(pos_out_freq)
 
-        # Single forward propagation
-        pos_weight_grad, pos_loss = gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,self.threshold, self.v_threshold, N, True)
+        # Manual gradient path (for hardware-friendly approximation cost profiling).
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        t0 = time.perf_counter()
+        with torch.no_grad():
+            pos_weight_grad, _ = gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,self.threshold, self.v_threshold, N, True)
+        pos_manual_time_ms = (time.perf_counter() - t0) * 1000.0
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            pos_manual_peak_alloc = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            pos_manual_peak_reserved = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
+
+        # Autograd backward path (for comparison)
+        _, pos_loss = gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_goodness, pos_ln_var, pos_ln_mean,self.threshold, self.v_threshold, N, True)
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        t1 = time.perf_counter()
         pos_loss.backward()
+        pos_bp_time_ms = (time.perf_counter() - t1) * 1000.0
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            pos_bp_peak_alloc = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            pos_bp_peak_reserved = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
         with torch.no_grad():
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
@@ -312,9 +417,35 @@ class Layer(nn.Module):
         neg_out_freq = neg_output_spike.mean(0)
         neg_goodness = self.cal_goodness(neg_out_freq)
 
-        # Single forward propagation
-        neg_weight_grad, neg_loss = gradient_calculation_mlp(neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,self.threshold, self.v_threshold, N, False)
+        # Manual gradient path (for hardware-friendly approximation cost profiling).
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        t2 = time.perf_counter()
+        with torch.no_grad():
+            neg_weight_grad, _ = gradient_calculation_mlp(neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,self.threshold, self.v_threshold, N, False)
+        neg_manual_time_ms = (time.perf_counter() - t2) * 1000.0
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            neg_manual_peak_alloc = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            neg_manual_peak_reserved = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
+
+        # Autograd backward path (for comparison)
+        _, neg_loss = gradient_calculation_mlp(neg_input_spike_sum, neg_out_freq, neg_goodness, neg_ln_var, neg_ln_mean,self.threshold, self.v_threshold, N, False)
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        t3 = time.perf_counter()
         neg_loss.backward()
+        neg_bp_time_ms = (time.perf_counter() - t3) * 1000.0
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            neg_bp_peak_alloc = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            neg_bp_peak_reserved = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
         with torch.no_grad():
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
@@ -323,6 +454,24 @@ class Layer(nn.Module):
                     m.weight += self.lr * neg_weight_grad
         self.opt.zero_grad()
         weight_grad = pos_weight_grad + neg_weight_grad
+        manual_alloc_peaks = [v for v in (pos_manual_peak_alloc, neg_manual_peak_alloc) if v is not None]
+        manual_reserved_peaks = [v for v in (pos_manual_peak_reserved, neg_manual_peak_reserved) if v is not None]
+        alloc_peaks = [v for v in (pos_bp_peak_alloc, neg_bp_peak_alloc) if v is not None]
+        reserved_peaks = [v for v in (pos_bp_peak_reserved, neg_bp_peak_reserved) if v is not None]
+        manual_times = [v for v in (pos_manual_time_ms, neg_manual_time_ms) if v is not None]
+        backward_times = [v for v in (pos_bp_time_ms, neg_bp_time_ms) if v is not None]
+        # Manual gradient op-count estimate:
+        # each (out x N) @ (N x in) matmul costs ~2*out*N*in FLOPs, with pos+neg two passes.
+        manual_grad_ops_est = float(4.0 * N * self.out_features * self.in_features)
+        self.last_manual_grad_peak_alloc_bytes = max(manual_alloc_peaks) if manual_alloc_peaks else None
+        self.last_manual_grad_peak_reserved_bytes = max(manual_reserved_peaks) if manual_reserved_peaks else None
+        self.last_manual_grad_time_ms = float(sum(manual_times)) if manual_times else None
+        self.last_manual_grad_ops_est = manual_grad_ops_est
+        self.last_backward_peak_alloc_bytes = max(alloc_peaks) if alloc_peaks else None
+        self.last_backward_peak_reserved_bytes = max(reserved_peaks) if reserved_peaks else None
+        self.last_backward_cmp_peak_alloc_bytes = self.last_backward_peak_alloc_bytes
+        self.last_backward_cmp_peak_reserved_bytes = self.last_backward_peak_reserved_bytes
+        self.last_backward_cmp_time_ms = float(sum(backward_times)) if backward_times else None
         functional.reset_net(self.layer)
 
         # Delta loss processing
@@ -381,6 +530,8 @@ class OutputLayer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
     def forward(self, x):
@@ -389,13 +540,27 @@ class OutputLayer(nn.Module):
         return self.layer(x)
     def train_bp_stdp(self,x_encoded, label):
         N = x_encoded.shape[1]
+        use_cuda_mem_stat = x_encoded.is_cuda
+        device = x_encoded.device
         output_spike = torch.zeros(self.T, N, self.out_features).cuda()
         for t in range(self.T):
             output_spike[t] += self.forward(x_encoded[t])
         spike_freq = output_spike.mean(0)
         self.opt.zero_grad()
         loss = F.cross_entropy(spike_freq.view(-1, self.out_features), label.view(-1))
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
         loss.backward()
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            self.last_backward_peak_alloc_bytes = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            self.last_backward_peak_reserved_bytes = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
+        else:
+            self.last_backward_peak_alloc_bytes = None
+            self.last_backward_peak_reserved_bytes = None
         self.opt.step()
         # input_spike_sum = x_encoded.sum(0).cuda()
         # ksi_output = torch.zeros(N,self.out_features).cuda() 

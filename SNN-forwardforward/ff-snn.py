@@ -31,6 +31,7 @@ from config import ConfigParser
 from src.dataset import GroupedSortedMNIST, AugmentedMNIST
 import logging
 from spikingjelly.datasets.n_mnist import NMNIST
+from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
 from src.generate_neg_sample import *
 
 
@@ -148,6 +149,26 @@ def _mean_last_epoch(metric_per_layer_list):
         return None
     return float(np.mean(values))
 
+def _to_chw_tensor(x):
+    if not torch.is_tensor(x):
+        x = torch.as_tensor(x)
+    x = x.float()
+    # Event frames are usually [T, C, H, W]; reduce over time for this pipeline.
+    if x.ndim == 4:
+        x = x.sum(dim=0)
+    elif x.ndim == 2:
+        x = x.unsqueeze(0)
+    # Some datasets return [H, W, C].
+    if x.ndim == 3 and x.shape[0] not in (1, 2, 3):
+        x = x.permute(2, 0, 1)
+    max_v = x.max()
+    if max_v > 0:
+        x = x / max_v
+    return x
+
+def _bytes_to_mb(x):
+    return float(x) / (1024.0 * 1024.0)
+
 
 def main():
     config = ConfigParser()
@@ -169,19 +190,40 @@ def main():
             transform=torchvision.transforms.ToTensor(),
             download=True,
         )
-    elif args.dataset == "N-MNIST":
-        train_dataset = NMNIST(
+    elif args.dataset in ("NMNIST", "N-MNIST"):
+        try:
+            train_dataset = NMNIST(
+                root=args.data_dir,
+                train=True,
+                transform=torchvision.transforms.ToTensor(),
+            )
+
+            test_dataset = NMNIST(
+                root=args.data_dir,
+                train=False,
+                transform=torchvision.transforms.ToTensor(),
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "NMNIST does not support automatic download in this spikingjelly version. "
+                "Please manually prepare N-MNIST data under data_dir, then rerun."
+            ) from e
+    elif args.dataset in ("DVS128Gesture", "DVS128-Gesture", "DVS 128 Gesture"):
+        train_dataset = DVS128Gesture(
             root=args.data_dir,
             train=True,
-            transform=torchvision.transforms.ToTensor(),
-            download=True,
+            data_type="frame",
+            frames_number=1,
+            split_by="number",
+            transform=_to_chw_tensor,
         )
-
-        test_dataset = NMNIST(
+        test_dataset = DVS128Gesture(
             root=args.data_dir,
             train=False,
-            transform=torchvision.transforms.ToTensor(),
-            download=True,
+            data_type="frame",
+            frames_number=1,
+            split_by="number",
+            transform=_to_chw_tensor,
         )
     elif args.dataset == "FashionMNIST":
         train_dataset = torchvision.datasets.FashionMNIST(
@@ -211,7 +253,9 @@ def main():
             download=True,
         )
     else:
-        raise ValueError("Unsupported dataset. Please choose either 'MNIST' or 'CIFAR10'.")
+        raise ValueError(
+            "Unsupported dataset. Please choose from: MNIST, N-MNIST/NMNIST, FashionMNIST, CIFAR10, DVS128Gesture."
+        )
    
     # 划分训练集和验证集
     train_size = int(0.95 * len(train_dataset))  # 80% 用于训练
@@ -251,6 +295,7 @@ def main():
     _, __, H, W = x.shape
     num_classes = int(y.max().item() + 1)
     device = torch.device("cuda")
+    use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
     out_dir = os.path.join(
         args.out_dir,
         args.predict_type,
@@ -314,6 +359,34 @@ def main():
     cos_neg_of_layer_list = [[] for _ in range(len(net.layers))]
     spike_out_pos_of_layer_list = [[] for _ in range(len(net.layers))]
     spike_out_neg_of_layer_list = [[] for _ in range(len(net.layers))]
+    # GPU memory stats for training, with focus on train_ff_stdp (includes backward pass).
+    train_mem_sample_count = 0
+    train_alloc_sum = 0.0
+    train_reserved_sum = 0.0
+    bp_peak_alloc_sum = 0.0
+    bp_peak_reserved_sum = 0.0
+    bp_peak_alloc_max = 0.0
+    bp_peak_reserved_max = 0.0
+    bp_only_peak_alloc_sum = 0.0
+    bp_only_peak_reserved_sum = 0.0
+    bp_only_peak_alloc_max = 0.0
+    bp_only_peak_reserved_max = 0.0
+    bp_only_sample_count = 0
+    manual_grad_peak_alloc_sum = 0.0
+    manual_grad_peak_reserved_sum = 0.0
+    manual_grad_peak_alloc_max = 0.0
+    manual_grad_peak_reserved_max = 0.0
+    manual_grad_time_sum_ms = 0.0
+    manual_grad_sample_count = 0
+    manual_grad_sample_total = 0
+    manual_grad_ops_est_sum = 0.0
+    autograd_cmp_peak_alloc_sum = 0.0
+    autograd_cmp_peak_reserved_sum = 0.0
+    autograd_cmp_peak_alloc_max = 0.0
+    autograd_cmp_peak_reserved_max = 0.0
+    autograd_cmp_time_sum_ms = 0.0
+    autograd_cmp_sample_count = 0
+    autograd_cmp_sample_total = 0
     # 定义输出文件路径
     log_file_path = os.path.join(out_dir, "output_log.txt")
     # 保存原始标准输出
@@ -338,7 +411,64 @@ def main():
             for x, y in train_data_loader:
                 batch_samples += 1
                 x, y = x.to(device), y.to(device)
+                if use_cuda_mem_stat:
+                    torch.cuda.synchronize(device)
+                    torch.cuda.reset_peak_memory_stats(device)
                 goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg = net.train_ff_stdp(x, y, frozen)
+                if use_cuda_mem_stat:
+                    torch.cuda.synchronize(device)
+                    cur_alloc = torch.cuda.memory_allocated(device)
+                    cur_reserved = torch.cuda.memory_reserved(device)
+                    bp_peak_alloc = torch.cuda.max_memory_allocated(device)
+                    bp_peak_reserved = torch.cuda.max_memory_reserved(device)
+                    train_alloc_sum += cur_alloc
+                    train_reserved_sum += cur_reserved
+                    bp_peak_alloc_sum += bp_peak_alloc
+                    bp_peak_reserved_sum += bp_peak_reserved
+                    bp_peak_alloc_max = max(bp_peak_alloc_max, float(bp_peak_alloc))
+                    bp_peak_reserved_max = max(bp_peak_reserved_max, float(bp_peak_reserved))
+                    train_mem_sample_count += 1
+                bp_only_peak_alloc = getattr(net, "last_backward_peak_alloc_bytes", None)
+                bp_only_peak_reserved = getattr(net, "last_backward_peak_reserved_bytes", None)
+                if bp_only_peak_alloc is not None:
+                    bp_only_peak_alloc_sum += float(bp_only_peak_alloc)
+                    bp_only_peak_alloc_max = max(bp_only_peak_alloc_max, float(bp_only_peak_alloc))
+                if bp_only_peak_reserved is not None:
+                    bp_only_peak_reserved_sum += float(bp_only_peak_reserved)
+                    bp_only_peak_reserved_max = max(bp_only_peak_reserved_max, float(bp_only_peak_reserved))
+                if (bp_only_peak_alloc is not None) or (bp_only_peak_reserved is not None):
+                    bp_only_sample_count += 1
+                manual_grad_peak_alloc = getattr(net, "last_manual_grad_peak_alloc_bytes", None)
+                manual_grad_peak_reserved = getattr(net, "last_manual_grad_peak_reserved_bytes", None)
+                manual_grad_time_ms = getattr(net, "last_manual_grad_time_ms", None)
+                if manual_grad_peak_alloc is not None:
+                    manual_grad_peak_alloc_sum += float(manual_grad_peak_alloc)
+                    manual_grad_peak_alloc_max = max(manual_grad_peak_alloc_max, float(manual_grad_peak_alloc))
+                if manual_grad_peak_reserved is not None:
+                    manual_grad_peak_reserved_sum += float(manual_grad_peak_reserved)
+                    manual_grad_peak_reserved_max = max(manual_grad_peak_reserved_max, float(manual_grad_peak_reserved))
+                if manual_grad_time_ms is not None:
+                    manual_grad_time_sum_ms += float(manual_grad_time_ms)
+                if (manual_grad_peak_alloc is not None) or (manual_grad_peak_reserved is not None) or (manual_grad_time_ms is not None):
+                    manual_grad_sample_count += 1
+                    manual_grad_sample_total += int(y.numel())
+                manual_grad_ops_est = getattr(net, "last_manual_grad_ops_est", None)
+                if manual_grad_ops_est is not None:
+                    manual_grad_ops_est_sum += float(manual_grad_ops_est)
+                autograd_cmp_peak_alloc = getattr(net, "last_backward_cmp_peak_alloc_bytes", None)
+                autograd_cmp_peak_reserved = getattr(net, "last_backward_cmp_peak_reserved_bytes", None)
+                autograd_cmp_time_ms = getattr(net, "last_backward_cmp_time_ms", None)
+                if autograd_cmp_peak_alloc is not None:
+                    autograd_cmp_peak_alloc_sum += float(autograd_cmp_peak_alloc)
+                    autograd_cmp_peak_alloc_max = max(autograd_cmp_peak_alloc_max, float(autograd_cmp_peak_alloc))
+                if autograd_cmp_peak_reserved is not None:
+                    autograd_cmp_peak_reserved_sum += float(autograd_cmp_peak_reserved)
+                    autograd_cmp_peak_reserved_max = max(autograd_cmp_peak_reserved_max, float(autograd_cmp_peak_reserved))
+                if autograd_cmp_time_ms is not None:
+                    autograd_cmp_time_sum_ms += float(autograd_cmp_time_ms)
+                if (autograd_cmp_peak_alloc is not None) or (autograd_cmp_peak_reserved is not None) or (autograd_cmp_time_ms is not None):
+                    autograd_cmp_sample_count += 1
+                    autograd_cmp_sample_total += int(y.numel())
                 # 单个batch获取所有层的平均余弦相似度以及优度值
                 goodness_pos = torch.tensor(goodness_pos)
                 goodness_neg = torch.tensor(goodness_neg)
@@ -430,6 +560,130 @@ def main():
         save = True
         if save or args.save_model:
             net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
+        if train_mem_sample_count > 0:
+            train_gpu_mem_alloc_mean_mb = _bytes_to_mb(train_alloc_sum / train_mem_sample_count)
+            train_gpu_mem_reserved_mean_mb = _bytes_to_mb(train_reserved_sum / train_mem_sample_count)
+            bp_gpu_mem_peak_alloc_mean_mb = _bytes_to_mb(bp_peak_alloc_sum / train_mem_sample_count)
+            bp_gpu_mem_peak_reserved_mean_mb = _bytes_to_mb(bp_peak_reserved_sum / train_mem_sample_count)
+            bp_gpu_mem_peak_alloc_max_mb = _bytes_to_mb(bp_peak_alloc_max)
+            bp_gpu_mem_peak_reserved_max_mb = _bytes_to_mb(bp_peak_reserved_max)
+        else:
+            train_gpu_mem_alloc_mean_mb = None
+            train_gpu_mem_reserved_mean_mb = None
+            bp_gpu_mem_peak_alloc_mean_mb = None
+            bp_gpu_mem_peak_reserved_mean_mb = None
+            bp_gpu_mem_peak_alloc_max_mb = None
+            bp_gpu_mem_peak_reserved_max_mb = None
+        if bp_only_sample_count > 0:
+            bp_only_gpu_mem_peak_alloc_mean_mb = _bytes_to_mb(bp_only_peak_alloc_sum / bp_only_sample_count)
+            bp_only_gpu_mem_peak_reserved_mean_mb = _bytes_to_mb(bp_only_peak_reserved_sum / bp_only_sample_count)
+            bp_only_gpu_mem_peak_alloc_max_mb = _bytes_to_mb(bp_only_peak_alloc_max)
+            bp_only_gpu_mem_peak_reserved_max_mb = _bytes_to_mb(bp_only_peak_reserved_max)
+        else:
+            bp_only_gpu_mem_peak_alloc_mean_mb = None
+            bp_only_gpu_mem_peak_reserved_mean_mb = None
+            bp_only_gpu_mem_peak_alloc_max_mb = None
+            bp_only_gpu_mem_peak_reserved_max_mb = None
+        if manual_grad_sample_count > 0:
+            manual_grad_peak_alloc_mean_mb = _bytes_to_mb(manual_grad_peak_alloc_sum / manual_grad_sample_count)
+            manual_grad_peak_reserved_mean_mb = _bytes_to_mb(manual_grad_peak_reserved_sum / manual_grad_sample_count)
+            manual_grad_peak_alloc_max_mb = _bytes_to_mb(manual_grad_peak_alloc_max)
+            manual_grad_peak_reserved_max_mb = _bytes_to_mb(manual_grad_peak_reserved_max)
+            manual_grad_time_mean_ms = manual_grad_time_sum_ms / manual_grad_sample_count
+        else:
+            manual_grad_peak_alloc_mean_mb = None
+            manual_grad_peak_reserved_mean_mb = None
+            manual_grad_peak_alloc_max_mb = None
+            manual_grad_peak_reserved_max_mb = None
+            manual_grad_time_mean_ms = None
+        if manual_grad_sample_total > 0:
+            manual_grad_peak_alloc_per_sample_kb = (manual_grad_peak_alloc_sum / manual_grad_sample_total) / 1024.0
+            manual_grad_peak_reserved_per_sample_kb = (manual_grad_peak_reserved_sum / manual_grad_sample_total) / 1024.0
+            manual_grad_time_per_sample_us = (manual_grad_time_sum_ms * 1000.0) / manual_grad_sample_total
+            manual_grad_ops_est_per_sample = manual_grad_ops_est_sum / manual_grad_sample_total
+        else:
+            manual_grad_peak_alloc_per_sample_kb = None
+            manual_grad_peak_reserved_per_sample_kb = None
+            manual_grad_time_per_sample_us = None
+            manual_grad_ops_est_per_sample = None
+        if autograd_cmp_sample_count > 0:
+            autograd_cmp_peak_alloc_mean_mb = _bytes_to_mb(autograd_cmp_peak_alloc_sum / autograd_cmp_sample_count)
+            autograd_cmp_peak_reserved_mean_mb = _bytes_to_mb(autograd_cmp_peak_reserved_sum / autograd_cmp_sample_count)
+            autograd_cmp_peak_alloc_max_mb = _bytes_to_mb(autograd_cmp_peak_alloc_max)
+            autograd_cmp_peak_reserved_max_mb = _bytes_to_mb(autograd_cmp_peak_reserved_max)
+            autograd_cmp_time_mean_ms = autograd_cmp_time_sum_ms / autograd_cmp_sample_count
+        else:
+            autograd_cmp_peak_alloc_mean_mb = None
+            autograd_cmp_peak_reserved_mean_mb = None
+            autograd_cmp_peak_alloc_max_mb = None
+            autograd_cmp_peak_reserved_max_mb = None
+            autograd_cmp_time_mean_ms = None
+        if autograd_cmp_sample_total > 0:
+            autograd_cmp_peak_alloc_per_sample_kb = (autograd_cmp_peak_alloc_sum / autograd_cmp_sample_total) / 1024.0
+            autograd_cmp_peak_reserved_per_sample_kb = (autograd_cmp_peak_reserved_sum / autograd_cmp_sample_total) / 1024.0
+            autograd_cmp_time_per_sample_us = (autograd_cmp_time_sum_ms * 1000.0) / autograd_cmp_sample_total
+        else:
+            autograd_cmp_peak_alloc_per_sample_kb = None
+            autograd_cmp_peak_reserved_per_sample_kb = None
+            autograd_cmp_time_per_sample_us = None
+        if manual_grad_time_sum_ms > 0:
+            manual_grad_samples_per_s = manual_grad_sample_total / (manual_grad_time_sum_ms / 1000.0)
+        else:
+            manual_grad_samples_per_s = None
+        if autograd_cmp_time_sum_ms > 0:
+            autograd_cmp_samples_per_s = autograd_cmp_sample_total / (autograd_cmp_time_sum_ms / 1000.0)
+        else:
+            autograd_cmp_samples_per_s = None
+        if manual_grad_ops_est_sum > 0 and manual_grad_time_sum_ms > 0:
+            manual_grad_ops_est_gops = manual_grad_ops_est_sum / 1e9
+            manual_grad_ops_est_gops_per_s = manual_grad_ops_est_gops / (manual_grad_time_sum_ms / 1000.0)
+        else:
+            manual_grad_ops_est_gops = None
+            manual_grad_ops_est_gops_per_s = None
+        if (
+            manual_grad_peak_alloc_mean_mb is not None
+            and autograd_cmp_peak_alloc_mean_mb is not None
+            and autograd_cmp_peak_alloc_mean_mb > 0
+        ):
+            manual_vs_autograd_alloc_reduction_pct = 100.0 * (1.0 - manual_grad_peak_alloc_mean_mb / autograd_cmp_peak_alloc_mean_mb)
+        else:
+            manual_vs_autograd_alloc_reduction_pct = None
+        if (
+            manual_grad_time_mean_ms is not None
+            and autograd_cmp_time_mean_ms is not None
+            and autograd_cmp_time_mean_ms > 0
+        ):
+            manual_vs_autograd_time_reduction_pct = 100.0 * (1.0 - manual_grad_time_mean_ms / autograd_cmp_time_mean_ms)
+        else:
+            manual_vs_autograd_time_reduction_pct = None
+        if (
+            manual_grad_samples_per_s is not None
+            and autograd_cmp_samples_per_s is not None
+            and autograd_cmp_samples_per_s > 0
+        ):
+            manual_vs_autograd_throughput_gain_pct = 100.0 * (manual_grad_samples_per_s / autograd_cmp_samples_per_s - 1.0)
+        else:
+            manual_vs_autograd_throughput_gain_pct = None
+        if (
+            manual_grad_peak_alloc_per_sample_kb is not None
+            and autograd_cmp_peak_alloc_per_sample_kb is not None
+            and autograd_cmp_peak_alloc_per_sample_kb > 0
+        ):
+            manual_vs_autograd_alloc_per_sample_reduction_pct = 100.0 * (
+                1.0 - manual_grad_peak_alloc_per_sample_kb / autograd_cmp_peak_alloc_per_sample_kb
+            )
+        else:
+            manual_vs_autograd_alloc_per_sample_reduction_pct = None
+        if (
+            manual_grad_time_per_sample_us is not None
+            and autograd_cmp_time_per_sample_us is not None
+            and autograd_cmp_time_per_sample_us > 0
+        ):
+            manual_vs_autograd_time_per_sample_reduction_pct = 100.0 * (
+                1.0 - manual_grad_time_per_sample_us / autograd_cmp_time_per_sample_us
+            )
+        else:
+            manual_vs_autograd_time_per_sample_reduction_pct = None
         metrics = {
             "test_acc": 100 * test_acc / test_count,
             "last_epoch_loss_mean": _mean_last_epoch(loss_of_layer_list),
@@ -437,6 +691,43 @@ def main():
             "last_epoch_goodness_neg_mean": _mean_last_epoch(goodness_neg_of_layer_list),
             "last_epoch_firing_pos_mean": _mean_last_epoch(spike_out_pos_of_layer_list),
             "last_epoch_firing_neg_mean": _mean_last_epoch(spike_out_neg_of_layer_list),
+            "train_gpu_mem_alloc_mean_mb": train_gpu_mem_alloc_mean_mb,
+            "train_gpu_mem_reserved_mean_mb": train_gpu_mem_reserved_mean_mb,
+            "bp_gpu_mem_peak_alloc_mean_mb": bp_gpu_mem_peak_alloc_mean_mb,
+            "bp_gpu_mem_peak_reserved_mean_mb": bp_gpu_mem_peak_reserved_mean_mb,
+            "bp_gpu_mem_peak_alloc_max_mb": bp_gpu_mem_peak_alloc_max_mb,
+            "bp_gpu_mem_peak_reserved_max_mb": bp_gpu_mem_peak_reserved_max_mb,
+            "bp_only_gpu_mem_peak_alloc_mean_mb": bp_only_gpu_mem_peak_alloc_mean_mb,
+            "bp_only_gpu_mem_peak_reserved_mean_mb": bp_only_gpu_mem_peak_reserved_mean_mb,
+            "bp_only_gpu_mem_peak_alloc_max_mb": bp_only_gpu_mem_peak_alloc_max_mb,
+            "bp_only_gpu_mem_peak_reserved_max_mb": bp_only_gpu_mem_peak_reserved_max_mb,
+            "manual_grad_peak_alloc_mean_mb": manual_grad_peak_alloc_mean_mb,
+            "manual_grad_peak_reserved_mean_mb": manual_grad_peak_reserved_mean_mb,
+            "manual_grad_peak_alloc_max_mb": manual_grad_peak_alloc_max_mb,
+            "manual_grad_peak_reserved_max_mb": manual_grad_peak_reserved_max_mb,
+            "manual_grad_time_mean_ms": manual_grad_time_mean_ms,
+            "manual_grad_peak_alloc_per_sample_kb": manual_grad_peak_alloc_per_sample_kb,
+            "manual_grad_peak_reserved_per_sample_kb": manual_grad_peak_reserved_per_sample_kb,
+            "manual_grad_time_per_sample_us": manual_grad_time_per_sample_us,
+            "manual_grad_ops_est_total": manual_grad_ops_est_sum if manual_grad_ops_est_sum > 0 else None,
+            "manual_grad_ops_est_gops": manual_grad_ops_est_gops,
+            "manual_grad_ops_est_per_sample": manual_grad_ops_est_per_sample,
+            "manual_grad_ops_est_gops_per_s": manual_grad_ops_est_gops_per_s,
+            "manual_grad_samples_per_s": manual_grad_samples_per_s,
+            "autograd_cmp_peak_alloc_mean_mb": autograd_cmp_peak_alloc_mean_mb,
+            "autograd_cmp_peak_reserved_mean_mb": autograd_cmp_peak_reserved_mean_mb,
+            "autograd_cmp_peak_alloc_max_mb": autograd_cmp_peak_alloc_max_mb,
+            "autograd_cmp_peak_reserved_max_mb": autograd_cmp_peak_reserved_max_mb,
+            "autograd_cmp_time_mean_ms": autograd_cmp_time_mean_ms,
+            "autograd_cmp_peak_alloc_per_sample_kb": autograd_cmp_peak_alloc_per_sample_kb,
+            "autograd_cmp_peak_reserved_per_sample_kb": autograd_cmp_peak_reserved_per_sample_kb,
+            "autograd_cmp_time_per_sample_us": autograd_cmp_time_per_sample_us,
+            "autograd_cmp_samples_per_s": autograd_cmp_samples_per_s,
+            "manual_vs_autograd_alloc_reduction_pct": manual_vs_autograd_alloc_reduction_pct,
+            "manual_vs_autograd_time_reduction_pct": manual_vs_autograd_time_reduction_pct,
+            "manual_vs_autograd_alloc_per_sample_reduction_pct": manual_vs_autograd_alloc_per_sample_reduction_pct,
+            "manual_vs_autograd_time_per_sample_reduction_pct": manual_vs_autograd_time_per_sample_reduction_pct,
+            "manual_vs_autograd_throughput_gain_pct": manual_vs_autograd_throughput_gain_pct,
         }
         with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as metrics_f:
             json.dump(metrics, metrics_f, ensure_ascii=False, indent=2)
