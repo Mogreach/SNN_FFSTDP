@@ -107,6 +107,8 @@ class ConvNet(torch.nn.Module):
         self.loss_threshold = loss_threshold
         self.num_classes = num_classes
         self.T = T
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
         self.layers = []
         input_feature_of_linear = 0
         for (in_ch, out_ch, k, s, p) in conv_cfg:
@@ -182,6 +184,8 @@ class ConvNet(torch.nn.Module):
         return goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg
     def train_ff_stdp_step(self, input_pos, input_neg, label, frozen):
         T, B, C, H, W = input_pos.shape
+        max_backward_peak_alloc = None
+        max_backward_peak_reserved = None
         pos_goodness_per_layer = []
         neg_goodness_per_layer = []
         pos_cos_sim_per_layer = []
@@ -207,6 +211,14 @@ class ConvNet(torch.nn.Module):
                 neg_spike_out_per_layer.append(input_neg.mean().detach().cpu())
                 pos_spike_in_of_output_layer = torch.cat((pos_spike_in_of_output_layer,input_pos.flatten(2)),dim=2)
                 neg_spike_in_of_output_layer = torch.cat((neg_spike_in_of_output_layer,input_neg.flatten(2)),dim=2)
+            layer_bp_alloc = getattr(layer, "last_backward_peak_alloc_bytes", None)
+            layer_bp_reserved = getattr(layer, "last_backward_peak_reserved_bytes", None)
+            if layer_bp_alloc is not None:
+                max_backward_peak_alloc = layer_bp_alloc if max_backward_peak_alloc is None else max(max_backward_peak_alloc, layer_bp_alloc)
+            if layer_bp_reserved is not None:
+                max_backward_peak_reserved = layer_bp_reserved if max_backward_peak_reserved is None else max(max_backward_peak_reserved, layer_bp_reserved)
+        self.last_backward_peak_alloc_bytes = max_backward_peak_alloc
+        self.last_backward_peak_reserved_bytes = max_backward_peak_reserved
         return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_out_per_layer, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_out_per_layer
 
     def save(self, args, path):
@@ -268,6 +280,8 @@ class ConvLayer(nn.Module):
         self.threshold = loss_threshold
         self.v_threshold = v_threshold
         self.opt = Adam(self.parameters(), lr=lr)
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
 
         self.Cin = in_channels
         self.Cout = out_channels
@@ -293,6 +307,8 @@ class ConvLayer(nn.Module):
     def train_ff_stdp(self, pos_encoded, neg_encoded, frozen):
         # pos_encoded: [T, B, Cin, Hin, Win]
         T, B, Cin, Hin, Win = pos_encoded.shape
+        use_cuda_mem_stat = pos_encoded.is_cuda
+        device = pos_encoded.device
         patch = self.kernel_size*self.kernel_size * Cin
         pos_out = torch.empty(T, B, self.Cout, self.Hout, self.Wout).cuda()
         neg_out = torch.empty(T, B, self.Cout, self.Hout, self.Wout).cuda()
@@ -368,7 +384,19 @@ class ConvLayer(nn.Module):
         weight_grad, delta_loss = delta_loss_gradient_calculation_cnn(pos_input_spike_sum_unfold, pos_freq, pos_goodness, pos_ln_var, pos_ln_mean,
                                                                       neg_input_spike_sum_unfold, neg_freq, neg_goodness, neg_ln_var, neg_ln_mean,
                                                                       self.threshold, self.v_threshold, B, self.Cout)
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
         delta_loss.backward()
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            self.last_backward_peak_alloc_bytes = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            self.last_backward_peak_reserved_bytes = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
+        else:
+            self.last_backward_peak_alloc_bytes = None
+            self.last_backward_peak_reserved_bytes = None
         with torch.no_grad():
             for m in self.layer.modules():
                 if isinstance(m, nn.Conv2d):
@@ -418,6 +446,8 @@ class OutputLayer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
     def forward(self, x):
@@ -426,13 +456,27 @@ class OutputLayer(nn.Module):
         return self.layer(x)
     def train_bp_stdp(self,x_encoded, label):
         N = x_encoded.shape[1]
+        use_cuda_mem_stat = x_encoded.is_cuda
+        device = x_encoded.device
         output_spike = torch.zeros(self.T, N, self.out_features).cuda()
         for t in range(self.T):
             output_spike[t] += self.forward(x_encoded[t])
         spike_freq = output_spike.mean(0)
         self.opt.zero_grad()
         loss = F.cross_entropy(spike_freq.view(-1, self.out_features), label.view(-1))
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            base_alloc = torch.cuda.memory_allocated(device)
+            base_reserved = torch.cuda.memory_reserved(device)
+            torch.cuda.reset_peak_memory_stats(device)
         loss.backward()
+        if use_cuda_mem_stat:
+            torch.cuda.synchronize(device)
+            self.last_backward_peak_alloc_bytes = max(0.0, float(torch.cuda.max_memory_allocated(device) - base_alloc))
+            self.last_backward_peak_reserved_bytes = max(0.0, float(torch.cuda.max_memory_reserved(device) - base_reserved))
+        else:
+            self.last_backward_peak_alloc_bytes = None
+            self.last_backward_peak_reserved_bytes = None
         self.opt.step()
         # input_spike_sum = x_encoded.sum(0).cuda()
         # ksi_output = torch.zeros(N,self.out_features).cuda() 
