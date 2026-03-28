@@ -39,7 +39,7 @@ module Top_test
     // parameter PRE_NEUR_DATA_WIDTH = 8, // 单个突触前神经元脉冲计数数据位宽
     parameter POST_NEUR_DATA_WIDTH = 20, // 单个突触后神经元状态数据位宽
     parameter POST_NEUR_MEM_WIDTH = 13, // 单个突触后神经元膜电位数据位宽
-    // parameter POST_NEUR_SPIKE_CNT_WIDTH = 6, // 单个突触后神经元脉冲计数数据位宽
+    parameter POST_NEUR_SPIKE_CNT_WIDTH = 7, // 单个突触后神经元脉冲计数数据位宽
     parameter WEIGHT_WIDTH = 9, // 单个突触权重数据位宽
     parameter GRAD_WIDTH = 9,
     parameter GOODNESS_WIDTH = 20
@@ -64,7 +64,7 @@ module Top_test
     parameter SYN_ARRAY_ADDR_WIDTH = $clog2(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL); // 突触阵列地址位宽 
     parameter GRAD_ARRAY_DATA_WIDTH = POST_NEUR_PARALLEL * GRAD_WIDTH; // 突触梯度阵列数据位宽
     parameter GRAD_ARRAY_ADDR_WIDTH = $clog2(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL); // 突触梯度阵列地址位宽
-    parameter POST_NEUR_SPIKE_CNT_WIDTH = TIME_STEP; // 单个突触后神经元脉冲计数数据位宽
+    // parameter POST_NEUR_SPIKE_CNT_WIDTH = TIME_STEP; // 单个突触后神经元脉冲计数数据位宽
     parameter PRE_NEUR_DATA_WIDTH = TIME_STEP; // 单个突触前神经元脉冲计数数据位宽
 
     wire               [AER_IN_CORE_WIDTH-1: 0]        AEROUT_ADDR                 ;
@@ -85,7 +85,7 @@ ODIN_ffstdp#(
     .TIME_STEP                             (TIME_STEP          ),
     .INPUT_NEURON                          (INPUT_NEURON       ),
     .OUTPUT_NEURON                         (OUTPUT_NEURON      ),
-    .AER_IN_CORE_WIDTH                             (AER_IN_CORE_WIDTH          ),
+    .AER_IN_CORE_WIDTH                     (AER_IN_CORE_WIDTH          ),
     .PRE_NEUR_ADDR_WIDTH                   (PRE_NEUR_ADDR_WIDTH),
     .PRE_NEUR_WORD_ADDR_WIDTH              (PRE_NEUR_WORD_ADDR_WIDTH),
     .PRE_NEUR_BYTE_ADDR_WIDTH              (PRE_NEUR_BYTE_ADDR_WIDTH),
@@ -146,20 +146,20 @@ always @(posedge CLK or posedge RST)
 assign AEROUT_ACK = AEROUT_ACK_delay[5];     
 
 
-goodness_moving_avg #(
-	.CORE_NUM            	( 1    ),
-	.POST_NEUR_PARALLEL  	( POST_NEUR_PARALLEL    ),
-	.POST_NEUR_MEM_WIDTH 	( POST_NEUR_MEM_WIDTH   ),
-	.GOODNESS_WIDTH      	( GOODNESS_WIDTH   ),
-	.AVG_SHIFT           	( OUTPUT_NEURON / POST_NEUR_PARALLEL  )
-    )
-u_goodness_moving_avg(
-	.clk                 	( CLK                  ),
-	.rst                 	( RST                  ),
-	.core_valid          	( GOODNESS_ACC_VALID   ),
-	.core_clear_goodness 	( core_clear_goodness  ),
-	.core_mem_bus        	( POST_NEUR_MEM_BUS    ),
-	.avg_mem_bus         	( AVG_GOODNESS         )
-);
+// goodness_moving_avg #(
+// 	.CORE_NUM            	( 1    ),
+// 	.POST_NEUR_PARALLEL  	( POST_NEUR_PARALLEL    ),
+// 	.POST_NEUR_MEM_WIDTH 	( POST_NEUR_MEM_WIDTH   ),
+// 	.GOODNESS_WIDTH      	( GOODNESS_WIDTH   ),
+// 	.AVG_SHIFT           	( OUTPUT_NEURON / POST_NEUR_PARALLEL  )
+//     )
+// u_goodness_moving_avg(
+// 	.clk                 	( CLK                  ),
+// 	.rst                 	( RST                  ),
+// 	.core_valid          	( GOODNESS_ACC_VALID   ),
+// 	.core_clear_goodness 	( core_clear_goodness  ),
+// 	.core_mem_bus        	( POST_NEUR_MEM_BUS    ),
+// 	.avg_mem_bus         	( AVG_GOODNESS         )
+// );
                                                       
 endmodule

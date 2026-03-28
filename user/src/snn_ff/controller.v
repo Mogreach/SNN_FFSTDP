@@ -371,7 +371,7 @@ module controller #(
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS  = pre_neur_cnt;
             // {SCHED_DATA_OUT[PRE_NEUR_ADDR_WIDTH-1:0],CTRL_POST_NEURON_ADDRESS[POST_NEUR_ADDR_WIDTH-1 -:POST_NEUR_WORD_ADDR_WIDTH]}
-            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt[PRE_NEUR_ADDR_WIDTH-1:0],post_neur_cnt[POST_NEUR_ADDR_WIDTH-1 -:POST_NEUR_WORD_ADDR_WIDTH]};
+            CTRL_SYNARRAY_ADDR  = {pre_neur_cnt,post_neur_cnt};
             
             CTRL_TREF_EVENT     = 1'b1;
             CTRL_PRE_NEUR_CS    = 1'b1;

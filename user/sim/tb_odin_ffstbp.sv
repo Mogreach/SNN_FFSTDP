@@ -39,6 +39,8 @@ module ODIN_ffstdp_tb();
       .GOODNESS                           (GOODNESS                  ),
       .PROCESS_DONE                       (ONE_SAMPLE_FINISH         )
   );
+
+  
   assign AEROUT_ADDR = dut.AEROUT_ADDR;
   assign AEROUT_REQ = dut.AEROUT_REQ;
   assign AEROUT_ACK = dut.AEROUT_ACK;

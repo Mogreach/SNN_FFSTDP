@@ -100,63 +100,63 @@ module synaptic_core #(
                 .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
                 .IS_POS         (IS_POS),
                 .IS_TRAIN       (IS_TRAIN),
-                .AVG_GOODNESS   (AVG_GOODNESS),
+                // .AVG_GOODNESS   (AVG_GOODNESS),
                 // From neuron 
                 .POST_SPIKE_CNT (POST_NEUR_S_CNT_array[i]),
                 .PRE_SPIKE_CNT  (PRE_NEUR_S_CNT),
                 // From SRAM
                 .WSYN_CURR      (weight_orignal_array[i]),
-                .GRAD_CURR      (weight_grad_orignal_array[i]),
+                // .GRAD_CURR      (weight_grad_orignal_array[i]),
                 // Output
-                .WSYN_NEW       (weight_new),
-                .GRAD_NEW       (weight_gradient_new)
+                .WSYN_NEW       (weight_new)
+                // .GRAD_NEW       (weight_gradient_new)
             );
         end
     endgenerate
 
     // FPGA RAM IP (Single port)
     // Synaptic memory wrapper
-    //     sram_synaptic u_sram_synaptic(
-    //     .clka                                  (CLK                ),// input wire clka
-    //     .ena                                   (CTRL_SYNARRAY_CS   ),// input 片选使能信号
-    //     .wea                                   (CTRL_SYNARRAY_WE   ),// input 写使能信号
-    //     .addra                                 (synarray_addr      ),
-    //     .dina                                  (synarray_wdata     ),
-    //     .douta                                 (SYNARRAY_RDATA     ) 
+        sram_synaptic u_sram_synaptic(
+        .clka                                  (CLK                ),// input wire clka
+        .ena                                   (CTRL_SYNARRAY_CS   ),// input 片选使能信号
+        .wea                                   (CTRL_SYNARRAY_WE   ),// input 写使能信号
+        .addra                                 (synarray_addr      ),
+        .dina                                  (synarray_wdata     ),
+        .douta                                 (SYNARRAY_RDATA     ) 
+    );
+
+    // sram_synaptic_sim #(
+    //     .DATA_WIDTH(SYN_ARRAY_DATA_WIDTH),
+    //     .ADDR_WIDTH(SYN_ARRAY_ADDR_WIDTH),
+    //     .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
+    //     // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
+    // ) u_sram_synaptic_bank (
+    //     // Global inputs
+    //     .CK(CLK),               // Clock (synchronous read/write)
+    //     // Control and data inputs
+    //     .CS(CTRL_SYNARRAY_CS),  // Chip select
+    //     .WE(CTRL_SYNARRAY_WE),  // Write enable
+    //     .A (synarray_addr),     // Address bus
+    //     .D (synarray_wdata),    // Data input bus (write)
+    //     // Data output
+    //     .Q (SYNARRAY_RDATA)     // Data output bus (read)
     // );
 
-    sram_synaptic_sim #(
-        .DATA_WIDTH(SYN_ARRAY_DATA_WIDTH),
-        .ADDR_WIDTH(SYN_ARRAY_ADDR_WIDTH),
-        .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
-        // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
-    ) u_sram_synaptic_bank (
-        // Global inputs
-        .CK(CLK),               // Clock (synchronous read/write)
-        // Control and data inputs
-        .CS(CTRL_SYNARRAY_CS),  // Chip select
-        .WE(CTRL_SYNARRAY_WE),  // Write enable
-        .A (synarray_addr),     // Address bus
-        .D (synarray_wdata),    // Data input bus (write)
-        // Data output
-        .Q (SYNARRAY_RDATA)     // Data output bus (read)
-    );
-
-    sram_synaptic_sim #(
-        .DATA_WIDTH(GRAD_ARRAY_DATA_WIDTH),
-        .ADDR_WIDTH(GRAD_ARRAY_ADDR_WIDTH),
-        .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
-        // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
-    ) u_sram_synaptic_gradient_bank (
-        // Global inputs
-        .CK(CLK),                 // Clock (synchronous read/write)
-        // Control and data inputs
-        .CS(CTRL_GRAD_ARRAY_CS),  // Chip select
-        .WE(CTRL_GRAD_ARRAY_WE),  // Write enable
-        .A (grad_array_addr),     // Address bus
-        .D (grad_array_wdata),    // Data input bus (write)
-        // Data output
-        .Q (GRAD_ARRAY_RDATA)     // Data output bus (read)
-    );
+    // sram_synaptic_sim #(
+    //     .DATA_WIDTH(GRAD_ARRAY_DATA_WIDTH),
+    //     .ADDR_WIDTH(GRAD_ARRAY_ADDR_WIDTH),
+    //     .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
+    //     // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
+    // ) u_sram_synaptic_gradient_bank (
+    //     // Global inputs
+    //     .CK(CLK),                 // Clock (synchronous read/write)
+    //     // Control and data inputs
+    //     .CS(CTRL_GRAD_ARRAY_CS),  // Chip select
+    //     .WE(CTRL_GRAD_ARRAY_WE),  // Write enable
+    //     .A (grad_array_addr),     // Address bus
+    //     .D (grad_array_wdata),    // Data input bus (write)
+    //     // Data output
+    //     .Q (GRAD_ARRAY_RDATA)     // Data output bus (read)
+    // );
 
 endmodule
