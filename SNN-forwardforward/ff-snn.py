@@ -42,7 +42,16 @@ def visualize_sample(data, name="", idx=0):
     plt.imshow(reshaped, cmap="gray")
     plt.show()
 
-
+def normalize_frame(x):
+    x = x.astype(np.float32)
+    # N-MNIST frame 通常是 [T, C, H, W]，先沿时间维求和 -> [C, H, W]
+    if x.ndim == 4:
+        x = x.sum(axis=0)
+    # 对整体 C/H/W 做统一归一化（全局 max）
+    max_v = x.max()
+    if max_v > 0:
+        x = x / max_v
+    return x
 def plot_loss(loss_of_layer_list, save_path):
     # 获取层数和每层的损失数据
     num_layers = len(loss_of_layer_list)
@@ -193,15 +202,20 @@ def main():
     elif args.dataset in ("NMNIST", "N-MNIST"):
         try:
             train_dataset = NMNIST(
-                root=args.data_dir,
+                root=(args.data_dir + '/NMNIST'),
                 train=True,
-                transform=torchvision.transforms.ToTensor(),
+                data_type='frame',
+                frames_number=args.T,
+                split_by='number',
+                transform=normalize_frame
             )
-
             test_dataset = NMNIST(
-                root=args.data_dir,
+                root=(args.data_dir + '/NMNIST'),
                 train=False,
-                transform=torchvision.transforms.ToTensor(),
+                data_type='frame',
+                frames_number=args.T,
+                split_by='number',
+                transform=normalize_frame
             )
         except Exception as e:
             raise RuntimeError(
@@ -291,8 +305,9 @@ def main():
         num_workers=args.j,
         pin_memory=True,
     )
+
     x, y = next(iter(train_data_loader))
-    _, __, H, W = x.shape
+    
     num_classes = int(y.max().item() + 1)
     device = torch.device("cuda")
     use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
@@ -333,6 +348,7 @@ def main():
             num_classes=num_classes
         )
     elif args.model == "CNN":
+        _, __, H, W = x.shape
         net = ConvNet(
             conv_cfg=args.conv_cfg,
             T=args.T,
