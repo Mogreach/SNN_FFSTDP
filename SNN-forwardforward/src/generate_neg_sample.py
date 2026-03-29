@@ -18,13 +18,13 @@ def generate_pos_n_neg_sample(x, y, num_classes=10, type= "SCFF"):
     if type == "embed_label_onehot":
         # One-hot编码标签叠加在输入向量前10个像素位置
         x_pos = overlay_y_on_x(x, y, classes=num_classes)
-        y_neg = get_y_neg(y, x.device)
+        y_neg = get_y_neg(y, num_classes, x.device)
         x_neg = overlay_y_on_x(x, y_neg, classes=num_classes)
 
     elif type == "embed_zero_onehot":
         # 负样本独0码标签
         x_pos = overlay_label_on_x(x)
-        y_neg = get_y_neg(y, x.device)
+        y_neg = get_y_neg(y, num_classes, x.device)
         x_neg = overlay_y_on_x(x, y_neg)
         x_neg = overlay_zero_on_x(x,y)
     # elif type == "continuous_mask":
@@ -53,10 +53,10 @@ def generate_pos_n_neg_sample(x, y, num_classes=10, type= "SCFF"):
     return x_pos, x_neg
 
 
-def get_y_neg(y, device):
+def get_y_neg(y, num_classes , device):
     y_neg = y.clone()
     for idx, y_samp in enumerate(y):
-        allowed_indices = list(range(10))
+        allowed_indices = list(range(num_classes))
         allowed_indices.remove(y_samp.item())
         y_neg[idx] = torch.tensor(allowed_indices)[
             torch.randint(len(allowed_indices), size=(1,))

@@ -306,9 +306,13 @@ def main():
         pin_memory=True,
     )
 
-    x, y = next(iter(train_data_loader))
+    # x, y = next(iter(train_data_loader))
+    labels = set()
+    for i in range(len(test_dataset)):
+        _, y = test_dataset[i]
+        labels.add(int(y))
+    num_classes = len(labels)
     
-    num_classes = int(y.max().item() + 1)
     device = torch.device("cuda")
     use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
     out_dir = os.path.join(
