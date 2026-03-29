@@ -19,14 +19,14 @@ OUT_DIR = ROOT / "logs" / "opt"
 
 # Edit these lists to define the search grid.
 SEARCH_SPACE = {
-    "loss_threshold": [0.25],
+    "loss_threshold": [1.2],
     "v_threshold": [1.2],
-    "b": [512],
+    "b": [1024],
     "dims": [
-        [2312, 1024, 512, 256, 10],
-        [2312, 1024, 512, 10],
-        [2312, 1024, 10],
-        [2312, 512, 10]
+        [784, 512,512,512,10],
+        [784, 512,512,10],
+        [784, 512, 10],
+        [784, 256, 10]
     ],
     # "cov_cfg":[
     #     [
@@ -38,16 +38,16 @@ SEARCH_SPACE = {
     #     ]
     # ],
     "T": [32],
-    "lr": [0.015625/2],
+    "lr": [0.0001],
 }
 
 # Base training settings.
 MODEL = "MLP"
-DATASET = "NMNIST"
+DATASET = "MNIST"
 PREDICT_TYPE = "unsupervised"
-EPOCHS = 150
+EPOCHS = 200
 # Note written to CSV for experiment traceability.
-CSV_NOTE = "MLP unsupervised FF-STDP"
+CSV_NOTE = "MLP unsupervised FF-STDP autograd"
 
 if "conv_cfg" not in SEARCH_SPACE and "cov_cfg" in SEARCH_SPACE:
     SEARCH_SPACE["conv_cfg"] = SEARCH_SPACE["cov_cfg"]

@@ -391,7 +391,7 @@ class Layer(nn.Module):
             base_reserved = torch.cuda.memory_reserved(device)
             torch.cuda.reset_peak_memory_stats(device)
         t1 = time.perf_counter()
-        pos_loss.backward()
+        # pos_loss.backward()
         pos_bp_time_ms = (time.perf_counter() - t1) * 1000.0
         if use_cuda_mem_stat:
             torch.cuda.synchronize(device)
@@ -401,8 +401,8 @@ class Layer(nn.Module):
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
-                    pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
-                    m.weight += self.lr * pos_weight_grad
+                    # pos_cos_sim = torch.cosine_similarity(w_grad.flatten(),-pos_weight_grad.flatten(),dim=0)
+                    # m.weight += self.lr * pos_weight_grad
         self.opt.zero_grad()
         functional.reset_net(self.layer)
 
@@ -440,7 +440,7 @@ class Layer(nn.Module):
             base_reserved = torch.cuda.memory_reserved(device)
             torch.cuda.reset_peak_memory_stats(device)
         t3 = time.perf_counter()
-        neg_loss.backward()
+        # neg_loss.backward()
         neg_bp_time_ms = (time.perf_counter() - t3) * 1000.0
         if use_cuda_mem_stat:
             torch.cuda.synchronize(device)
@@ -450,8 +450,8 @@ class Layer(nn.Module):
             for m in self.layer.modules():
                 if isinstance(m, nn.Linear):
                     w_grad = m.weight.grad
-                    neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
-                    m.weight += self.lr * neg_weight_grad
+                    # neg_cos_sim = torch.cosine_similarity(w_grad.flatten(),-1*neg_weight_grad.flatten(),dim=0)
+                    # m.weight += self.lr * neg_weight_grad
         self.opt.zero_grad()
         weight_grad = pos_weight_grad + neg_weight_grad
         manual_alloc_peaks = [v for v in (pos_manual_peak_alloc, neg_manual_peak_alloc) if v is not None]
@@ -472,6 +472,13 @@ class Layer(nn.Module):
         self.last_backward_cmp_peak_alloc_bytes = self.last_backward_peak_alloc_bytes
         self.last_backward_cmp_peak_reserved_bytes = self.last_backward_peak_reserved_bytes
         self.last_backward_cmp_time_ms = float(sum(backward_times)) if backward_times else None
+
+        self.opt.zero_grad()
+        p = self.T *pos_out_freq.pow(2).mean(1)
+        n = self.T *neg_out_freq.pow(2).mean(1)
+        loss = torch.log(1 + torch.exp(torch.cat([-p + self.threshold, n - self.threshold]))).mean()
+        loss.backward()
+        self.opt.step()
         functional.reset_net(self.layer)
 
         # Delta loss processing
@@ -495,7 +502,7 @@ class Layer(nn.Module):
         #         for m in self.layer.modules():
         #             if isinstance(m, nn.Linear):         
         #                 m.weight += self.lr * weight_grad 
-        return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),pos_cos_sim.detach().cpu().item(), neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),neg_cos_sim.detach().cpu().item()
+        return pos_output_spike.detach(), pos_goodness.detach().mean(1).cpu(),1, neg_output_spike.detach(), neg_goodness.detach().mean(1).cpu(),1
     def predict(self, x):
         N = x.shape[1]
         g = torch.zeros(self.T, N, self.out_features).cuda()
