@@ -224,20 +224,20 @@ def main():
             ) from e
     elif args.dataset in ("DVS128Gesture", "DVS128-Gesture", "DVS 128 Gesture"):
         train_dataset = DVS128Gesture(
-            root=args.data_dir,
+            root=(args.data_dir + '/DVSgesture'),
             train=True,
-            data_type="frame",
-            frames_number=1,
-            split_by="number",
-            transform=_to_chw_tensor,
+            data_type='frame',
+            frames_number=args.T,
+            split_by='number',
+            transform=normalize_frame
         )
         test_dataset = DVS128Gesture(
-            root=args.data_dir,
+            root=(args.data_dir + '/DVSgesture'),
             train=False,
-            data_type="frame",
-            frames_number=1,
-            split_by="number",
-            transform=_to_chw_tensor,
+            data_type='frame',
+            frames_number=args.T,
+            split_by='number',
+            transform=normalize_frame
         )
     elif args.dataset == "FashionMNIST":
         train_dataset = torchvision.datasets.FashionMNIST(
