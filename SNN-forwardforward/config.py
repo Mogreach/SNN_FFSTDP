@@ -28,26 +28,24 @@ class ConfigParser:
             choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"],
             help="Train dataset",
         )
-        if self.parser.parse_known_args()[0].model == "CNN":
-            self.parser.add_argument(
-                "-conv_cfg",
-                default = [
-                            # in_ch, out_ch, k, s, p
-                            (1,  16, 3, 1, 1),
-                            (16, 32, 3, 1, 1),
-                            (32, 64, 3, 1, 1),
-                        ],
-                help="configuration of convolutional layers: (in_channels, out_channels, kernel_size, stride, padding)",
-                type=eval,
-            )
-        elif self.parser.parse_known_args()[0].model == "MLP":
-            self.parser.add_argument(
-                "-dims",
-                default=[784,256,10],
-                help="dimension of the MLP network",
-                type=int,
-                nargs="+",
-            )
+        self.parser.add_argument(
+            "-conv_cfg",
+            default=[
+                # in_ch, out_ch, k, s, p
+                (1, 16, 3, 1, 1),
+                (16, 32, 3, 1, 1),
+                (32, 64, 3, 1, 1),
+            ],
+            help="configuration of convolutional layers: (in_channels, out_channels, kernel_size, stride, padding)",
+            type=eval,
+        )
+        self.parser.add_argument(
+            "-dims",
+            default=[784, 256, 10],
+            help="dimension of the MLP network",
+            type=int,
+            nargs="+",
+        )
         self.parser.add_argument(
             "-T", default=8, type=int, help="simulating time-steps"
         )
@@ -114,11 +112,56 @@ class ConfigParser:
             "-predict_type", default="unsupervised", type=str, help="The type of prediction: supervised or unsupervised"
         )
         self.parser.add_argument(
+            "-learning_mode",
+            default=None,
+            type=str,
+            choices=["unsupervised", "supervised"],
+            help="Unified learning mode switch. Defaults to predict_type when omitted.",
+        )
+        self.parser.add_argument(
+            "-unsupervised_update_mode",
+            default="autograd",
+            type=str,
+            choices=["autograd", "manual"],
+            help="Update rule used by hidden layers in unsupervised mode.",
+        )
+        self.parser.add_argument(
+            "-capture_manual_grad_metrics",
+            dest="capture_manual_grad_metrics",
+            action="store_true",
+            help="Capture manual-gradient profiling metrics.",
+        )
+        self.parser.add_argument(
+            "-no-capture_manual_grad_metrics",
+            dest="capture_manual_grad_metrics",
+            action="store_false",
+            help="Disable manual-gradient profiling metrics.",
+        )
+        self.parser.add_argument(
+            "-capture_autograd_comparison",
+            dest="capture_autograd_comparison",
+            action="store_true",
+            help="Capture autograd comparison metrics for unsupervised hidden layers.",
+        )
+        self.parser.add_argument(
+            "-no-capture_autograd_comparison",
+            dest="capture_autograd_comparison",
+            action="store_false",
+            help="Disable autograd comparison metrics.",
+        )
+        self.parser.set_defaults(
+            capture_manual_grad_metrics=True,
+            capture_autograd_comparison=True,
+        )
+        self.parser.add_argument(
             "-save-model", action="store_true", help="save the model or not"
         )
 
     def parse(self):
-        return self.parser.parse_args()
+        args = self.parser.parse_args()
+        if args.learning_mode is None:
+            args.learning_mode = args.predict_type
+        return args
 
 
 # 示例用法

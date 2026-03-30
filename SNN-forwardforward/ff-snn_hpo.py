@@ -23,9 +23,9 @@ SEARCH_SPACE = {
     "v_threshold": [1.2],
     "b": [1024],
     "dims": [
-        [784, 512,512,512,10],
-        [784, 512,512,10],
-        [784, 512, 10],
+        # [784, 512,512,512,10],
+        # [784, 512,512,10],
+        # [784, 512, 10],
         [784, 256, 10]
     ],
     # "cov_cfg":[
@@ -44,10 +44,14 @@ SEARCH_SPACE = {
 # Base training settings.
 MODEL = "MLP"
 DATASET = "MNIST"
-PREDICT_TYPE = "unsupervised"
-EPOCHS = 200
+LEARNING_MODE = "unsupervised"
+PREDICT_TYPE = LEARNING_MODE
+UNSUPERVISED_UPDATE_MODE = "autograd"
+CAPTURE_MANUAL_GRAD_METRICS = True
+CAPTURE_AUTOGRAD_COMPARISON = True
+EPOCHS = 1
 # Note written to CSV for experiment traceability.
-CSV_NOTE = "MLP unsupervised FF-STDP autograd"
+CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {UNSUPERVISED_UPDATE_MODE}"
 
 if "conv_cfg" not in SEARCH_SPACE and "cov_cfg" in SEARCH_SPACE:
     SEARCH_SPACE["conv_cfg"] = SEARCH_SPACE["cov_cfg"]
@@ -95,6 +99,18 @@ def _build_cmd(params: dict) -> list[str]:
         cmd += ["-dataset", DATASET]
     if PREDICT_TYPE:
         cmd += ["-predict_type", PREDICT_TYPE]
+    cmd += ["-learning_mode", LEARNING_MODE]
+    cmd += ["-unsupervised_update_mode", UNSUPERVISED_UPDATE_MODE]
+    cmd += [
+        "-capture_manual_grad_metrics"
+        if CAPTURE_MANUAL_GRAD_METRICS
+        else "-no-capture_manual_grad_metrics"
+    ]
+    cmd += [
+        "-capture_autograd_comparison"
+        if CAPTURE_AUTOGRAD_COMPARISON
+        else "-no-capture_autograd_comparison"
+    ]
     if MODEL == "MLP":
         cmd += ["-dims"] + [str(v) for v in params["dims"]]
     elif MODEL == "CNN":
@@ -154,10 +170,14 @@ def _resolve_summary_path(base_path: Path, fieldnames: list[str]) -> tuple[Path,
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    summary_name = f"{PREDICT_TYPE}-{DATASET}-{MODEL}.csv"
+    summary_name = f"{LEARNING_MODE}-{UNSUPERVISED_UPDATE_MODE}-{DATASET}-{MODEL}.csv"
     summary_path = OUT_DIR / summary_name
 
     fieldnames = [
+        "learning_mode",
+        "unsupervised_update_mode",
+        "capture_manual_grad_metrics",
+        "capture_autograd_comparison",
         "predict_type",
         "dataset",
         "model",
@@ -226,6 +246,10 @@ def main() -> None:
 
         for params in _iter_grid(SEARCH_SPACE):
             row = {
+                "learning_mode": LEARNING_MODE,
+                "unsupervised_update_mode": UNSUPERVISED_UPDATE_MODE,
+                "capture_manual_grad_metrics": CAPTURE_MANUAL_GRAD_METRICS,
+                "capture_autograd_comparison": CAPTURE_AUTOGRAD_COMPARISON,
                 "predict_type": PREDICT_TYPE,
                 "dataset": DATASET,
                 "model": MODEL,

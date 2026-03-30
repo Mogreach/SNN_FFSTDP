@@ -29,6 +29,7 @@ from spikingjelly.activation_based import (
     monitor,
     learning,
 )
+from src.experiment import GradientProfilingSnapshot, UnsupervisedStepResult
 from src.loss import gradient_calculation_cnn, delta_loss_gradient_calculation_cnn
 from src.generate_neg_sample import *
 def pos_derivative(x, theta):
@@ -109,6 +110,13 @@ class ConvNet(torch.nn.Module):
         self.T = T
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
+        self.last_manual_grad_peak_alloc_bytes = None
+        self.last_manual_grad_peak_reserved_bytes = None
+        self.last_manual_grad_time_ms = None
+        self.last_manual_grad_ops_est = None
+        self.last_backward_cmp_peak_alloc_bytes = None
+        self.last_backward_cmp_peak_reserved_bytes = None
+        self.last_backward_cmp_time_ms = None
         self.layers = []
         input_feature_of_linear = 0
         for (in_ch, out_ch, k, s, p) in conv_cfg:
@@ -172,7 +180,7 @@ class ConvNet(torch.nn.Module):
                 spike_in_of_output_layer = torch.cat((spike_in_of_output_layer, h.flatten(2)),dim=2)
         spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
         return spike_out_sum.argmax(1)
-    def train_ff_stdp(self, x, label, frozen):
+    def train_unsupervised(self, x, label, frozen) -> UnsupervisedStepResult:
         x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=self.num_classes, type="SCFF")
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
@@ -180,9 +188,12 @@ class ConvNet(torch.nn.Module):
         in_neg = x_neg_encoded
         spike_input_pos = in_pos
         spike_input_neg = in_neg
-        goodness_pos, cos_pos, spike_out_pos, goodness_neg, cos_neg, spike_out_neg = self.train_ff_stdp_step(spike_input_pos, spike_input_neg, label, frozen)    
-        return goodness_pos, goodness_neg, cos_pos, cos_neg, spike_out_pos, spike_out_neg
-    def train_ff_stdp_step(self, input_pos, input_neg, label, frozen):
+        return self.train_unsupervised_step(spike_input_pos, spike_input_neg, label, frozen)
+
+    def train_ff_stdp(self, x, label, frozen):
+        return self.train_unsupervised(x, label, frozen)
+
+    def train_unsupervised_step(self, input_pos, input_neg, label, frozen):
         T, B, C, H, W = input_pos.shape
         max_backward_peak_alloc = None
         max_backward_peak_reserved = None
@@ -196,10 +207,7 @@ class ConvNet(torch.nn.Module):
         neg_spike_in_of_output_layer = torch.empty((T,B,0)).cuda()
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
-                pos_spike_output = layer.train_bp_stdp(pos_spike_in_of_output_layer, label)
-                neg_spike_output = pos_spike_output
-                pos_spike_out_per_layer.append(pos_spike_output.mean().detach().cpu())
-                neg_spike_out_per_layer.append(neg_spike_output.mean().detach().cpu())
+                layer.train_bp_stdp(pos_spike_in_of_output_layer, label)
                 # neg_spike_output = layer.train_bp_stdp(neg_spike_in_of_output_layer, label)
             else:
                 input_pos, pos_g , pos_cos_sim, input_neg, neg_g, neg_cos_sim = layer.train_ff_stdp(input_pos, input_neg, frozen)
@@ -219,7 +227,24 @@ class ConvNet(torch.nn.Module):
                 max_backward_peak_reserved = layer_bp_reserved if max_backward_peak_reserved is None else max(max_backward_peak_reserved, layer_bp_reserved)
         self.last_backward_peak_alloc_bytes = max_backward_peak_alloc
         self.last_backward_peak_reserved_bytes = max_backward_peak_reserved
-        return pos_goodness_per_layer, pos_cos_sim_per_layer , pos_spike_out_per_layer, neg_goodness_per_layer, neg_cos_sim_per_layer, neg_spike_out_per_layer
+        return UnsupervisedStepResult(
+            goodness_pos=pos_goodness_per_layer,
+            goodness_neg=neg_goodness_per_layer,
+            cos_pos=pos_cos_sim_per_layer,
+            cos_neg=neg_cos_sim_per_layer,
+            spike_out_pos=[
+                float(v.item()) if torch.is_tensor(v) else float(v)
+                for v in pos_spike_out_per_layer
+            ],
+            spike_out_neg=[
+                float(v.item()) if torch.is_tensor(v) else float(v)
+                for v in neg_spike_out_per_layer
+            ],
+            profiler=GradientProfilingSnapshot(
+                backward_peak_alloc_bytes=self.last_backward_peak_alloc_bytes,
+                backward_peak_reserved_bytes=self.last_backward_peak_reserved_bytes,
+            ),
+        )
 
     def save(self, args, path):
         check_point = {
