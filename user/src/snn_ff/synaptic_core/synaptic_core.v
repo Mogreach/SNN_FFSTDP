@@ -116,31 +116,31 @@ module synaptic_core #(
 
     // FPGA RAM IP (Single port)
     // Synaptic memory wrapper
-        sram_synaptic u_sram_synaptic(
-        .clka                                  (CLK                ),// input wire clka
-        .ena                                   (CTRL_SYNARRAY_CS   ),// input 片选使能信号
-        .wea                                   (CTRL_SYNARRAY_WE   ),// input 写使能信号
-        .addra                                 (synarray_addr      ),
-        .dina                                  (synarray_wdata     ),
-        .douta                                 (SYNARRAY_RDATA     ) 
-    );
-
-    // sram_synaptic_sim #(
-    //     .DATA_WIDTH(SYN_ARRAY_DATA_WIDTH),
-    //     .ADDR_WIDTH(SYN_ARRAY_ADDR_WIDTH),
-    //     .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
-    //     // .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
-    // ) u_sram_synaptic_bank (
-    //     // Global inputs
-    //     .CK(CLK),               // Clock (synchronous read/write)
-    //     // Control and data inputs
-    //     .CS(CTRL_SYNARRAY_CS),  // Chip select
-    //     .WE(CTRL_SYNARRAY_WE),  // Write enable
-    //     .A (synarray_addr),     // Address bus
-    //     .D (synarray_wdata),    // Data input bus (write)
-    //     // Data output
-    //     .Q (SYNARRAY_RDATA)     // Data output bus (read)
+    //     sram_synaptic u_sram_synaptic(
+    //     .clka                                  (CLK                ),// input wire clka
+    //     .ena                                   (CTRL_SYNARRAY_CS   ),// input 片选使能信号
+    //     .wea                                   (CTRL_SYNARRAY_WE   ),// input 写使能信号
+    //     .addra                                 (synarray_addr      ),
+    //     .dina                                  (synarray_wdata     ),
+    //     .douta                                 (SYNARRAY_RDATA     ) 
     // );
+
+    sram_synaptic_sim #(
+        .DATA_WIDTH(SYN_ARRAY_DATA_WIDTH),
+        .ADDR_WIDTH(SYN_ARRAY_ADDR_WIDTH),
+        // .SRAM_DEPTH(1<<SYN_ARRAY_ADDR_WIDTH)
+        .SRAM_DEPTH(INPUT_NEURON * OUTPUT_NEURON / POST_NEUR_PARALLEL)
+    ) u_sram_synaptic_bank (
+        // Global inputs
+        .CK(CLK),               // Clock (synchronous read/write)
+        // Control and data inputs
+        .CS(CTRL_SYNARRAY_CS),  // Chip select
+        .WE(CTRL_SYNARRAY_WE),  // Write enable
+        .A (synarray_addr),     // Address bus
+        .D (synarray_wdata),    // Data input bus (write)
+        // Data output
+        .Q (SYNARRAY_RDATA)     // Data output bus (read)
+    );
 
     // sram_synaptic_sim #(
     //     .DATA_WIDTH(GRAD_ARRAY_DATA_WIDTH),
