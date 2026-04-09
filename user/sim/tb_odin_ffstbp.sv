@@ -2,7 +2,7 @@
 
 module ODIN_ffstdp_tb();
   // Parameters
-  parameter CLK_PERIOD = 4;
+  parameter CLK_PERIOD = 10;
 
   // Signals
   logic CLK;
@@ -41,9 +41,13 @@ module ODIN_ffstdp_tb();
   );
 
   
-  assign AEROUT_ADDR = dut.AEROUT_ADDR;
-  assign AEROUT_REQ = dut.AEROUT_REQ;
-  assign AEROUT_ACK = dut.AEROUT_ACK;
+  assign AEROUT_ADDR = dut.layer1_aerout_addr;
+  assign AEROUT_REQ = dut.layer1_aerout_req;
+  assign AEROUT_ACK = dut.layer1_aerout_ack;
+
+//   assign AEROUT_ADDR = dut.AEROUT_ADDR;
+//   assign AEROUT_REQ = dut.AEROUT_REQ;
+//   assign AEROUT_ACK = dut.AEROUT_ACK;
   // Clock generation
   initial begin
     CLK = 0;
@@ -59,7 +63,7 @@ module ODIN_ffstdp_tb();
   end
 
     // **读取 TXT 文件**
-    parameter int N = 1000;   // 样本数
+    parameter int N = 20;   // 样本数
     parameter int T = 8;    // 时间步
     parameter int WIDTH = 784;  // 每个时间步的 bit 数
     
@@ -114,8 +118,8 @@ module ODIN_ffstdp_tb();
   end
 
   // Reset and stimulus
-  initial begin                 
-  auto_ack_verbose = 1'b1;
+  initial begin  
+    auto_ack_verbose = 1'b1;
     fork
       auto_ack(.req(AEROUT_REQ), .ack(AEROUT_ACK), .addr(AEROUT_ADDR), .neur(aer_neur_spk), .verbose(auto_ack_verbose));
     join_none
@@ -138,7 +142,6 @@ module ODIN_ffstdp_tb();
     #20;
     IS_TRAIN = 0;
     IS_POS = 1;
-    
     // 遍历 N 个样本，每个样本有 T 个时间步
     for (int n = 0; n < N; n++) begin
         int sample_index;
