@@ -155,6 +155,20 @@ def build_data_loaders(args, train_dataset, test_dataset):
 
 
 def infer_num_classes(dataset):
+    # Prefer dataset metadata so we do not trigger per-sample decoding or transforms.
+    classes = getattr(dataset, "classes", None)
+    if classes is not None:
+        return len(classes)
+
+    targets = getattr(dataset, "targets", None)
+    if targets is None:
+        targets = getattr(dataset, "labels", None)
+
+    if targets is not None:
+        if torch.is_tensor(targets):
+            return int(torch.unique(targets).numel())
+        return len({int(target) for target in targets})
+
     labels = set()
     for idx in range(len(dataset)):
         _, y = dataset[idx]
