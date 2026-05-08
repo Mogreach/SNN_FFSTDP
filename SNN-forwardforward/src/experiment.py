@@ -129,7 +129,7 @@ class TrainMemorySnapshot:
 
 
 @dataclass
-class UnsupervisedStepResult:
+class StepResult:
     # The runner consumes one uniform step result no matter which unsupervised
     # implementation branch produced it.
     goodness_pos: list[float]

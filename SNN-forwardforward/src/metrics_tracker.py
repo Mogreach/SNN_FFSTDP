@@ -11,7 +11,7 @@ import torch
 from src.experiment import (
     ExperimentModeConfig,
     TrainMemorySnapshot,
-    UnsupervisedStepResult,
+    StepResult,
 )
 
 
@@ -253,7 +253,12 @@ class ExperimentMetricsTracker:
     ) -> None:
         self.num_hidden_layers = num_hidden_layers
         self.mode_config = mode_config
-        self.train_acc_history = []
+        self.val_acc_history = []
+        # Keep the old attribute name as an alias so existing code and exported
+        # metrics do not break while we migrate naming toward validation accuracy.
+        self.train_acc_history = self.val_acc_history
+        self.epoch_summaries = []
+        self.test_summary = {}
         self.layer_histories = {
             # All per-layer curves are stored in the same shape so plotting and
             # metrics export do not need to know which training branch produced them.
@@ -293,7 +298,7 @@ class ExperimentMetricsTracker:
 
     def record_train_step(
         self,
-        step_result: UnsupervisedStepResult,
+        step_result: StepResult,
         *,
         batch_size: int,
         train_memory_snapshot: TrainMemorySnapshot | None = None,
@@ -358,7 +363,14 @@ class ExperimentMetricsTracker:
 
     def finalize_epoch(self, *, loss_threshold: float, train_acc: float):
         if self.epoch_batch_count == 0:
-            self.train_acc_history.append(float(train_acc))
+            self.val_acc_history.append(float(train_acc))
+            self.epoch_summaries.append(
+                {
+                    "epoch": len(self.val_acc_history),
+                    "val_acc": float(train_acc),
+                    "loss_mean": None,
+                }
+            )
             return torch.empty(0)
 
         # The epoch loss is reconstructed from averaged hidden-layer goodness,
@@ -398,7 +410,20 @@ class ExperimentMetricsTracker:
                 _to_float(avg_spike_out_neg[layer_idx], nan_for_none=True)
             )
 
-        self.train_acc_history.append(float(train_acc))
+        self.val_acc_history.append(float(train_acc))
+        self.epoch_summaries.append(
+            {
+                "epoch": len(self.val_acc_history),
+                "val_acc": float(train_acc),
+                "loss_mean": float(loss.mean().item()),
+                "goodness_pos_mean": float(avg_goodness_pos.mean().item()),
+                "goodness_neg_mean": float(avg_goodness_neg.mean().item()),
+                "cos_pos_mean": _to_float(avg_cos_pos.mean(), nan_for_none=True),
+                "cos_neg_mean": _to_float(avg_cos_neg.mean(), nan_for_none=True),
+                "firing_pos_mean": float(avg_spike_out_pos.mean().item()),
+                "firing_neg_mean": float(avg_spike_out_neg.mean().item()),
+            }
+        )
         return loss
 
     def _plot_single_metric(
@@ -449,17 +474,17 @@ class ExperimentMetricsTracker:
 
     def save_plots(self, out_dir) -> None:
         out_dir = Path(out_dir)
-        if self.train_acc_history:
+        if self.val_acc_history:
             plt.figure(figsize=(8, 6))
             plt.plot(
-                range(1, len(self.train_acc_history) + 1),
-                self.train_acc_history,
+                range(1, len(self.val_acc_history) + 1),
+                self.val_acc_history,
                 marker="o",
-                label="Train Accuracy",
+                label="Validation Accuracy",
             )
             plt.xlabel("Epochs")
             plt.ylabel("Accuracy (%)")
-            plt.title("Training Accuracy Curve when training last layer")
+            plt.title("Validation Accuracy Curve")
             plt.legend()
             plt.grid(True)
             plt.savefig(out_dir / "training_accuracy_curve.png", dpi=300)
@@ -503,9 +528,22 @@ class ExperimentMetricsTracker:
             title="Positive / Negative Firing Rate vs Epoch",
         )
 
-    def build_metrics(self, *, test_acc: float) -> dict:
+    def build_metrics(
+        self,
+        *,
+        test_acc: float,
+        test_duration_s: float | None = None,
+        test_batches: int | None = None,
+    ) -> dict:
         # Export both experiment identity and aggregated statistics together so
         # downstream HPO/analysis code only needs to read one file.
+        self.test_summary = {
+            "test_acc": float(test_acc),
+            "test_duration_s": (
+                float(test_duration_s) if test_duration_s is not None else None
+            ),
+            "test_batches": int(test_batches) if test_batches is not None else None,
+        }
         metrics = {
             "learning_mode": self.mode_config.learning_mode,
             "predict_type": self.mode_config.learning_mode,
@@ -517,12 +555,23 @@ class ExperimentMetricsTracker:
                 self.mode_config.profiling.capture_autograd_comparison
             ),
             "test_acc": float(test_acc),
+            "test_duration_s": self.test_summary["test_duration_s"],
+            "test_batches": self.test_summary["test_batches"],
             "train_acc_last": (
                 float(self.train_acc_history[-1]) if self.train_acc_history else None
             ),
             "train_acc_best": (
                 float(max(self.train_acc_history)) if self.train_acc_history else None
             ),
+            "val_acc_last": (
+                float(self.val_acc_history[-1]) if self.val_acc_history else None
+            ),
+            "val_acc_best": (
+                float(max(self.val_acc_history)) if self.val_acc_history else None
+            ),
+            "validation_accuracy_history": [float(v) for v in self.val_acc_history],
+            "epoch_summaries": self.epoch_summaries,
+            "test_summary": self.test_summary,
             "last_epoch_loss_mean": _mean_last_epoch(
                 self.layer_histories["loss"]
             ),

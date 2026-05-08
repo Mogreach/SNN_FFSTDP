@@ -37,7 +37,7 @@ SEARCH_SPACE = {
     #         (128, 256, 3, 1, 1)
     #     ]
     # ],
-    "T": [32],
+    "T": [8],
     "lr": [0.0001],
 }
 
@@ -49,7 +49,7 @@ PREDICT_TYPE = LEARNING_MODE
 UNSUPERVISED_UPDATE_MODE = "autograd"
 CAPTURE_MANUAL_GRAD_METRICS = True
 CAPTURE_AUTOGRAD_COMPARISON = True
-EPOCHS = 1
+EPOCHS = 5
 # Note written to CSV for experiment traceability.
 CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {UNSUPERVISED_UPDATE_MODE}"
 

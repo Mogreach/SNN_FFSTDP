@@ -108,9 +108,6 @@ class ConfigParser:
             type=float,
             help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )
-        self,self.parser.add_argument(
-            "-predict_type", default="supervised", type=str, help="The type of prediction: supervised or unsupervised"
-        )
         self.parser.add_argument(
             "-predict_type", default="unsupervised", type=str, help="The type of prediction: supervised or unsupervised"
         )

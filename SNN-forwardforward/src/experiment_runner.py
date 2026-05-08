@@ -15,9 +15,15 @@ from tqdm import tqdm
 from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
 from spikingjelly.datasets.n_mnist import NMNIST
 
-from src.experiment import ExperimentModeConfig, TrainMemorySnapshot
-from src.ff_snn_cnn import ConvNet
-from src.ff_snn_mlp import Net
+from src.experiment import (
+    ExperimentModeConfig,
+    GradientProfilingSnapshot,
+    TrainMemorySnapshot,
+    StepResult,
+)
+# from src.ff_snn_cnn import ConvNet
+from src.ff_snn_mlp_sup import Net as SupervisedMLPNet
+from src.ff_snn_mlp_unsup import Net as UnsupervisedMLPNet
 from src.metrics_tracker import ExperimentMetricsTracker
 
 
@@ -176,11 +182,38 @@ def infer_num_classes(dataset):
     return len(labels)
 
 
+def normalize_step_result(step_result) -> StepResult:
+    if isinstance(step_result, StepResult):
+        return step_result
+    if not isinstance(step_result, (tuple, list)) or len(step_result) != 6:
+        raise TypeError(
+            "Unsupported training step result. Expected StepResult or a 6-item tuple."
+        )
+    (
+        goodness_pos,
+        goodness_neg,
+        cos_pos,
+        cos_neg,
+        spike_out_pos,
+        spike_out_neg,
+    ) = step_result
+    return StepResult(
+        goodness_pos=list(goodness_pos),
+        goodness_neg=list(goodness_neg),
+        cos_pos=list(cos_pos),
+        cos_neg=list(cos_neg),
+        spike_out_pos=list(spike_out_pos),
+        spike_out_neg=list(spike_out_neg),
+        profiler=GradientProfilingSnapshot(),
+    )
+
+
 def build_model(args, num_classes, mode_config, sample_batch=None):
     # Model construction stays independent from the training loop so the top-level
     # mode switch only needs to decide "what to run", not "how to build it".
     if args.model == "MLP":
-        return Net(
+        mlp_cls = UnsupervisedMLPNet if mode_config.is_unsupervised else SupervisedMLPNet
+        return mlp_cls(
             dims=args.dims,
             tau=args.tau,
             epoch=args.epochs,
@@ -208,28 +241,47 @@ def build_model(args, num_classes, mode_config, sample_batch=None):
             num_classes=num_classes,
             H=H,
             W=W,
+            mode_config=mode_config,
         )
     raise ValueError(f"Unsupported model type: {args.model}")
+
+
+def _resolve_predict_fn(net):
+    if hasattr(net, "predict_multiple"):
+        return net.predict_multiple
+    if hasattr(net, "predict_winner"):
+        return net.predict_winner
+    raise NotImplementedError(
+        f"The selected model {type(net).__name__} does not provide a prediction API."
+    )
 
 
 def evaluate_accuracy(net, data_loader, device):
     acc_sum = 0.0
     batch_count = 0
     net.eval()
+    predict_fn = _resolve_predict_fn(net)
     with torch.no_grad():
         for x_val, y_val in data_loader:
             x_val, y_val = x_val.to(device), y_val.to(device)
-            acc_sum += net.predict_multiple(x_val).eq(y_val).cpu().float().mean().item()
+            acc_sum += predict_fn(x_val).eq(y_val).cpu().float().mean().item()
             batch_count += 1
-    return 100.0 * (acc_sum / batch_count)
+    return 100.0 * (acc_sum / batch_count), batch_count
 
 
 def train_one_step(net, mode_config, x, y, frozen):
     if mode_config.is_unsupervised:
-        return net.train_unsupervised(x, y, frozen)
-    # Supervised mode is intentionally left here as the future extension seam.
+        if hasattr(net, "train_unsupervised"):
+            return normalize_step_result(net.train_unsupervised(x, y, frozen))
+        if hasattr(net, "train_ff_stdp"):
+            return normalize_step_result(net.train_ff_stdp(x, y, frozen))
+    else:
+        if hasattr(net, "train_supervised"):
+            return normalize_step_result(net.train_supervised(x, y, frozen))
+        if hasattr(net, "train_ff_stdp"):
+            return normalize_step_result(net.train_ff_stdp(x, y, frozen))
     raise NotImplementedError(
-        "Supervised mode is reserved as an extension point and is not implemented yet."
+        f"The selected model {type(net).__name__} does not provide a compatible training step for learning_mode={mode_config.learning_mode}."
     )
 
 
@@ -285,7 +337,7 @@ def run_experiment(args):
     )
     log_file_path = os.path.join(out_dir, "output_log.txt")
     original_stdout = sys.stdout
-    max_train_acc = 0.0
+    max_val_acc = 0.0
     training_start_time = time.time()
 
     try:
@@ -320,18 +372,18 @@ def run_experiment(args):
 
                 # Validation is kept outside the per-batch tracker so the tracker
                 # remains focused on training-side measurements.
-                train_acc = evaluate_accuracy(net, val_loader, device)
+                val_acc, _ = evaluate_accuracy(net, val_loader, device)
                 loss = tracker.finalize_epoch(
                     loss_threshold=args.loss_threshold,
-                    train_acc=train_acc,
+                    train_acc=val_acc,
                 )
                 print(f"Epoch: {epoch_idx + 1}/{args.epochs}, Loss: {loss.mean():.4f}")
-                print(f"Train Acc:  {train_acc:.2f}%")
-                if train_acc >= max_train_acc:
+                print(f"Val Acc:  {val_acc:.2f}%")
+                if val_acc >= max_val_acc:
                     net.save(args, os.path.join(out_dir, "checkpoint_max.pth"))
-                    max_train_acc = train_acc
+                    max_val_acc = val_acc
                 logger.info(
-                    f"Epoch {epoch_idx + 1}: Train Loss = {loss.mean():.4f} Train Acc = {train_acc:.2f}%"
+                    f"Epoch {epoch_idx + 1}: Train Loss = {loss.mean():.4f} Val Acc = {val_acc:.2f}%"
                 )
     finally:
         sys.stdout = original_stdout
@@ -343,15 +395,8 @@ def run_experiment(args):
 
     tracker.save_plots(out_dir)
 
-    test_acc = 0.0
-    test_count = 0
     test_start_time = time.time()
-    with torch.no_grad():
-        for x_te, y_te in test_loader:
-            x_te, y_te = x_te.to(device), y_te.to(device)
-            test_acc += net.predict_multiple(x_te).eq(y_te).cpu().float().mean().item()
-            test_count += 1
-    test_acc = 100.0 * test_acc / test_count
+    test_acc, test_batches = evaluate_accuracy(net, test_loader, device)
     test_total_time = time.time() - test_start_time
     test_h, test_rem = divmod(test_total_time, 3600)
     test_m, test_s = divmod(test_rem, 60)
@@ -361,7 +406,11 @@ def run_experiment(args):
     if args.save_model or True:
         net.save(args, os.path.join(out_dir, "checkpoint_last.pth"))
 
-    metrics = tracker.build_metrics(test_acc=test_acc)
+    metrics = tracker.build_metrics(
+        test_acc=test_acc,
+        test_duration_s=test_total_time,
+        test_batches=test_batches,
+    )
     with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as metrics_f:
         json.dump(metrics, metrics_f, ensure_ascii=False, indent=2)
     logger.info(f"Test Acc: {test_acc}%")
