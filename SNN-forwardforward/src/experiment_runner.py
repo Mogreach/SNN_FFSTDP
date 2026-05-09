@@ -347,7 +347,7 @@ def run_experiment(args):
                 net.train()
                 tracker.begin_epoch()
                 # Preserve the original late-epoch freezing behavior.
-                frozen = epoch_idx > (0.8 * args.epochs)
+                frozen = False  # epoch_idx > (0.8 * args.epochs)
                 for x, y in train_loader:
                     x, y = x.to(device), y.to(device)
                     if use_cuda_mem_stat:

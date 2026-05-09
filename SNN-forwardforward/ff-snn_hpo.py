@@ -21,7 +21,7 @@ OUT_DIR = ROOT / "logs" / "opt"
 SEARCH_SPACE = {
     "loss_threshold": [1.2],
     "v_threshold": [1.2],
-    "b": [1024],
+    "b": [512],
     "dims": [
         # [784, 512,512,512,10],
         # [784, 512,512,10],
@@ -38,15 +38,15 @@ SEARCH_SPACE = {
     #     ]
     # ],
     "T": [8],
-    "lr": [0.0001],
+    "lr": [0.0078125],
 }
 
 # Base training settings.
 MODEL = "MLP"
 DATASET = "MNIST"
-LEARNING_MODE = "unsupervised"
+LEARNING_MODE = "unsupervised" # "unsupervised" or "supervised"
 PREDICT_TYPE = LEARNING_MODE
-UNSUPERVISED_UPDATE_MODE = "autograd"
+UNSUPERVISED_UPDATE_MODE = "manual" # "autograd" or "manual"
 CAPTURE_MANUAL_GRAD_METRICS = True
 CAPTURE_AUTOGRAD_COMPARISON = True
 EPOCHS = 5

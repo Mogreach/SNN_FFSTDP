@@ -281,32 +281,6 @@ class Net(torch.nn.Module):
         goodness_of_all_label = torch.cat(goodness_per_label, 1)
         return goodness_of_all_label.argmax(1)
 
-    def predict_winner(self, x):
-        label = torch.randint(0, self.num_classes, (x.shape[0],), device=x.device)
-        h, _ = generate_pos_n_neg_sample(
-            x,
-            label,
-            num_classes=self.num_classes,
-            type="SCFF",
-        )
-        h = spike_encoder(x, self.T)
-        h = h.flatten(2)
-        spike_in_of_output_layer = torch.empty(
-            (h.shape[0], h.shape[1], 0),
-            device=h.device,
-        )
-        for layer_idx, layer_module in enumerate(self.layers):
-            if layer_idx == len(self.layers) - 1:
-                spike_out = layer_module.predict(spike_in_of_output_layer)
-            else:
-                h = layer_module.predict(h)
-                spike_in_of_output_layer = torch.cat(
-                    (spike_in_of_output_layer, h),
-                    dim=2,
-                )
-        spike_out_sum = spike_out.sum(0)
-        return spike_out_sum.argmax(1)
-
     def _encode_training_samples(self, x, label):
         x_pos, x_neg = generate_pos_n_neg_sample(
             x,
@@ -633,30 +607,8 @@ class Layer(nn.Module):
         # local goodness objective + manual/autograd switch from mode_config.
         _, batch_size, _ = pos_encoded.shape
         self._reset_runtime_stats()
-
-        (
-            pos_input_spike_sum,
-            pos_output_spike,
-            pos_out_freq,
-            pos_goodness,
-            pos_ln_mean,
-            pos_ln_var,
-        ) = self._forward_spike_sequence(pos_encoded)
-        functional.reset_net(self.layer)
-
-        (
-            neg_input_spike_sum,
-            neg_output_spike,
-            neg_out_freq,
-            neg_goodness,
-            neg_ln_mean,
-            neg_ln_var,
-        ) = self._forward_spike_sequence(neg_encoded)
-        functional.reset_net(self.layer)
-
         needs_manual_grad = (
             self.mode_config.uses_manual_update
-            or self.mode_config.profiling.capture_manual_grad_metrics
         )
         needs_autograd_cmp = self.mode_config.profiling.capture_autograd_comparison
 
@@ -676,6 +628,15 @@ class Layer(nn.Module):
         if needs_manual_grad:
             # Even in autograd mode we may still collect manual-gradient stats for
             # hardware-cost analysis and later comparison.
+            # Positive update first
+            (
+            pos_input_spike_sum,
+            pos_output_spike,
+            pos_out_freq,
+            pos_goodness,
+            pos_ln_mean,
+            pos_ln_var,
+            ) = self._forward_spike_sequence(pos_encoded)
             (
                 pos_weight_grad,
                 pos_manual_peak_alloc,
@@ -690,6 +651,18 @@ class Layer(nn.Module):
                 batch_size,
                 True,
             )
+            self._apply_manual_update(pos_weight_grad, frozen)
+            functional.reset_net(self.layer)
+
+            # Negative update next (same profiling logic, separate forward pass)
+            (
+            neg_input_spike_sum,
+            neg_output_spike,
+            neg_out_freq,
+            neg_goodness,
+            neg_ln_mean,
+            neg_ln_var,
+            ) = self._forward_spike_sequence(neg_encoded)
             (
                 neg_weight_grad,
                 neg_manual_peak_alloc,
@@ -704,6 +677,9 @@ class Layer(nn.Module):
                 batch_size,
                 False,
             )
+            self._apply_manual_update(neg_weight_grad, frozen)
+            functional.reset_net(self.layer)
+
             alloc_peaks = [
                 value
                 for value in [pos_manual_peak_alloc, neg_manual_peak_alloc]
@@ -727,84 +703,94 @@ class Layer(nn.Module):
                 4.0 * batch_size * self.out_features * self.in_features
             )
 
-        if needs_autograd_cmp:
-            # Comparison backward is optional because it adds extra graph work and
-            # should be disable-able for pure throughput experiments.
-            retain_graph_for_cmp = (
-                self.mode_config.unsupervised_update_mode
-                == UNSUPERVISED_UPDATE_AUTOGRAD
-            )
-            (
-                pos_autograd_grad,
-                pos_bp_peak_alloc,
-                pos_bp_peak_reserved,
-                pos_bp_time_ms,
-            ) = self._autograd_branch_comparison(
-                pos_input_spike_sum,
-                pos_out_freq,
-                pos_goodness,
-                pos_ln_var,
-                pos_ln_mean,
-                batch_size,
-                True,
-                retain_graph=retain_graph_for_cmp,
-            )
-            (
-                neg_autograd_grad,
-                neg_bp_peak_alloc,
-                neg_bp_peak_reserved,
-                neg_bp_time_ms,
-            ) = self._autograd_branch_comparison(
-                neg_input_spike_sum,
-                neg_out_freq,
-                neg_goodness,
-                neg_ln_var,
-                neg_ln_mean,
-                batch_size,
-                False,
-                retain_graph=retain_graph_for_cmp,
-            )
-            cmp_alloc_peaks = [
-                value
-                for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]
-                if value is not None
-            ]
-            cmp_reserved_peaks = [
-                value
-                for value in [pos_bp_peak_reserved, neg_bp_peak_reserved]
-                if value is not None
-            ]
-            self.last_backward_cmp_peak_alloc_bytes = (
-                max(cmp_alloc_peaks) if cmp_alloc_peaks else None
-            )
-            self.last_backward_cmp_peak_reserved_bytes = (
-                max(cmp_reserved_peaks) if cmp_reserved_peaks else None
-            )
-            self.last_backward_cmp_time_ms = float(
-                (pos_bp_time_ms or 0.0) + (neg_bp_time_ms or 0.0)
-            )
-            if pos_weight_grad is not None:
-                pos_cos_sim = torch.cosine_similarity(
-                    pos_autograd_grad.flatten(),
-                    -pos_weight_grad.flatten(),
-                    dim=0,
-                ).detach().cpu().item()
-            if neg_weight_grad is not None:
-                neg_cos_sim = torch.cosine_similarity(
-                    neg_autograd_grad.flatten(),
-                    -neg_weight_grad.flatten(),
-                    dim=0,
-                ).detach().cpu().item()
-
-        if self.mode_config.uses_manual_update:
-            if pos_weight_grad is None or neg_weight_grad is None:
-                raise RuntimeError("Manual update mode requires manual gradients.")
-            self._apply_manual_update(pos_weight_grad + neg_weight_grad, frozen)
+            if needs_autograd_cmp:
+                # Comparison backward is optional because it adds extra graph work and
+                # should be disable-able for pure throughput experiments.
+                retain_graph_for_cmp = (
+                    self.mode_config.unsupervised_update_mode
+                    == UNSUPERVISED_UPDATE_AUTOGRAD
+                )
+                (
+                    pos_autograd_grad,
+                    pos_bp_peak_alloc,
+                    pos_bp_peak_reserved,
+                    pos_bp_time_ms,
+                ) = self._autograd_branch_comparison(
+                    pos_input_spike_sum,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    batch_size,
+                    True,
+                    retain_graph=retain_graph_for_cmp,
+                )
+                (
+                    neg_autograd_grad,
+                    neg_bp_peak_alloc,
+                    neg_bp_peak_reserved,
+                    neg_bp_time_ms,
+                ) = self._autograd_branch_comparison(
+                    neg_input_spike_sum,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    batch_size,
+                    False,
+                    retain_graph=retain_graph_for_cmp,
+                )
+                cmp_alloc_peaks = [
+                    value
+                    for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]
+                    if value is not None
+                ]
+                cmp_reserved_peaks = [
+                    value
+                    for value in [pos_bp_peak_reserved, neg_bp_peak_reserved]
+                    if value is not None
+                ]
+                self.last_backward_cmp_peak_alloc_bytes = (
+                    max(cmp_alloc_peaks) if cmp_alloc_peaks else None
+                )
+                self.last_backward_cmp_peak_reserved_bytes = (
+                    max(cmp_reserved_peaks) if cmp_reserved_peaks else None
+                )
+                self.last_backward_cmp_time_ms = float(
+                    (pos_bp_time_ms or 0.0) + (neg_bp_time_ms or 0.0)
+                )
+                if pos_weight_grad is not None:
+                    pos_cos_sim = torch.cosine_similarity(
+                        pos_autograd_grad.flatten(),
+                        -pos_weight_grad.flatten(),
+                        dim=0,
+                    ).detach().cpu().item()
+                if neg_weight_grad is not None:
+                    neg_cos_sim = torch.cosine_similarity(
+                        neg_autograd_grad.flatten(),
+                        -neg_weight_grad.flatten(),
+                        dim=0,
+                    ).detach().cpu().item()
         else:
-            # Default behavior remains the original autograd-based hidden-layer update.
+            (
+            pos_input_spike_sum,
+            pos_output_spike,
+            pos_out_freq,
+            pos_goodness,
+            pos_ln_mean,
+            pos_ln_var,
+            ) = self._forward_spike_sequence(pos_encoded)
+            functional.reset_net(self.layer)
+            (
+            neg_input_spike_sum,
+            neg_output_spike,
+            neg_out_freq,
+            neg_goodness,
+            neg_ln_mean,
+            neg_ln_var,
+            ) = self._forward_spike_sequence(neg_encoded)
             self._apply_autograd_update(pos_out_freq, neg_out_freq)
-
-        functional.reset_net(self.layer)
+            functional.reset_net(self.layer)
         return (
             pos_output_spike.detach(),
             pos_goodness.detach().mean().cpu().item(),
