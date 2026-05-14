@@ -44,14 +44,13 @@ SEARCH_SPACE = {
 # Base training settings.
 MODEL = "MLP"
 DATASET = "MNIST"
-LEARNING_MODE = "unsupervised" # "unsupervised" or "supervised"
-PREDICT_TYPE = LEARNING_MODE
-UNSUPERVISED_UPDATE_MODE = "manual" # "autograd" or "manual"
+LEARNING_MODE = "supervised" # "unsupervised" or "supervised"
+HIDDEN_LAYER_UPDATE_MODE = "autograd" # "autograd" or "manual"
 CAPTURE_MANUAL_GRAD_METRICS = True
 CAPTURE_AUTOGRAD_COMPARISON = True
-EPOCHS = 5
+EPOCHS = 2
 # Note written to CSV for experiment traceability.
-CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {UNSUPERVISED_UPDATE_MODE}"
+CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE}"
 
 if "conv_cfg" not in SEARCH_SPACE and "cov_cfg" in SEARCH_SPACE:
     SEARCH_SPACE["conv_cfg"] = SEARCH_SPACE["cov_cfg"]
@@ -97,10 +96,8 @@ def _build_cmd(params: dict) -> list[str]:
     ]
     if DATASET:
         cmd += ["-dataset", DATASET]
-    if PREDICT_TYPE:
-        cmd += ["-predict_type", PREDICT_TYPE]
     cmd += ["-learning_mode", LEARNING_MODE]
-    cmd += ["-unsupervised_update_mode", UNSUPERVISED_UPDATE_MODE]
+    cmd += ["-hidden_layer_update_mode", HIDDEN_LAYER_UPDATE_MODE]
     cmd += [
         "-capture_manual_grad_metrics"
         if CAPTURE_MANUAL_GRAD_METRICS
@@ -170,15 +167,14 @@ def _resolve_summary_path(base_path: Path, fieldnames: list[str]) -> tuple[Path,
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    summary_name = f"{LEARNING_MODE}-{UNSUPERVISED_UPDATE_MODE}-{DATASET}-{MODEL}.csv"
+    summary_name = f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{DATASET}-{MODEL}.csv"
     summary_path = OUT_DIR / summary_name
 
     fieldnames = [
         "learning_mode",
-        "unsupervised_update_mode",
+        "hidden_layer_update_mode",
         "capture_manual_grad_metrics",
         "capture_autograd_comparison",
-        "predict_type",
         "dataset",
         "model",
         "note",
@@ -247,10 +243,9 @@ def main() -> None:
         for params in _iter_grid(SEARCH_SPACE):
             row = {
                 "learning_mode": LEARNING_MODE,
-                "unsupervised_update_mode": UNSUPERVISED_UPDATE_MODE,
+                "hidden_layer_update_mode": HIDDEN_LAYER_UPDATE_MODE,
                 "capture_manual_grad_metrics": CAPTURE_MANUAL_GRAD_METRICS,
                 "capture_autograd_comparison": CAPTURE_AUTOGRAD_COMPARISON,
-                "predict_type": PREDICT_TYPE,
                 "dataset": DATASET,
                 "model": MODEL,
                 "note": CSV_NOTE,

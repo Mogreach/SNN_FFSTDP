@@ -546,8 +546,7 @@ class ExperimentMetricsTracker:
         }
         metrics = {
             "learning_mode": self.mode_config.learning_mode,
-            "predict_type": self.mode_config.learning_mode,
-            "unsupervised_update_mode": self.mode_config.unsupervised_update_mode,
+            "hidden_layer_update_mode": self.mode_config.hidden_layer_update_mode,
             "capture_manual_grad_metrics": (
                 self.mode_config.profiling.capture_manual_grad_metrics
             ),

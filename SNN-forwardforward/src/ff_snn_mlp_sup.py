@@ -20,7 +20,10 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 from torch.optim import Adam
-from src.loss import delta_loss_gradient_calculation_mlp
+from src.loss import (
+    delta_loss_gradient_calculation_mlp,
+    ff_supervised_delta_loss,
+)
 from spikingjelly.activation_based import (
     neuron,
     encoding,
@@ -137,6 +140,7 @@ class Net(torch.nn.Module):
                             v_threshold_neg=v_threshold_neg,
                             tau=tau,
                             loss_threshold=loss_threshold,
+                            mode_config=self.mode_config,
                         ).cuda()
                     ]
                 )
@@ -249,32 +253,6 @@ class Net(torch.nn.Module):
         self.last_backward_cmp_peak_reserved_bytes = snapshot.backward_cmp_peak_reserved_bytes
         self.last_backward_cmp_time_ms = snapshot.backward_cmp_time_ms
         return snapshot
-    # 通过goodness计算预测结果
-    def predict_multiple(self, x):
-        goodness_per_label = []
-        # goodness_per_label = 0  # 选择输出频率最大
-        for label in range(self.num_classes):
-            goodness = []
-            label = torch.full((x.shape[0],), label, device=x.device, dtype=torch.long)
-            h, _ = generate_pos_n_neg_sample(
-                x,
-                label,
-                num_classes=self.num_classes,
-                type="embed_label_onehot",
-            )
-            h = spike_encoder(h, self.T)
-            h = h.flatten(2)  # 将输入展平为 [T, B, C*H*W] 的形状
-            spike_in_of_label = h[:,:,0:10]
-            for i, layer in enumerate(self.layers):
-                if i == len(self.layers) - 1:
-                    break
-                h = layer.predict(h)
-                freq = h.mean(0)  # 计算每层的平均频率
-                goodness = goodness + [layer.cal_goodness(freq).sum(1)] # 对每个样本的单层goodness求和
-                # h = torch.cat((h, spike_in_of_label),dim=2)
-            goodness_per_label += [sum(goodness).unsqueeze(1)] # 对所有层求和优度值
-        goodness_of_all_label = torch.cat(goodness_per_label, 1)# 拼接所有标签编码对应优度值
-        return goodness_of_all_label.argmax(1)
         # 通过goodness计算预测结果
     def predict_winner(self, x):
         label = torch.randint(0, self.num_classes, (x.shape[0],), device=x.device)
@@ -560,7 +538,25 @@ class Layer(nn.Module):
         )
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
         return (weight_grad.detach(), delta_loss), peak_alloc, peak_reserved, elapsed_ms
-
+    def _apply_manual_update(self, weight_grad, frozen):
+        if frozen:
+            return
+        with torch.no_grad():
+            # Keep the original direct weight update rule for the manual branch.
+            self._get_linear_weight().add_(self.lr * weight_grad)
+    def _apply_autograd_update(self, pos_goodness, neg_goodness):
+        profile_ctx = self._begin_profile()
+        self.opt.zero_grad()
+        delta_loss = ff_supervised_delta_loss(
+            pos_goodness,
+            neg_goodness,
+            self.threshold,
+        )
+        delta_loss.backward()
+        self.opt.step()
+        peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
+        self.last_backward_peak_alloc_bytes = peak_alloc
+        self.last_backward_peak_reserved_bytes = peak_reserved
     def _autograd_delta_comparison(self, delta_loss):
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
@@ -571,8 +567,30 @@ class Layer(nn.Module):
         return grad, peak_alloc, peak_reserved, elapsed_ms
 
     def train_supervised(self, pos_encoded, neg_encoded, frozen):
-        self._reset_runtime_stats()
         _, batch_size, _ = pos_encoded.shape
+        self._reset_runtime_stats()
+
+        needs_manual_grad = (
+            self.mode_config.uses_manual_update
+        )
+
+        weight_grad = None
+        delta_loss = None
+
+        pos_cos_sim = None
+        neg_cos_sim = None
+
+        manual_peak_alloc = None
+        manual_peak_reserved = None
+        manual_time_ms = None
+
+        bp_peak_alloc = None
+        bp_peak_reserved = None
+        bp_time_ms = None
+
+        # =========================================================
+        # Forward pass
+        # =========================================================
         (
             pos_input_spike_sum,
             pos_output_spike,
@@ -593,57 +611,84 @@ class Layer(nn.Module):
         ) = self._forward_spike_sequence(neg_encoded)
         functional.reset_net(self.layer)
 
-        (
-            manual_result,
-            manual_peak_alloc,
-            manual_peak_reserved,
-            manual_time_ms,
-        ) = self._manual_delta_gradient(
-            pos_input_spike_sum,
-            pos_out_freq,
-            pos_goodness,
-            pos_ln_var,
-            pos_ln_mean,
-            neg_input_spike_sum,
-            neg_out_freq,
-            neg_goodness,
-            neg_ln_var,
-            neg_ln_mean,
-            batch_size,
-        )
-        weight_grad, delta_loss = manual_result
-        self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
-        self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
-        self.last_manual_grad_time_ms = float(manual_time_ms)
-        self.last_manual_grad_ops_est = float(
-            4.0 * batch_size * self.out_features * self.in_features
-        )
+        # =========================================================
+        # Manual gradient branch
+        # =========================================================
+        if needs_manual_grad:
 
-        pos_cos_sim = None
-        neg_cos_sim = None
-        if self.mode_config.profiling.capture_autograd_comparison:
-            autograd_grad, peak_alloc, peak_reserved, elapsed_ms = (
-                self._autograd_delta_comparison(delta_loss)
+            (
+                manual_result,
+                manual_peak_alloc,
+                manual_peak_reserved,
+                manual_time_ms,
+            ) = self._manual_delta_gradient(
+                pos_input_spike_sum,
+                pos_out_freq,
+                pos_goodness,
+                pos_ln_var,
+                pos_ln_mean,
+                neg_input_spike_sum,
+                neg_out_freq,
+                neg_goodness,
+                neg_ln_var,
+                neg_ln_mean,
+                batch_size,
             )
-            self.last_backward_cmp_peak_alloc_bytes = peak_alloc
-            self.last_backward_cmp_peak_reserved_bytes = peak_reserved
-            self.last_backward_cmp_time_ms = float(elapsed_ms)
-            cos_sim = torch.cosine_similarity(
-                autograd_grad.flatten(),
-                -weight_grad.flatten(),
-                dim=0,
-            ).detach().cpu().item()
-            pos_cos_sim = cos_sim
-            neg_cos_sim = cos_sim
 
-        # Update weights
-        if frozen:
-            pass
+            weight_grad, delta_loss = manual_result
+
+            self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
+            self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
+            self.last_manual_grad_time_ms = float(
+                manual_time_ms or 0.0
+            )
+
+            self.last_manual_grad_ops_est = float(
+                4.0 * batch_size * self.out_features * self.in_features
+            )
+            # -----------------------------------------------------
+            # Apply manual update
+            # -----------------------------------------------------
+            self._apply_manual_update(weight_grad, frozen)
+
+            # -----------------------------------------------------
+            # Optional autograd comparison
+            # -----------------------------------------------------
+            if self.mode_config.profiling.capture_autograd_comparison:
+
+                (
+                    autograd_grad,
+                    bp_peak_alloc,
+                    bp_peak_reserved,
+                    bp_time_ms,
+                ) = self._autograd_delta_comparison(
+                    delta_loss
+                )
+
+                self.last_backward_cmp_peak_alloc_bytes = (
+                    bp_peak_alloc
+                )
+                self.last_backward_cmp_peak_reserved_bytes = (
+                    bp_peak_reserved
+                )
+                self.last_backward_cmp_time_ms = float(
+                    bp_time_ms or 0.0
+                )
+
+                cos_sim = torch.cosine_similarity(
+                    autograd_grad.flatten(),
+                    -weight_grad.flatten(),
+                    dim=0,
+                ).detach().cpu().item()
+
+                pos_cos_sim = cos_sim
+                neg_cos_sim = cos_sim
+
+        # =========================================================
+        # Pure autograd branch
+        # =========================================================
         else:
-            with torch.no_grad():
-                for m in self.layer.modules():
-                    if isinstance(m, nn.Linear):         
-                        m.weight += self.lr * weight_grad 
+            self._apply_autograd_update(pos_goodness, neg_goodness)
         return (
             pos_output_spike.detach(),
             pos_goodness.detach().mean().cpu().item(),
@@ -668,7 +713,17 @@ class Layer(nn.Module):
         return g
 class OutputLayer(nn.Module):
     def __init__(
-        self, in_features, out_features, epoch, T, lr, v_threshold, v_threshold_neg, tau, loss_threshold
+        self,
+        in_features,
+        out_features,
+        epoch,
+        T,
+        lr,
+        v_threshold,
+        v_threshold_neg,
+        tau,
+        loss_threshold,
+        mode_config: ExperimentModeConfig | None = None,
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -690,6 +745,7 @@ class OutputLayer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
+        self.mode_config = mode_config or ExperimentModeConfig()
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None
@@ -701,11 +757,22 @@ class OutputLayer(nn.Module):
         self.last_backward_cmp_time_ms = None
         self.visible = False
         self.spike_vis = torch.zeros(out_features).unsqueeze(1)
+    def _reset_runtime_stats(self):
+        self.last_backward_peak_alloc_bytes = None
+        self.last_backward_peak_reserved_bytes = None
+        self.last_manual_grad_peak_alloc_bytes = None
+        self.last_manual_grad_peak_reserved_bytes = None
+        self.last_manual_grad_time_ms = None
+        self.last_manual_grad_ops_est = None
+        self.last_backward_cmp_peak_alloc_bytes = None
+        self.last_backward_cmp_peak_reserved_bytes = None
+        self.last_backward_cmp_time_ms = None
     def forward(self, x):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
         # x_direction = x / (x.norm(2, 1, keepdim=True) + 1e-4)
         return self.layer(x)
     def train_bp_stdp(self,x_encoded, label):
+        self._reset_runtime_stats()
         N = x_encoded.shape[1]
         device = x_encoded.device
         use_cuda_mem_stat = device.type == "cuda"

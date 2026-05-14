@@ -109,21 +109,18 @@ class ConfigParser:
             help="threshold of loss function. orignal loss threshold is 0.25. delta loss threshold is 8",
         )
         self.parser.add_argument(
-            "-predict_type", default="unsupervised", type=str, help="The type of prediction: supervised or unsupervised"
-        )
-        self.parser.add_argument(
             "-learning_mode",
-            default=None,
+            default="unsupervised",
             type=str,
             choices=["unsupervised", "supervised"],
-            help="Unified learning mode switch. Defaults to predict_type when omitted.",
+            help="Learning mode: supervised or unsupervised.",
         )
         self.parser.add_argument(
-            "-unsupervised_update_mode",
+            "-hidden_layer_update_mode",
             default="autograd",
             type=str,
             choices=["autograd", "manual"],
-            help="Update rule used by hidden layers in unsupervised mode.",
+            help="Update rule used by hidden layers in both supervised and unsupervised FF-SNN training.",
         )
         self.parser.add_argument(
             "-capture_manual_grad_metrics",
@@ -158,10 +155,7 @@ class ConfigParser:
         )
 
     def parse(self):
-        args = self.parser.parse_args()
-        if args.learning_mode is None:
-            args.learning_mode = args.predict_type
-        return args
+        return self.parser.parse_args()
 
 
 # 示例用法

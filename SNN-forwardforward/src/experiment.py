@@ -7,16 +7,16 @@ from typing import Optional
 LEARNING_MODE_UNSUPERVISED = "unsupervised"
 LEARNING_MODE_SUPERVISED = "supervised"
 
-UNSUPERVISED_UPDATE_AUTOGRAD = "autograd"
-UNSUPERVISED_UPDATE_MANUAL = "manual"
+HIDDEN_LAYER_UPDATE_AUTOGRAD = "autograd"
+HIDDEN_LAYER_UPDATE_MANUAL = "manual"
 
 VALID_LEARNING_MODES = (
     LEARNING_MODE_UNSUPERVISED,
     LEARNING_MODE_SUPERVISED,
 )
-VALID_UNSUPERVISED_UPDATE_MODES = (
-    UNSUPERVISED_UPDATE_AUTOGRAD,
-    UNSUPERVISED_UPDATE_MANUAL,
+VALID_HIDDEN_LAYER_UPDATE_MODES = (
+    HIDDEN_LAYER_UPDATE_AUTOGRAD,
+    HIDDEN_LAYER_UPDATE_MANUAL,
 )
 
 
@@ -29,18 +29,20 @@ class ProfilingOptions:
 
 @dataclass(frozen=True)
 class ExperimentModeConfig:
-    # learning_mode reserves the top-level experiment branch, while
-    # unsupervised_update_mode selects the concrete hidden-layer update rule.
+    # learning_mode selects the supervised / unsupervised experiment branch,
+    # while hidden_layer_update_mode selects the hidden-layer update rule that
+    # both MLP implementations support.
     learning_mode: str = LEARNING_MODE_UNSUPERVISED
-    unsupervised_update_mode: str = UNSUPERVISED_UPDATE_AUTOGRAD
+    hidden_layer_update_mode: str = HIDDEN_LAYER_UPDATE_AUTOGRAD
     profiling: ProfilingOptions = field(default_factory=ProfilingOptions)
 
     def __post_init__(self) -> None:
         if self.learning_mode not in VALID_LEARNING_MODES:
             raise ValueError(f"Unsupported learning_mode={self.learning_mode}")
-        if self.unsupervised_update_mode not in VALID_UNSUPERVISED_UPDATE_MODES:
+        if self.hidden_layer_update_mode not in VALID_HIDDEN_LAYER_UPDATE_MODES:
             raise ValueError(
-                f"Unsupported unsupervised_update_mode={self.unsupervised_update_mode}"
+                "Unsupported hidden_layer_update_mode="
+                f"{self.hidden_layer_update_mode}"
             )
 
     @property
@@ -48,39 +50,36 @@ class ExperimentModeConfig:
         return self.learning_mode == LEARNING_MODE_UNSUPERVISED
 
     @property
+    def is_supervised(self) -> bool:
+        return self.learning_mode == LEARNING_MODE_SUPERVISED
+
+    @property
     def uses_manual_update(self) -> bool:
-        return (
-            self.learning_mode == LEARNING_MODE_UNSUPERVISED
-            and self.unsupervised_update_mode == UNSUPERVISED_UPDATE_MANUAL
-        )
+        return self.hidden_layer_update_mode == HIDDEN_LAYER_UPDATE_MANUAL
 
     @property
     def uses_autograd_update(self) -> bool:
-        return (
-            self.learning_mode == LEARNING_MODE_UNSUPERVISED
-            and self.unsupervised_update_mode == UNSUPERVISED_UPDATE_AUTOGRAD
-        )
+        return self.hidden_layer_update_mode == HIDDEN_LAYER_UPDATE_AUTOGRAD
 
     @property
     def run_name(self) -> str:
-        if self.is_unsupervised:
-            return f"{self.learning_mode}_{self.unsupervised_update_mode}"
-        return self.learning_mode
+        return f"{self.learning_mode}_{self.hidden_layer_update_mode}"
 
     def to_dict(self) -> dict:
         return {
             "learning_mode": self.learning_mode,
-            "unsupervised_update_mode": self.unsupervised_update_mode,
+            "hidden_layer_update_mode": self.hidden_layer_update_mode,
             "capture_manual_grad_metrics": self.profiling.capture_manual_grad_metrics,
             "capture_autograd_comparison": self.profiling.capture_autograd_comparison,
         }
 
     @classmethod
     def from_args(cls, args) -> "ExperimentModeConfig":
-        learning_mode = getattr(args, "learning_mode", None) or getattr(
+        learning_mode = getattr(args, "learning_mode", LEARNING_MODE_UNSUPERVISED)
+        hidden_layer_update_mode = getattr(
             args,
-            "predict_type",
-            LEARNING_MODE_UNSUPERVISED,
+            "hidden_layer_update_mode",
+            HIDDEN_LAYER_UPDATE_AUTOGRAD,
         )
         profiling = ProfilingOptions(
             capture_manual_grad_metrics=getattr(
@@ -96,11 +95,7 @@ class ExperimentModeConfig:
         )
         return cls(
             learning_mode=learning_mode,
-            unsupervised_update_mode=getattr(
-                args,
-                "unsupervised_update_mode",
-                UNSUPERVISED_UPDATE_AUTOGRAD,
-            ),
+            hidden_layer_update_mode=hidden_layer_update_mode,
             profiling=profiling,
         )
 
@@ -130,8 +125,8 @@ class TrainMemorySnapshot:
 
 @dataclass
 class StepResult:
-    # The runner consumes one uniform step result no matter which unsupervised
-    # implementation branch produced it.
+    # The runner consumes one uniform step result no matter which learning
+    # branch / hidden-layer update mode produced it.
     goodness_pos: list[float]
     goodness_neg: list[float]
     cos_pos: list[Optional[float]]

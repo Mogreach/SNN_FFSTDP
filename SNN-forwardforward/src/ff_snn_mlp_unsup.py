@@ -30,11 +30,14 @@ from spikingjelly.activation_based import (
 from src.experiment import (
     ExperimentModeConfig,
     GradientProfilingSnapshot,
+    HIDDEN_LAYER_UPDATE_AUTOGRAD,
     StepResult,
-    UNSUPERVISED_UPDATE_AUTOGRAD,
 )
 from src.generate_neg_sample import generate_pos_n_neg_sample
-from src.loss import gradient_calculation_mlp
+from src.loss import (
+    ff_pairwise_goodness_loss,
+    gradient_calculation_mlp,
+)
 
 
 def spike_encoder(images: torch.Tensor, T: int) -> torch.Tensor:
@@ -571,14 +574,14 @@ class Layer(nn.Module):
             # Keep the original direct weight update rule for the manual branch.
             self._get_linear_weight().add_(self.lr * weight_grad)
 
-    def _apply_autograd_update(self, pos_out_freq, neg_out_freq):
+    def _apply_autograd_update(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
-        p = self.T * pos_out_freq.pow(2).mean(1)
-        n = self.T * neg_out_freq.pow(2).mean(1)
-        loss = torch.log(
-            1 + torch.exp(torch.cat([-p + self.threshold, n - self.threshold]))
-        ).mean()
+        loss = ff_pairwise_goodness_loss(
+            pos_goodness,
+            neg_goodness,
+            self.threshold,
+        )
         loss.backward()
         self.opt.step()
         peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
@@ -610,7 +613,6 @@ class Layer(nn.Module):
         needs_manual_grad = (
             self.mode_config.uses_manual_update
         )
-        needs_autograd_cmp = self.mode_config.profiling.capture_autograd_comparison
 
         pos_weight_grad = None
         neg_weight_grad = None
@@ -624,7 +626,9 @@ class Layer(nn.Module):
         pos_bp_peak_reserved = None
         neg_bp_peak_alloc = None
         neg_bp_peak_reserved = None
-
+        # =========================================================
+        # Manual gradient branch
+        # =========================================================
         if needs_manual_grad:
             # Even in autograd mode we may still collect manual-gradient stats for
             # hardware-cost analysis and later comparison.
@@ -702,13 +706,15 @@ class Layer(nn.Module):
             self.last_manual_grad_ops_est = float(
                 4.0 * batch_size * self.out_features * self.in_features
             )
-
-            if needs_autograd_cmp:
+            # -----------------------------------------------------
+            # Optional autograd comparison
+            # -----------------------------------------------------
+            if self.mode_config.profiling.capture_autograd_comparison:
                 # Comparison backward is optional because it adds extra graph work and
                 # should be disable-able for pure throughput experiments.
                 retain_graph_for_cmp = (
-                    self.mode_config.unsupervised_update_mode
-                    == UNSUPERVISED_UPDATE_AUTOGRAD
+                    self.mode_config.hidden_layer_update_mode
+                    == HIDDEN_LAYER_UPDATE_AUTOGRAD
                 )
                 (
                     pos_autograd_grad,
@@ -771,6 +777,9 @@ class Layer(nn.Module):
                         -neg_weight_grad.flatten(),
                         dim=0,
                     ).detach().cpu().item()
+        # =========================================================
+        # Pure autograd branch
+        # =========================================================
         else:
             (
             pos_input_spike_sum,
@@ -789,8 +798,8 @@ class Layer(nn.Module):
             neg_ln_mean,
             neg_ln_var,
             ) = self._forward_spike_sequence(neg_encoded)
-            self._apply_autograd_update(pos_out_freq, neg_out_freq)
             functional.reset_net(self.layer)
+            self._apply_autograd_update(pos_goodness, neg_goodness)
         return (
             pos_output_spike.detach(),
             pos_goodness.detach().mean().cpu().item(),
