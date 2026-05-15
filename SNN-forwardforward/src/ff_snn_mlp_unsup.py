@@ -655,6 +655,29 @@ class Layer(nn.Module):
                 batch_size,
                 True,
             )
+            if self.mode_config.profiling.capture_autograd_comparison:
+                # The comparison backward must run before the manual in-place
+                # weight update, otherwise the saved graph sees a newer
+                # parameter version and backward will fail.
+                retain_graph_for_cmp = (
+                    self.mode_config.hidden_layer_update_mode
+                    == HIDDEN_LAYER_UPDATE_AUTOGRAD
+                )
+                (
+                    pos_autograd_grad,
+                    pos_bp_peak_alloc,
+                    pos_bp_peak_reserved,
+                    pos_bp_time_ms,
+                ) = self._autograd_branch_comparison(
+                    pos_input_spike_sum,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    batch_size,
+                    True,
+                    retain_graph=retain_graph_for_cmp,
+                )
             self._apply_manual_update(pos_weight_grad, frozen)
             functional.reset_net(self.layer)
 
@@ -681,6 +704,22 @@ class Layer(nn.Module):
                 batch_size,
                 False,
             )
+            if self.mode_config.profiling.capture_autograd_comparison:
+                (
+                    neg_autograd_grad,
+                    neg_bp_peak_alloc,
+                    neg_bp_peak_reserved,
+                    neg_bp_time_ms,
+                ) = self._autograd_branch_comparison(
+                    neg_input_spike_sum,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    batch_size,
+                    False,
+                    retain_graph=retain_graph_for_cmp,
+                )
             self._apply_manual_update(neg_weight_grad, frozen)
             functional.reset_net(self.layer)
 
@@ -712,40 +751,6 @@ class Layer(nn.Module):
             if self.mode_config.profiling.capture_autograd_comparison:
                 # Comparison backward is optional because it adds extra graph work and
                 # should be disable-able for pure throughput experiments.
-                retain_graph_for_cmp = (
-                    self.mode_config.hidden_layer_update_mode
-                    == HIDDEN_LAYER_UPDATE_AUTOGRAD
-                )
-                (
-                    pos_autograd_grad,
-                    pos_bp_peak_alloc,
-                    pos_bp_peak_reserved,
-                    pos_bp_time_ms,
-                ) = self._autograd_branch_comparison(
-                    pos_input_spike_sum,
-                    pos_out_freq,
-                    pos_goodness,
-                    pos_ln_var,
-                    pos_ln_mean,
-                    batch_size,
-                    True,
-                    retain_graph=retain_graph_for_cmp,
-                )
-                (
-                    neg_autograd_grad,
-                    neg_bp_peak_alloc,
-                    neg_bp_peak_reserved,
-                    neg_bp_time_ms,
-                ) = self._autograd_branch_comparison(
-                    neg_input_spike_sum,
-                    neg_out_freq,
-                    neg_goodness,
-                    neg_ln_var,
-                    neg_ln_mean,
-                    batch_size,
-                    False,
-                    retain_graph=retain_graph_for_cmp,
-                )
                 cmp_alloc_peaks = [
                     value
                     for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]

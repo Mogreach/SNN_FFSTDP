@@ -647,14 +647,12 @@ class Layer(nn.Module):
                 4.0 * batch_size * self.out_features * self.in_features
             )
             # -----------------------------------------------------
-            # Apply manual update
-            # -----------------------------------------------------
-            self._apply_manual_update(weight_grad, frozen)
-
-            # -----------------------------------------------------
             # Optional autograd comparison
             # -----------------------------------------------------
             if self.mode_config.profiling.capture_autograd_comparison:
+                # The comparison backward must run before the manual in-place
+                # weight update, otherwise the saved graph sees a newer
+                # parameter version and backward will fail.
 
                 (
                     autograd_grad,
@@ -683,6 +681,11 @@ class Layer(nn.Module):
 
                 pos_cos_sim = cos_sim
                 neg_cos_sim = cos_sim
+
+            # -----------------------------------------------------
+            # Apply manual update
+            # -----------------------------------------------------
+            self._apply_manual_update(weight_grad, frozen)
 
         # =========================================================
         # Pure autograd branch
