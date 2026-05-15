@@ -10,6 +10,8 @@ License       : MIT
 ====================================================================
 """
 
+from __future__ import annotations
+
 
 import matplotlib.pyplot as plt
 import torch.autograd as autograd
@@ -29,7 +31,11 @@ from spikingjelly.activation_based import (
     monitor,
     learning,
 )
-from src.experiment import GradientProfilingSnapshot, UnsupervisedStepResult
+from src.experiment import (
+    ExperimentModeConfig,
+    GradientProfilingSnapshot,
+    StepResult,
+)
 from src.loss import gradient_calculation_cnn, delta_loss_gradient_calculation_cnn
 from src.generate_neg_sample import *
 def pos_derivative(x, theta):
@@ -103,11 +109,13 @@ class ConvNet(torch.nn.Module):
         num_classes=10,
         H=28,
         W=28,
+        mode_config: ExperimentModeConfig | None = None,
     ):
         super().__init__()
         self.loss_threshold = loss_threshold
         self.num_classes = num_classes
         self.T = T
+        self.mode_config = mode_config or ExperimentModeConfig()
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None
@@ -164,6 +172,11 @@ class ConvNet(torch.nn.Module):
                     ).cuda()
                 ]
             )
+    def predict_multiple(self, x):
+        # CNN 分支一直通过最终分类头的响应来给出类别预测，这里提供与
+        # runner 统一的接口名，避免顶层逻辑再区分模型类型。
+        return self.predict_winner(x)
+
     def predict_winner(self, x):
         label = torch.randint(0, self.num_classes, (x.shape[0],))
         h, _ = generate_pos_n_neg_sample(x, label, num_classes=self.num_classes, type="SCFF")
@@ -180,7 +193,7 @@ class ConvNet(torch.nn.Module):
                 spike_in_of_output_layer = torch.cat((spike_in_of_output_layer, h.flatten(2)),dim=2)
         spike_out_sum = spike_out.sum(0)  # 计算输出层的总脉冲
         return spike_out_sum.argmax(1)
-    def train_unsupervised(self, x, label, frozen) -> UnsupervisedStepResult:
+    def train_unsupervised(self, x, label, frozen) -> StepResult:
         x_pos, x_neg = generate_pos_n_neg_sample(x, label, num_classes=self.num_classes, type="SCFF")
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
@@ -190,8 +203,15 @@ class ConvNet(torch.nn.Module):
         spike_input_neg = in_neg
         return self.train_unsupervised_step(spike_input_pos, spike_input_neg, label, frozen)
 
-    def train_ff_stdp(self, x, label, frozen):
+    def train_supervised(self, x, label, frozen) -> StepResult:
+        # 当前 CNN 监督版与无监督版共享同一套局部隐藏层更新和输出头训练，
+        # 这里保留独立入口，方便顶层实验模式统一，也为后续真正分叉预留位置。
         return self.train_unsupervised(x, label, frozen)
+
+    def train_ff_stdp(self, x, label, frozen):
+        if self.mode_config.is_unsupervised:
+            return self.train_unsupervised(x, label, frozen)
+        return self.train_supervised(x, label, frozen)
 
     def train_unsupervised_step(self, input_pos, input_neg, label, frozen):
         T, B, C, H, W = input_pos.shape
@@ -227,7 +247,7 @@ class ConvNet(torch.nn.Module):
                 max_backward_peak_reserved = layer_bp_reserved if max_backward_peak_reserved is None else max(max_backward_peak_reserved, layer_bp_reserved)
         self.last_backward_peak_alloc_bytes = max_backward_peak_alloc
         self.last_backward_peak_reserved_bytes = max_backward_peak_reserved
-        return UnsupervisedStepResult(
+        return StepResult(
             goodness_pos=pos_goodness_per_layer,
             goodness_neg=neg_goodness_per_layer,
             cos_pos=pos_cos_sim_per_layer,

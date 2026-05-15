@@ -21,7 +21,8 @@ from src.experiment import (
     TrainMemorySnapshot,
     StepResult,
 )
-# from src.ff_snn_cnn import ConvNet
+from src.ff_snn_cnn_unsup import ConvNet as UnsupervisedCNNNet
+from src.ff_snn_cnn_sup import ConvNet as SupervisedCNNNet
 from src.ff_snn_mlp_sup import Net as SupervisedMLPNet
 from src.ff_snn_mlp_unsup import Net as UnsupervisedMLPNet
 from src.metrics_tracker import ExperimentMetricsTracker
@@ -230,19 +231,23 @@ def build_model(args, num_classes, mode_config, sample_batch=None):
         if sample_batch is None:
             raise ValueError("CNN model construction requires a sample batch.")
         _, _, H, W = sample_batch.shape
-        return ConvNet(
+        cnn_cls = UnsupervisedCNNNet if mode_config.is_unsupervised else SupervisedCNNNet
+        cnn_kwargs = dict(
             conv_cfg=args.conv_cfg,
-            T=args.T,
-            epoch=args.epochs,
-            lr=args.lr,
             tau=args.tau,
+            epoch=args.epochs,
+            T=args.T,
+            lr=args.lr,
             v_threshold=args.v_threshold,
+            v_threshold_neg=args.v_threshold_neg,
+            opt=args.opt,
             loss_threshold=args.loss_threshold,
             num_classes=num_classes,
             H=H,
             W=W,
             mode_config=mode_config,
         )
+        return cnn_cls(**cnn_kwargs)
     raise ValueError(f"Unsupported model type: {args.model}")
 
 

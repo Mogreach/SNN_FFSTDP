@@ -28,22 +28,22 @@ SEARCH_SPACE = {
         # [784, 512, 10],
         [784, 256, 10]
     ],
-    # "cov_cfg":[
-    #     [
-    #         # in_ch, out_ch, k, s, p
-    #         (1,  32, 3, 1, 1),
-    #         (32, 64, 3, 1, 1),
-    #         (64, 128, 3, 1, 1),
-    #         (128, 256, 3, 1, 1)
-    #     ]
-    # ],
+    "cov_cfg":[
+        [
+            # in_ch, out_ch, k, s, p
+            (1,  32, 3, 1, 1),
+            (32, 64, 3, 1, 1),
+            (64, 128, 3, 1, 1),
+            (128, 256, 3, 1, 1)
+        ]
+    ],
     "T": [8],
     "lr": [0.0078125],
 }
 
 # Base training settings.
-MODEL = "MLP"
-DATASET = "MNIST"
+MODEL = "CNN" # "MLP" or "CNN". Note that CNN only supports supervised learning mode currently.
+DATASET = "MNIST" # "MNIST", "FashionMNIST", "CIFAR10", or None to use the default in ff-snn.py
 LEARNING_MODE = "supervised" # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd" # "autograd" or "manual"
 CAPTURE_MANUAL_GRAD_METRICS = True
