@@ -36,10 +36,12 @@ Notes:
 from __future__ import annotations
 
 import csv
+import argparse
 import itertools
 import json
 import math
 import numbers
+import os
 import random
 import subprocess
 import sys
@@ -59,16 +61,16 @@ OUT_DIR = ROOT / "logs" / "opt"
 # applies the selected search strategy on top of that pool.
 SEARCH_SPACE = {
     # Goodness / delta-loss threshold used by hidden layers.
-    "loss_threshold": [1.2],
+    "loss_threshold": [0.4,0.6,0.8,1.2,1.5,2.0],
     # Neuron firing threshold for hidden layers.
     "v_threshold": [1.2],
     # Batch size.
-    "b": [512],
+    "b": [256,512,1024],
     # MLP layer widths. Only used when MODEL == "MLP".
     "dims": [
-        # [784, 512, 512, 512, 10],
-        # [784, 512, 512, 10],
-        # [784, 512, 10],
+        [784, 512, 512, 512, 10],
+        [784, 512, 512, 10],
+        [784, 512, 10],
         [784, 256, 10],
     ],
     # CNN convolution configuration. Only used when MODEL == "CNN".
@@ -82,8 +84,8 @@ SEARCH_SPACE = {
             (128, 256, 3, 1, 1),
         ]
     ],
-    "T": [8],
-    "lr": [0.0078125],
+    "T": [8, 16, 32,64],  # Number of FF-STDP steps per batch.
+    "lr": [0.0078125,0.0078125/2,0.0078125/4,0.0078125/8],
 }
 
 # Base training settings shared by every trial.
@@ -91,6 +93,8 @@ MODEL = "MLP"  # Model family: "MLP" or "CNN"
 DATASET = "MNIST"  # Dataset name. Use None to keep ff-snn.py default behavior.
 LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
+DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
+DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 
 # Profiling is usually better disabled during HPO so search budget is spent on
 # more candidate trials instead of extra analysis branches.
@@ -129,6 +133,142 @@ TOP_K_TO_PRINT = 5  # Number of top trials printed to console after the search e
 
 if "conv_cfg" not in SEARCH_SPACE and "cov_cfg" in SEARCH_SPACE:
     SEARCH_SPACE["conv_cfg"] = SEARCH_SPACE["cov_cfg"]
+
+
+def _parse_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, got {value!r}")
+
+
+def _parse_runtime_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run one FF-SNN hyperparameter search.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--model", choices=["MLP", "CNN"])
+    parser.add_argument("--dataset", choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"])
+    parser.add_argument("--learning-mode", choices=["unsupervised", "supervised"])
+    parser.add_argument("--hidden-layer-update-mode", choices=["autograd", "manual"])
+    parser.add_argument("--device", help="Explicit device forwarded to ff-snn.py, e.g. cuda:0 or cpu.")
+    parser.add_argument("--workers", type=int, help="DataLoader worker count forwarded to ff-snn.py.")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--out-dir", help="HPO output root; training runs are stored below this directory.")
+    parser.add_argument("--search-strategy", choices=["grid", "random", "successive_halving", "bayes"])
+    parser.add_argument("--optimize-metric")
+    parser.add_argument("--random-seed", type=int)
+    parser.add_argument("--random-search-trials", type=int)
+    parser.add_argument("--bayes-candidate-pool-size", type=int)
+    parser.add_argument("--bayes-init-random-trials", type=int)
+    parser.add_argument("--bayes-max-trials", type=int)
+    parser.add_argument("--bayes-acquisition", choices=["ucb", "ei"])
+    parser.add_argument("--bayes-ucb-beta", type=float)
+    parser.add_argument("--bayes-ei-xi", type=float)
+    parser.add_argument("--successive-halving-initial-candidates", type=int)
+    parser.add_argument("--successive-halving-initial-epochs", type=int)
+    parser.add_argument("--successive-halving-reduction-factor", type=int)
+    parser.add_argument("--capture-manual-grad-metrics", type=_parse_bool)
+    parser.add_argument("--capture-autograd-comparison", type=_parse_bool)
+    parser.add_argument("--csv-note")
+    parser.add_argument("--top-k-to-print", type=int)
+    parser.add_argument(
+        "--search-space-json",
+        help="JSON object used to update SEARCH_SPACE for this run.",
+    )
+    parser.add_argument(
+        "--search-space-file",
+        help="Path to a JSON object used to update SEARCH_SPACE for this run.",
+    )
+    return parser.parse_args(argv)
+
+
+def _load_search_space_override(args: argparse.Namespace) -> dict | None:
+    search_space = None
+    if args.search_space_file:
+        with Path(args.search_space_file).open("r", encoding="utf-8") as sf:
+            search_space = json.load(sf)
+    if args.search_space_json:
+        inline_space = json.loads(args.search_space_json)
+        search_space = inline_space if search_space is None else {**search_space, **inline_space}
+    return search_space
+
+
+def _apply_runtime_overrides(args: argparse.Namespace) -> None:
+    global MODEL, DATASET, LEARNING_MODE, HIDDEN_LAYER_UPDATE_MODE
+    global DEVICE, DATA_LOADER_WORKERS, CAPTURE_MANUAL_GRAD_METRICS
+    global CAPTURE_AUTOGRAD_COMPARISON, EPOCHS, CSV_NOTE, SEARCH_STRATEGY
+    global OPTIMIZE_METRIC, RANDOM_SEED, RANDOM_SEARCH_TRIALS
+    global BAYES_CANDIDATE_POOL_SIZE, BAYES_INIT_RANDOM_TRIALS
+    global BAYES_MAX_TRIALS, BAYES_ACQUISITION, BAYES_UCB_BETA, BAYES_EI_XI
+    global SUCCESSIVE_HALVING_INITIAL_CANDIDATES
+    global SUCCESSIVE_HALVING_INITIAL_EPOCHS
+    global SUCCESSIVE_HALVING_REDUCTION_FACTOR, TOP_K_TO_PRINT
+    global OUT_DIR, SEARCH_SPACE
+
+    if args.model is not None:
+        MODEL = args.model
+    if args.dataset is not None:
+        DATASET = args.dataset
+    if args.learning_mode is not None:
+        LEARNING_MODE = args.learning_mode
+    if args.hidden_layer_update_mode is not None:
+        HIDDEN_LAYER_UPDATE_MODE = args.hidden_layer_update_mode
+    if args.device is not None:
+        DEVICE = args.device
+    if args.workers is not None:
+        DATA_LOADER_WORKERS = args.workers
+    if args.capture_manual_grad_metrics is not None:
+        CAPTURE_MANUAL_GRAD_METRICS = args.capture_manual_grad_metrics
+    if args.capture_autograd_comparison is not None:
+        CAPTURE_AUTOGRAD_COMPARISON = args.capture_autograd_comparison
+    if args.epochs is not None:
+        EPOCHS = args.epochs
+    if args.out_dir is not None:
+        OUT_DIR = Path(args.out_dir)
+    if args.search_strategy is not None:
+        SEARCH_STRATEGY = args.search_strategy
+    if args.optimize_metric is not None:
+        OPTIMIZE_METRIC = args.optimize_metric
+    if args.random_seed is not None:
+        RANDOM_SEED = args.random_seed
+    if args.random_search_trials is not None:
+        RANDOM_SEARCH_TRIALS = args.random_search_trials
+    if args.bayes_candidate_pool_size is not None:
+        BAYES_CANDIDATE_POOL_SIZE = args.bayes_candidate_pool_size
+    if args.bayes_init_random_trials is not None:
+        BAYES_INIT_RANDOM_TRIALS = args.bayes_init_random_trials
+    if args.bayes_max_trials is not None:
+        BAYES_MAX_TRIALS = args.bayes_max_trials
+    if args.bayes_acquisition is not None:
+        BAYES_ACQUISITION = args.bayes_acquisition
+    if args.bayes_ucb_beta is not None:
+        BAYES_UCB_BETA = args.bayes_ucb_beta
+    if args.bayes_ei_xi is not None:
+        BAYES_EI_XI = args.bayes_ei_xi
+    if args.successive_halving_initial_candidates is not None:
+        SUCCESSIVE_HALVING_INITIAL_CANDIDATES = args.successive_halving_initial_candidates
+    if args.successive_halving_initial_epochs is not None:
+        SUCCESSIVE_HALVING_INITIAL_EPOCHS = args.successive_halving_initial_epochs
+    if args.successive_halving_reduction_factor is not None:
+        SUCCESSIVE_HALVING_REDUCTION_FACTOR = args.successive_halving_reduction_factor
+    if args.top_k_to_print is not None:
+        TOP_K_TO_PRINT = args.top_k_to_print
+
+    search_space_override = _load_search_space_override(args)
+    if search_space_override:
+        SEARCH_SPACE = {**SEARCH_SPACE, **search_space_override}
+    if "conv_cfg" not in SEARCH_SPACE and "cov_cfg" in SEARCH_SPACE:
+        SEARCH_SPACE["conv_cfg"] = SEARCH_SPACE["cov_cfg"]
+
+    if args.csv_note is not None:
+        CSV_NOTE = args.csv_note
+    else:
+        CSV_NOTE = f"{MODEL} {DATASET} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE}"
 
 
 def _dims_to_str(dims: list[int]) -> str:
@@ -208,6 +348,8 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
         str(epoch_budget),
         "-out-dir",
         str(OUT_DIR),
+        "-j",
+        str(DATA_LOADER_WORKERS),
         "-loss_threshold",
         str(params["loss_threshold"]),
         "-v_threshold",
@@ -221,6 +363,8 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
     ]
     if DATASET:
         cmd += ["-dataset", DATASET]
+    if DEVICE:
+        cmd += ["-device", DEVICE]
     cmd += ["-learning_mode", LEARNING_MODE]
     cmd += ["-hidden_layer_update_mode", HIDDEN_LAYER_UPDATE_MODE]
     cmd += [
@@ -680,22 +824,21 @@ def _write_stage_rows(
         writer.writerow(record["row"])
 
 
-def _run_single_stage_search(writer: csv.DictWriter, csv_file) -> list[dict]:
-    candidates = _prepare_candidates()
-    records = []
-    for candidate_index, candidate in enumerate(candidates, start=1):
-        records.append(
-            _run_trial(
-                candidate=candidate,
-                candidate_index=candidate_index,
-                stage_index=1,
-                stage_epochs=EPOCHS,
-                stage_candidates=len(candidates),
-            )
-        )
-
-    _write_stage_rows(writer, records, promoted_ids=set())
+def _flush_csv(csv_file) -> None:
     csv_file.flush()
+    os.fsync(csv_file.fileno())
+
+
+def _write_incremental_record(
+    writer: csv.DictWriter,
+    csv_file,
+    record: dict,
+) -> None:
+    writer.writerow(record["row"])
+    _flush_csv(csv_file)
+
+
+def _rank_successful_records(records: list[dict]) -> list[dict]:
     return sorted(
         [
             record
@@ -707,7 +850,41 @@ def _run_single_stage_search(writer: csv.DictWriter, csv_file) -> list[dict]:
     )
 
 
-def _run_bayesian_search(writer: csv.DictWriter, csv_file) -> list[dict]:
+def _write_best_json(summary_path: Path, ranked_records: list[dict]) -> None:
+    if not ranked_records:
+        return
+    best_path = summary_path.with_suffix(".best.json")
+    with best_path.open("w", encoding="utf-8") as bf:
+        json.dump(ranked_records[0]["row"], bf, ensure_ascii=False, indent=2)
+
+
+def _run_single_stage_search(
+    writer: csv.DictWriter,
+    csv_file,
+    summary_path: Path,
+) -> list[dict]:
+    candidates = _prepare_candidates()
+    records = []
+    for candidate_index, candidate in enumerate(candidates, start=1):
+        record = _run_trial(
+            candidate=candidate,
+            candidate_index=candidate_index,
+            stage_index=1,
+            stage_epochs=EPOCHS,
+            stage_candidates=len(candidates),
+        )
+        records.append(record)
+        _write_incremental_record(writer, csv_file, record)
+        _write_best_json(summary_path, _rank_successful_records(records))
+
+    return _rank_successful_records(records)
+
+
+def _run_bayesian_search(
+    writer: csv.DictWriter,
+    csv_file,
+    summary_path: Path,
+) -> list[dict]:
     if BAYES_INIT_RANDOM_TRIALS <= 0:
         raise ValueError("BAYES_INIT_RANDOM_TRIALS must be positive.")
     if BAYES_MAX_TRIALS <= 0:
@@ -786,20 +963,17 @@ def _run_bayesian_search(writer: csv.DictWriter, csv_file) -> list[dict]:
             successful_ids.append(next_candidate_id)
             successful_scores.append(float(record["score_value"]))
 
-    _write_stage_rows(writer, evaluated_records, promoted_ids=set())
-    csv_file.flush()
-    return sorted(
-        [
-            record
-            for record in evaluated_records
-            if record["row"]["status"] == "ok" and record["score_value"] is not None
-        ],
-        key=_trial_sort_key,
-        reverse=True,
-    )
+        _write_incremental_record(writer, csv_file, record)
+        _write_best_json(summary_path, _rank_successful_records(evaluated_records))
+
+    return _rank_successful_records(evaluated_records)
 
 
-def _run_successive_halving_search(writer: csv.DictWriter, csv_file) -> list[dict]:
+def _run_successive_halving_search(
+    writer: csv.DictWriter,
+    csv_file,
+    summary_path: Path,
+) -> list[dict]:
     schedule = _build_halving_schedule(EPOCHS)
     remaining_candidates = _prepare_candidates()
     final_ranked = []
@@ -815,32 +989,26 @@ def _run_successive_halving_search(writer: csv.DictWriter, csv_file) -> list[dic
         )
         stage_records = []
         for candidate_index, candidate in enumerate(remaining_candidates, start=1):
-            stage_records.append(
-                _run_trial(
-                    candidate=candidate,
-                    candidate_index=candidate_index,
-                    stage_index=stage_index,
-                    stage_epochs=stage_epochs,
-                    stage_candidates=len(remaining_candidates),
-                )
+            record = _run_trial(
+                candidate=candidate,
+                candidate_index=candidate_index,
+                stage_index=stage_index,
+                stage_epochs=stage_epochs,
+                stage_candidates=len(remaining_candidates),
             )
-
-        ranked_stage_records = sorted(
-            [
-                record
-                for record in stage_records
+            stage_records.append(record)
+            _write_incremental_record(writer, csv_file, record)
+            all_successful_records.extend(
+                [record]
                 if record["row"]["status"] == "ok" and record["score_value"] is not None
-            ],
-            key=_trial_sort_key,
-            reverse=True,
-        )
+                else []
+            )
+            _write_best_json(summary_path, _rank_successful_records(all_successful_records))
+
+        ranked_stage_records = _rank_successful_records(stage_records)
         final_ranked = ranked_stage_records
-        all_successful_records.extend(ranked_stage_records)
 
         if stage_index == len(schedule) or not ranked_stage_records:
-            promoted_ids = set()
-            _write_stage_rows(writer, stage_records, promoted_ids=promoted_ids)
-            csv_file.flush()
             break
 
         keep_count = max(
@@ -851,8 +1019,8 @@ def _run_successive_halving_search(writer: csv.DictWriter, csv_file) -> list[dic
         promoted_ids = {
             record["candidate"]["candidate_id"] for record in promoted_records
         }
-        _write_stage_rows(writer, stage_records, promoted_ids=promoted_ids)
-        csv_file.flush()
+        for record in stage_records:
+            record["row"]["promoted"] = record["candidate"]["candidate_id"] in promoted_ids
         remaining_candidates = [
             record["candidate"] for record in promoted_records
         ]
@@ -897,6 +1065,8 @@ def _write_best_result(summary_path: Path, ranked_records: list[dict]) -> None:
 
 
 def main() -> None:
+    runtime_args = _parse_runtime_args()
+    _apply_runtime_overrides(runtime_args)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     summary_name = (
         f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{DATASET}-{MODEL}-"
@@ -1002,13 +1172,14 @@ def main() -> None:
         )
         if write_header:
             writer.writeheader()
+            _flush_csv(csv_file)
 
         if SEARCH_STRATEGY == "successive_halving":
-            ranked_records = _run_successive_halving_search(writer, csv_file)
+            ranked_records = _run_successive_halving_search(writer, csv_file, summary_path)
         elif SEARCH_STRATEGY == "bayes":
-            ranked_records = _run_bayesian_search(writer, csv_file)
+            ranked_records = _run_bayesian_search(writer, csv_file, summary_path)
         else:
-            ranked_records = _run_single_stage_search(writer, csv_file)
+            ranked_records = _run_single_stage_search(writer, csv_file, summary_path)
 
     _write_best_result(summary_path, ranked_records)
 
