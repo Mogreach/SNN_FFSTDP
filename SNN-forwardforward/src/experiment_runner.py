@@ -209,7 +209,7 @@ def normalize_step_result(step_result) -> StepResult:
     )
 
 
-def build_model(args, num_classes, mode_config, sample_batch=None):
+def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
     # Model construction stays independent from the training loop so the top-level
     # mode switch only needs to decide "what to run", not "how to build it".
     if args.model == "MLP":
@@ -226,6 +226,7 @@ def build_model(args, num_classes, mode_config, sample_batch=None):
             loss_threshold=args.loss_threshold,
             num_classes=num_classes,
             mode_config=mode_config,
+            device=device,
         )
     if args.model == "CNN":
         if sample_batch is None:
@@ -246,6 +247,7 @@ def build_model(args, num_classes, mode_config, sample_batch=None):
             H=H,
             W=W,
             mode_config=mode_config,
+            device=device,
         )
         return cnn_cls(**cnn_kwargs)
     raise ValueError(f"Unsupported model type: {args.model}")
@@ -321,7 +323,7 @@ def run_experiment(args):
         args.device if torch.cuda.is_available() else "cpu"
     )
     use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
-    net = build_model(args, num_classes, mode_config, sample_batch=sample_batch)
+    net = build_model(args, num_classes, mode_config, sample_batch=sample_batch, device=device)
     out_dir = create_output_dir(args, mode_config)
 
     with open(os.path.join(out_dir, "args.txt"), "w", encoding="utf-8") as args_txt:

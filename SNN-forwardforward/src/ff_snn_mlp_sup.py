@@ -92,6 +92,7 @@ class Net(torch.nn.Module):
         loss_threshold,
         num_classes=10,
         mode_config: ExperimentModeConfig | None = None,
+        device=None,
     ):
         super().__init__()
         self.T = T
@@ -100,6 +101,9 @@ class Net(torch.nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.num_classes = num_classes
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.device = torch.device(device) if device is not None else torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None
@@ -124,7 +128,7 @@ class Net(torch.nn.Module):
                             tau=tau,
                             loss_threshold=loss_threshold,
                             mode_config=self.mode_config,
-                        ).cuda()
+                        ).to(self.device)
                     ]
                 )
             else:
@@ -141,7 +145,7 @@ class Net(torch.nn.Module):
                             tau=tau,
                             loss_threshold=loss_threshold,
                             mode_config=self.mode_config,
-                        ).cuda()
+                        ).to(self.device)
                     ]
                 )
 

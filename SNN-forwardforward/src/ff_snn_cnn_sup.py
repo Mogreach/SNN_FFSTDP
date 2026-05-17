@@ -80,6 +80,7 @@ class ConvNet(torch.nn.Module):
         H=28,
         W=28,
         mode_config: ExperimentModeConfig | None = None,
+        device=None,
     ):
         super().__init__()
         self.T = T
@@ -87,6 +88,9 @@ class ConvNet(torch.nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.num_classes = num_classes
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.device = torch.device(device) if device is not None else torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
 
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
@@ -127,7 +131,7 @@ class ConvNet(torch.nn.Module):
                     tau=tau,
                     loss_threshold=loss_threshold,
                     mode_config=self.mode_config,
-                ).cuda()
+                ).to(self.device)
             )
             H = Hp
             W = Wp
@@ -144,7 +148,7 @@ class ConvNet(torch.nn.Module):
                 tau=tau,
                 loss_threshold=loss_threshold,
                 mode_config=self.mode_config,
-            ).cuda()
+            ).to(self.device)
         )
 
     def _aggregate_runtime_stats(self) -> GradientProfilingSnapshot:
