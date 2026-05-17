@@ -110,6 +110,7 @@ class OfficialVGGFFAdapter(OfficialSpikingVGGBackbone, FFNetDelegatorMixin):
         H: int,
         W: int,
         mode_config,
+        strategy_config,
         device=None,
         **kwargs,
     ):
@@ -136,6 +137,7 @@ class OfficialVGGFFAdapter(OfficialSpikingVGGBackbone, FFNetDelegatorMixin):
             H=H,
             W=W,
             mode_config=mode_config,
+            strategy_config=strategy_config,
             device=self.device,
             **kwargs,
         )
@@ -153,6 +155,7 @@ def build_official_vgg_model(
     *,
     cfg,
     mode_config,
+    strategy_config,
     in_channels: int,
     H: int,
     W: int,
@@ -166,5 +169,6 @@ def build_official_vgg_model(
         H=H,
         W=W,
         mode_config=mode_config,
+        strategy_config=strategy_config,
         **kwargs,
     )

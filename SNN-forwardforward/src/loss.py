@@ -83,7 +83,7 @@ def delta_loss_gradient_calculation_mlp(pos_input_spike_sum, pos_out_freq, pos_g
         neg_L_to_s_grad = neg_L_to_s_grad.transpose(0,1)
         neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
 
-        delta_loss = ff_scaled_supervised_delta_loss(
+        delta_loss = ff_supervised_delta_loss(
             pos_goodness,
             neg_goodness,
             alpha,
@@ -124,7 +124,7 @@ def delta_loss_gradient_calculation_cnn(pos_input_spike_sum_unfold, pos_out_freq
     # weight_grad [C_out, B*Hout*Wout] @ [B*Hout*Wout, Cin*Kh*Kw] → [C_out, Cin*Kh*Kw]
     neg_weight_grad = -1 * (neg_L_to_s_grad @ neg_input_spike_sum_unfold.T) / B
 
-    delta_loss = ff_scaled_supervised_delta_loss(
+    delta_loss = ff_supervised_delta_loss(
         pos_goodness,
         neg_goodness,
         alpha,

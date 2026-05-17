@@ -96,6 +96,9 @@ MODEL = "VGG6"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
 DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
 LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
+NEG_SAMPLE_STRATEGY = "auto"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
+GOODNESS_STRATEGY = "auto"  # Hidden-layer goodness strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
+HIDDEN_LOSS_STRATEGY = "auto"  # Hidden-layer local loss strategy: "auto, square, square_mean, signed_square_mean."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 
@@ -158,6 +161,9 @@ def _parse_runtime_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset", choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"])
     parser.add_argument("--learning-mode", choices=["unsupervised", "supervised"])
     parser.add_argument("--hidden-layer-update-mode", choices=["autograd", "manual"])
+    parser.add_argument("--neg-sample-strategy")
+    parser.add_argument("--goodness-strategy")
+    parser.add_argument("--hidden-loss-strategy")
     parser.add_argument("--device", help="Explicit device forwarded to ff-snn.py, e.g. cuda:0 or cpu.")
     parser.add_argument("--workers", type=int, help="DataLoader worker count forwarded to ff-snn.py.")
     parser.add_argument("--epochs", type=int)
@@ -203,6 +209,7 @@ def _load_search_space_override(args: argparse.Namespace) -> dict | None:
 
 def _apply_runtime_overrides(args: argparse.Namespace) -> None:
     global MODEL, DATASET, LEARNING_MODE, HIDDEN_LAYER_UPDATE_MODE
+    global NEG_SAMPLE_STRATEGY, GOODNESS_STRATEGY, HIDDEN_LOSS_STRATEGY
     global DEVICE, DATA_LOADER_WORKERS, CAPTURE_MANUAL_GRAD_METRICS
     global CAPTURE_AUTOGRAD_COMPARISON, EPOCHS, CSV_NOTE, SEARCH_STRATEGY
     global OPTIMIZE_METRIC, RANDOM_SEED, RANDOM_SEARCH_TRIALS
@@ -221,6 +228,12 @@ def _apply_runtime_overrides(args: argparse.Namespace) -> None:
         LEARNING_MODE = args.learning_mode
     if args.hidden_layer_update_mode is not None:
         HIDDEN_LAYER_UPDATE_MODE = args.hidden_layer_update_mode
+    if args.neg_sample_strategy is not None:
+        NEG_SAMPLE_STRATEGY = args.neg_sample_strategy
+    if args.goodness_strategy is not None:
+        GOODNESS_STRATEGY = args.goodness_strategy
+    if args.hidden_loss_strategy is not None:
+        HIDDEN_LOSS_STRATEGY = args.hidden_loss_strategy
     if args.device is not None:
         DEVICE = args.device
     if args.workers is not None:
@@ -382,6 +395,9 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
         cmd += ["-device", DEVICE]
     cmd += ["-learning_mode", LEARNING_MODE]
     cmd += ["-hidden_layer_update_mode", HIDDEN_LAYER_UPDATE_MODE]
+    cmd += ["-neg_sample_strategy", NEG_SAMPLE_STRATEGY]
+    cmd += ["-goodness_strategy", GOODNESS_STRATEGY]
+    cmd += ["-hidden_loss_strategy", HIDDEN_LOSS_STRATEGY]
     cmd += [
         "-capture_manual_grad_metrics"
         if CAPTURE_MANUAL_GRAD_METRICS
@@ -677,6 +693,9 @@ def _base_row(
         "promoted": False,
         "learning_mode": LEARNING_MODE,
         "hidden_layer_update_mode": HIDDEN_LAYER_UPDATE_MODE,
+        "neg_sample_strategy": NEG_SAMPLE_STRATEGY,
+        "goodness_strategy": GOODNESS_STRATEGY,
+        "hidden_loss_strategy": HIDDEN_LOSS_STRATEGY,
         "capture_manual_grad_metrics": CAPTURE_MANUAL_GRAD_METRICS,
         "capture_autograd_comparison": CAPTURE_AUTOGRAD_COMPARISON,
         "dataset": DATASET,
@@ -1107,6 +1126,9 @@ def main() -> None:
         "promoted",
         "learning_mode",
         "hidden_layer_update_mode",
+        "neg_sample_strategy",
+        "goodness_strategy",
+        "hidden_loss_strategy",
         "capture_manual_grad_metrics",
         "capture_autograd_comparison",
         "dataset",

@@ -123,6 +123,34 @@ class ConfigParser:
             help="Update rule used by hidden layers in both supervised and unsupervised FF-SNN training.",
         )
         self.parser.add_argument(
+            "-neg_sample_strategy",
+            default="auto",
+            type=str,
+            help=(
+                "Negative sample strategy name. Built-ins include: "
+                "auto, embed_label_onehot, embed_zero_onehot, SCFF."
+            ),
+        )
+        self.parser.add_argument(
+            "-goodness_strategy",
+            default="auto",
+            type=str,
+            help=(
+                "Hidden-layer goodness strategy name. Built-ins include: "
+                "auto, square, square_mean, signed_square_mean."
+            ),
+        )
+        self.parser.add_argument(
+            "-hidden_loss_strategy",
+            default="auto",
+            type=str,
+            help=(
+                "Hidden-layer local loss strategy name. Built-ins include: "
+                "auto, pairwise_goodness, supervised_delta, "
+                "scaled_supervised_delta."
+            ),
+        )
+        self.parser.add_argument(
             "-capture_manual_grad_metrics",
             dest="capture_manual_grad_metrics",
             action="store_true",

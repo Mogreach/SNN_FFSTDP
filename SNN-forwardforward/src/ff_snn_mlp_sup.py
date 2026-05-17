@@ -22,7 +22,6 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from src.loss import (
     delta_loss_gradient_calculation_mlp,
-    ff_supervised_delta_loss,
 )
 from spikingjelly.activation_based import (
     neuron,
@@ -31,7 +30,22 @@ from spikingjelly.activation_based import (
     surrogate,
     layer,
 )
-from src.experiment import ExperimentModeConfig, GradientProfilingSnapshot, StepResult
+from src.experiment import (
+    ExperimentModeConfig,
+    ExperimentStrategyConfig,
+    GradientProfilingSnapshot,
+    StepResult,
+)
+from src.ff_strategies.goodness import (
+    GOODNESS_SIGNED_SQUARE_MEAN,
+    compute_goodness,
+    resolve_goodness_strategy_name,
+)
+from src.ff_strategies.objectives import (
+    HIDDEN_LOSS_SUPERVISED_DELTA,
+    compute_hidden_pair_loss,
+    resolve_hidden_loss_strategy_name,
+)
 from src.generate_neg_sample import *
 
 
@@ -92,6 +106,7 @@ class Net(torch.nn.Module):
         loss_threshold,
         num_classes=10,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
         device=None,
     ):
         super().__init__()
@@ -101,6 +116,7 @@ class Net(torch.nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.num_classes = num_classes
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.device = torch.device(device) if device is not None else torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -128,6 +144,7 @@ class Net(torch.nn.Module):
                             tau=tau,
                             loss_threshold=loss_threshold,
                             mode_config=self.mode_config,
+                            strategy_config=self.strategy_config,
                         ).to(self.device)
                     ]
                 )
@@ -145,6 +162,7 @@ class Net(torch.nn.Module):
                             tau=tau,
                             loss_threshold=loss_threshold,
                             mode_config=self.mode_config,
+                            strategy_config=self.strategy_config,
                         ).to(self.device)
                     ]
                 )
@@ -264,7 +282,8 @@ class Net(torch.nn.Module):
             x,
             label,
             num_classes=self.num_classes,
-            type="SCFF",
+            strategy_name=self.strategy_config.neg_sample_strategy,
+            mode_config=self.mode_config,
         )
         # 频率编码
         h = spike_encoder(x, self.T)
@@ -284,6 +303,8 @@ class Net(torch.nn.Module):
             x,
             label,
             num_classes=self.num_classes,
+            strategy_name=self.strategy_config.neg_sample_strategy,
+            mode_config=self.mode_config,
         )
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
@@ -385,6 +406,7 @@ class Layer(nn.Module):
         tau,
         loss_threshold,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -408,6 +430,7 @@ class Layer(nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None
@@ -427,9 +450,36 @@ class Layer(nn.Module):
                 nn.init.normal_(m.weight.data, std=np.sqrt(2 / self.out_features))
                 m.weight.data += 0.1  # 添加正偏置，确保权重平均值大于 0
     def cal_goodness(self, freq):
-        # goodness = self.T * freq.pow(2)
-        goodness = self.T * freq.abs().pow(2) * freq.sign()
-        return goodness.mean(dim=1,keepdim=True)
+        return compute_goodness(
+            freq,
+            T=self.T,
+            strategy_name=self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SIGNED_SQUARE_MEAN,
+        )
+
+    def _validate_manual_strategy_combo(self) -> None:
+        resolved_goodness = resolve_goodness_strategy_name(
+            self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SIGNED_SQUARE_MEAN,
+        )
+        resolved_loss = resolve_hidden_loss_strategy_name(
+            self.strategy_config.hidden_loss_strategy,
+            self.mode_config,
+        )
+        if resolved_goodness != GOODNESS_SIGNED_SQUARE_MEAN:
+            raise NotImplementedError(
+                "Analytical manual gradients for the MLP hidden layer only "
+                "support the default goodness strategy "
+                "'signed_square_mean'. Use autograd mode or extend loss.py "
+                "with a matching analytical gradient."
+            )
+        if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:
+            raise NotImplementedError(
+                "Analytical manual gradients for the supervised MLP hidden "
+                "layer only support the default local loss strategy "
+                "'supervised_delta'. Use autograd mode or extend loss.py "
+                "with a matching analytical gradient."
+            )
 
     def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
@@ -551,10 +601,12 @@ class Layer(nn.Module):
     def _apply_autograd_update(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
-        delta_loss = ff_supervised_delta_loss(
+        delta_loss = compute_hidden_pair_loss(
             pos_goodness,
             neg_goodness,
-            self.threshold,
+            threshold=self.threshold,
+            strategy_name=self.strategy_config.hidden_loss_strategy,
+            mode_config=self.mode_config,
         )
         delta_loss.backward()
         self.opt.step()
@@ -577,6 +629,8 @@ class Layer(nn.Module):
         needs_manual_grad = (
             self.mode_config.uses_manual_update
         )
+        if needs_manual_grad:
+            self._validate_manual_strategy_combo()
 
         weight_grad = None
         delta_loss = None

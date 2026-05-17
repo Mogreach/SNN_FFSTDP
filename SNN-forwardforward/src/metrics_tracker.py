@@ -10,8 +10,12 @@ import torch
 
 from src.experiment import (
     ExperimentModeConfig,
+    ExperimentStrategyConfig,
     TrainMemorySnapshot,
     StepResult,
+)
+from src.ff_strategies.objectives import (
+    compute_hidden_pair_loss,
 )
 
 
@@ -250,9 +254,11 @@ class ExperimentMetricsTracker:
         *,
         num_hidden_layers: int,
         mode_config: ExperimentModeConfig,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ) -> None:
         self.num_hidden_layers = num_hidden_layers
         self.mode_config = mode_config
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.val_acc_history = []
         # Keep the old attribute name as an alias so existing code and exported
         # metrics do not break while we migrate naming toward validation accuracy.
@@ -275,6 +281,32 @@ class ExperimentMetricsTracker:
         self.manual_grad_profile = GradientMetricsAccumulator()
         self.autograd_cmp_profile = GradientMetricsAccumulator()
         self.begin_epoch()
+
+    def _reconstruct_epoch_loss(
+        self,
+        *,
+        avg_goodness_pos: torch.Tensor,
+        avg_goodness_neg: torch.Tensor,
+        loss_threshold: float,
+    ) -> torch.Tensor:
+        """
+        Rebuild the epoch loss with the same objective family as the current
+        experiment branch.
+
+        This keeps the logged `loss_mean` aligned with the actual hidden-layer
+        training objective instead of hard-coding the unsupervised pairwise form.
+        """
+        per_layer_losses = []
+        for pos_value, neg_value in zip(avg_goodness_pos, avg_goodness_neg):
+            layer_loss = compute_hidden_pair_loss(
+                pos_value.view(1),
+                neg_value.view(1),
+                threshold=loss_threshold,
+                strategy_name=self.strategy_config.hidden_loss_strategy,
+                mode_config=self.mode_config,
+            )
+            per_layer_losses.append(layer_loss.reshape(()))
+        return torch.stack(per_layer_losses)
 
     def begin_epoch(self) -> None:
         self.epoch_batch_count = 0
@@ -373,8 +405,8 @@ class ExperimentMetricsTracker:
             )
             return torch.empty(0)
 
-        # The epoch loss is reconstructed from averaged hidden-layer goodness,
-        # which preserves the original reporting logic from the training script.
+        # Reconstruct the epoch loss from averaged hidden-layer goodness with
+        # the same loss family used by the current experiment mode.
         avg_goodness_pos = self.epoch_goodness_pos_sum / self.epoch_batch_count
         avg_goodness_neg = self.epoch_goodness_neg_sum / self.epoch_batch_count
         avg_cos_pos = self.epoch_cos_pos_sum / self.epoch_batch_count
@@ -382,10 +414,11 @@ class ExperimentMetricsTracker:
         avg_spike_out_pos = self.epoch_spike_out_pos_sum / self.epoch_batch_count
         avg_spike_out_neg = self.epoch_spike_out_neg_sum / self.epoch_batch_count
 
-        loss = (
-            torch.log(1 + torch.exp(-avg_goodness_pos + loss_threshold))
-            + torch.log(1 + torch.exp(avg_goodness_neg - loss_threshold))
-        ) / 2
+        loss = self._reconstruct_epoch_loss(
+            avg_goodness_pos=avg_goodness_pos,
+            avg_goodness_neg=avg_goodness_neg,
+            loss_threshold=loss_threshold,
+        )
 
         for layer_idx in range(self.num_hidden_layers):
             self.layer_histories["loss"][layer_idx].append(
@@ -547,6 +580,9 @@ class ExperimentMetricsTracker:
         metrics = {
             "learning_mode": self.mode_config.learning_mode,
             "hidden_layer_update_mode": self.mode_config.hidden_layer_update_mode,
+            "neg_sample_strategy": self.strategy_config.neg_sample_strategy,
+            "goodness_strategy": self.strategy_config.goodness_strategy,
+            "hidden_loss_strategy": self.strategy_config.hidden_loss_strategy,
             "capture_manual_grad_metrics": (
                 self.mode_config.profiling.capture_manual_grad_metrics
             ),

@@ -100,6 +100,30 @@ class ExperimentModeConfig:
         )
 
 
+@dataclass(frozen=True)
+class ExperimentStrategyConfig:
+    # These three knobs cover the main FF experiment variations that tend to
+    # diverge together in research code.
+    neg_sample_strategy: str = "auto"
+    goodness_strategy: str = "auto"
+    hidden_loss_strategy: str = "auto"
+
+    def to_dict(self) -> dict:
+        return {
+            "neg_sample_strategy": self.neg_sample_strategy,
+            "goodness_strategy": self.goodness_strategy,
+            "hidden_loss_strategy": self.hidden_loss_strategy,
+        }
+
+    @classmethod
+    def from_args(cls, args) -> "ExperimentStrategyConfig":
+        return cls(
+            neg_sample_strategy=getattr(args, "neg_sample_strategy", "auto"),
+            goodness_strategy=getattr(args, "goodness_strategy", "auto"),
+            hidden_loss_strategy=getattr(args, "hidden_loss_strategy", "auto"),
+        )
+
+
 @dataclass
 class GradientProfilingSnapshot:
     # One step may contain both the real training backward and auxiliary

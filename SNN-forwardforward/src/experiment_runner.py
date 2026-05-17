@@ -21,6 +21,7 @@ from src.cnn_models import (
 )
 from src.experiment import (
     ExperimentModeConfig,
+    ExperimentStrategyConfig,
     GradientProfilingSnapshot,
     TrainMemorySnapshot,
     StepResult,
@@ -213,7 +214,14 @@ def normalize_step_result(step_result) -> StepResult:
     )
 
 
-def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
+def build_model(
+    args,
+    num_classes,
+    mode_config,
+    strategy_config,
+    sample_batch=None,
+    device=None,
+):
     # Model construction stays independent from the training loop so the top-level
     # mode switch only needs to decide "what to run", not "how to build it".
     if args.model == "MLP":
@@ -230,6 +238,7 @@ def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
             loss_threshold=args.loss_threshold,
             num_classes=num_classes,
             mode_config=mode_config,
+            strategy_config=strategy_config,
             device=device,
         )
     if is_cnn_family_model(args.model):
@@ -254,6 +263,7 @@ def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
                 H=H,
                 W=W,
                 mode_config=mode_config,
+                strategy_config=strategy_config,
                 device=device,
             )
             return cnn_cls(**cnn_kwargs)
@@ -262,6 +272,7 @@ def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
             args=args,
             num_classes=num_classes,
             mode_config=mode_config,
+            strategy_config=strategy_config,
             sample_batch=sample_batch,
             device=device,
         )
@@ -323,6 +334,7 @@ def create_output_dir(args, mode_config):
 
 def run_experiment(args):
     mode_config = ExperimentModeConfig.from_args(args)
+    strategy_config = ExperimentStrategyConfig.from_args(args)
     # The runner owns the orchestration only; model-specific math stays inside
     # the network modules and metrics formatting stays inside the tracker.
     train_dataset, test_dataset = build_datasets(args)
@@ -338,13 +350,22 @@ def run_experiment(args):
         args.device if torch.cuda.is_available() else "cpu"
     )
     use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
-    net = build_model(args, num_classes, mode_config, sample_batch=sample_batch, device=device)
+    net = build_model(
+        args,
+        num_classes,
+        mode_config,
+        strategy_config,
+        sample_batch=sample_batch,
+        device=device,
+    )
     out_dir = create_output_dir(args, mode_config)
 
     with open(os.path.join(out_dir, "args.txt"), "w", encoding="utf-8") as args_txt:
         args_txt.write(str(args))
         args_txt.write("\n")
         args_txt.write(json.dumps(mode_config.to_dict(), ensure_ascii=False, indent=2))
+        args_txt.write("\n")
+        args_txt.write(json.dumps(strategy_config.to_dict(), ensure_ascii=False, indent=2))
         args_txt.write("\n")
         args_txt.write(" ".join(sys.argv))
 
@@ -356,6 +377,7 @@ def run_experiment(args):
     tracker = ExperimentMetricsTracker(
         num_hidden_layers=max(0, len(net.layers) - 1),
         mode_config=mode_config,
+        strategy_config=strategy_config,
     )
     log_file_path = os.path.join(out_dir, "output_log.txt")
     original_stdout = sys.stdout

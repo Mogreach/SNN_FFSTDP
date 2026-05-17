@@ -409,6 +409,12 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         combo.learning_mode,
         "--hidden-layer-update-mode",
         combo.hidden_layer_update_mode,
+        "--neg-sample-strategy",
+        args.neg_sample_strategy,
+        "--goodness-strategy",
+        args.goodness_strategy,
+        "--hidden-loss-strategy",
+        args.hidden_loss_strategy,
         "--epochs",
         str(args.epochs),
         "--out-dir",
@@ -464,6 +470,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--models", default="MLP,CNN")
     parser.add_argument("--learning-modes", default="unsupervised,supervised")
     parser.add_argument("--update-modes", default="autograd,manual")
+    parser.add_argument("--neg-sample-strategy", default="auto")
+    parser.add_argument("--goodness-strategy", default="auto")
+    parser.add_argument("--hidden-loss-strategy", default="auto")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--search-strategy", choices=["grid", "random", "successive_halving", "bayes"], default="bayes")

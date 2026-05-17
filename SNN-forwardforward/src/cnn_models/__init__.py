@@ -28,6 +28,7 @@ def build_predefined_cnn_model(
     args,
     num_classes,
     mode_config,
+    strategy_config,
     sample_batch,
     device=None,
 ):
@@ -51,6 +52,7 @@ def build_predefined_cnn_model(
         loss_threshold=args.loss_threshold,
         num_classes=num_classes,
         mode_config=mode_config,
+        strategy_config=strategy_config,
         device=device,
     )
 

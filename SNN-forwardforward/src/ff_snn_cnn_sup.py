@@ -29,6 +29,7 @@ from spikingjelly.activation_based import (
 
 from src.experiment import (
     ExperimentModeConfig,
+    ExperimentStrategyConfig,
     GradientProfilingSnapshot,
     StepResult,
 )
@@ -38,9 +39,18 @@ from src.cnn_models.common import (
     normalize_conv_layer_spec,
 )
 from src.generate_neg_sample import generate_pos_n_neg_sample
+from src.ff_strategies.goodness import (
+    GOODNESS_SQUARE,
+    compute_goodness,
+    resolve_goodness_strategy_name,
+)
+from src.ff_strategies.objectives import (
+    HIDDEN_LOSS_SUPERVISED_DELTA,
+    compute_hidden_pair_loss,
+    resolve_hidden_loss_strategy_name,
+)
 from src.loss import (
     delta_loss_gradient_calculation_cnn,
-    ff_supervised_delta_loss,
 )
 
 
@@ -85,6 +95,7 @@ class ConvNet(torch.nn.Module):
         H=28,
         W=28,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
         device=None,
     ):
         super().__init__()
@@ -93,6 +104,7 @@ class ConvNet(torch.nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.num_classes = num_classes
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.device = torch.device(device) if device is not None else torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -153,6 +165,7 @@ class ConvNet(torch.nn.Module):
                     tau=tau,
                     loss_threshold=loss_threshold,
                     mode_config=self.mode_config,
+                    strategy_config=self.strategy_config,
                 ).to(self.device)
             )
             H = Hp
@@ -309,7 +322,8 @@ class ConvNet(torch.nn.Module):
             x,
             label,
             num_classes=self.num_classes,
-            type="SCFF",
+            strategy_name=self.strategy_config.neg_sample_strategy,
+            mode_config=self.mode_config,
         )
         x_pos_encoded = spike_encoder(x_pos, self.T)
         x_neg_encoded = spike_encoder(x_neg, self.T)
@@ -423,6 +437,7 @@ class ConvLayer(nn.Module):
         tau,
         loss_threshold,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ):
         super().__init__()
 
@@ -449,6 +464,7 @@ class ConvLayer(nn.Module):
         self.v_threshold = v_threshold
         self.opt = Adam(self.parameters(), lr=lr)
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
 
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
@@ -473,9 +489,35 @@ class ConvLayer(nn.Module):
         self.Wp = Wp
 
     def cal_goodness(self, freq):
-        # freq: [B, C, H, W]
-        g = self.T * freq.pow(2)
-        return g
+        return compute_goodness(
+            freq,
+            T=self.T,
+            strategy_name=self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SQUARE,
+        )
+
+    def _validate_manual_strategy_combo(self) -> None:
+        resolved_goodness = resolve_goodness_strategy_name(
+            self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SQUARE,
+        )
+        resolved_loss = resolve_hidden_loss_strategy_name(
+            self.strategy_config.hidden_loss_strategy,
+            self.mode_config,
+        )
+        if resolved_goodness != GOODNESS_SQUARE:
+            raise NotImplementedError(
+                "Analytical manual gradients for the CNN hidden layer only "
+                "support the default goodness strategy 'square'. Use autograd "
+                "mode or extend loss.py with a matching analytical gradient."
+            )
+        if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:
+            raise NotImplementedError(
+                "Analytical manual gradients for the supervised CNN hidden "
+                "layer only support the default local loss strategy "
+                "'supervised_delta'. Use autograd mode or extend loss.py "
+                "with a matching analytical gradient."
+            )
 
     def forward(self, x, mean, var):
         # x: [B, C, H, W]
@@ -637,10 +679,12 @@ class ConvLayer(nn.Module):
             return
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
-        delta_loss = ff_supervised_delta_loss(
+        delta_loss = compute_hidden_pair_loss(
             pos_goodness,
             neg_goodness,
-            self.threshold,
+            threshold=self.threshold,
+            strategy_name=self.strategy_config.hidden_loss_strategy,
+            mode_config=self.mode_config,
         )
         delta_loss.backward()
         self.opt.step()
@@ -662,6 +706,8 @@ class ConvLayer(nn.Module):
         self._reset_runtime_stats()
 
         needs_manual_grad = self.mode_config.uses_manual_update
+        if needs_manual_grad:
+            self._validate_manual_strategy_combo()
 
         pos_cos_sim = None
         neg_cos_sim = None

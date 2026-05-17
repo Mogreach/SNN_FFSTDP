@@ -10,14 +10,25 @@ from spikingjelly.activation_based import functional, layer, neuron, surrogate
 from spikingjelly.activation_based.model import sew_resnet
 
 from src.cnn_models.common import FFNetDelegatorMixin
-from src.experiment import ExperimentModeConfig, GradientProfilingSnapshot, StepResult
+from src.experiment import (
+    ExperimentModeConfig,
+    ExperimentStrategyConfig,
+    GradientProfilingSnapshot,
+    StepResult,
+)
+from src.ff_strategies.goodness import (
+    GOODNESS_SQUARE,
+    compute_goodness,
+)
+from src.ff_strategies.objectives import (
+    compute_hidden_pair_loss,
+)
 from src.ff_snn_cnn_sup import (
     OutputLayer,
     spike_encoder as supervised_spike_encoder,
 )
 from src.ff_snn_cnn_unsup import spike_encoder as unsupervised_spike_encoder
 from src.generate_neg_sample import generate_pos_n_neg_sample
-from src.loss import ff_pairwise_goodness_loss, ff_supervised_delta_loss
 
 
 class OfficialSEWResNet18Backbone(sew_resnet.SEWResNet):
@@ -119,6 +130,7 @@ class FFResidualBlockLayer(nn.Module):
         lr: float,
         loss_threshold: float,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ):
         super().__init__()
         self.layer = layer_module
@@ -126,6 +138,7 @@ class FFResidualBlockLayer(nn.Module):
         self.lr = lr
         self.threshold = loss_threshold
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.opt = Adam(self.layer.parameters(), lr=lr)
         self._reset_runtime_stats()
 
@@ -183,7 +196,12 @@ class FFResidualBlockLayer(nn.Module):
         return peak_alloc, peak_reserved, elapsed_ms
 
     def cal_goodness(self, freq):
-        return self.T * freq.pow(2)
+        return compute_goodness(
+            freq,
+            T=self.T,
+            strategy_name=self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SQUARE,
+        )
 
     def _forward_spike_sequence(self, encoded):
         outputs = []
@@ -195,9 +213,13 @@ class FFResidualBlockLayer(nn.Module):
         return spike_output, out_freq, goodness
 
     def _pairwise_loss(self, pos_goodness, neg_goodness):
-        if self.mode_config.is_supervised:
-            return ff_supervised_delta_loss(pos_goodness, neg_goodness, self.threshold)
-        return ff_pairwise_goodness_loss(pos_goodness, neg_goodness, self.threshold)
+        return compute_hidden_pair_loss(
+            pos_goodness,
+            neg_goodness,
+            threshold=self.threshold,
+            strategy_name=self.strategy_config.hidden_loss_strategy,
+            mode_config=self.mode_config,
+        )
 
     def _flatten_grads(self, grads: list[torch.Tensor]) -> torch.Tensor:
         return torch.cat([grad.reshape(-1) for grad in grads], dim=0)
@@ -343,6 +365,7 @@ class OfficialResNetFFCore(nn.Module):
         H,
         W,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
         device=None,
     ):
         super().__init__()
@@ -350,6 +373,7 @@ class OfficialResNetFFCore(nn.Module):
         self.loss_threshold = loss_threshold
         self.num_classes = num_classes
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.device = torch.device(device) if device is not None else torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -511,7 +535,8 @@ class OfficialResNetFFCore(nn.Module):
             x,
             label,
             num_classes=self.num_classes,
-            type=self.sample_type,
+            strategy_name=self.strategy_config.neg_sample_strategy or self.sample_type,
+            mode_config=self.mode_config,
         )
         return self.spike_encoder_fn(x_pos, self.T), self.spike_encoder_fn(x_neg, self.T)
 
@@ -532,7 +557,8 @@ class OfficialResNetFFCore(nn.Module):
                 x,
                 label,
                 num_classes=self.num_classes,
-                type=self.sample_type,
+                strategy_name=self.strategy_config.neg_sample_strategy or self.sample_type,
+                mode_config=self.mode_config,
             )
             h = self.spike_encoder_fn(h, self.T)
             for hidden_layer in self.layers[:-1]:
@@ -657,8 +683,19 @@ class OfficialResNetFFCore(nn.Module):
 
 
 class OfficialSEWResNet18FFAdapter(OfficialSEWResNet18Backbone, FFNetDelegatorMixin):
-    def __init__(self, *, in_channels: int, H: int, W: int, mode_config, device=None, **kwargs):
+    def __init__(
+        self,
+        *,
+        in_channels: int,
+        H: int,
+        W: int,
+        mode_config,
+        strategy_config,
+        device=None,
+        **kwargs,
+    ):
         self.mode_config = mode_config
+        self.strategy_config = strategy_config
         self.device = (
             torch.device(device)
             if device is not None
@@ -679,6 +716,7 @@ class OfficialSEWResNet18FFAdapter(OfficialSEWResNet18Backbone, FFNetDelegatorMi
                 lr=kwargs["lr"],
                 loss_threshold=kwargs["loss_threshold"],
                 mode_config=mode_config,
+                strategy_config=self.strategy_config,
             )
             for module in self.pop_ff_hidden_modules()
         ]
@@ -703,6 +741,7 @@ class OfficialSEWResNet18FFAdapter(OfficialSEWResNet18Backbone, FFNetDelegatorMi
             H=H,
             W=W,
             mode_config=mode_config,
+            strategy_config=self.strategy_config,
             device=self.device,
         )
         self.to(self.device)
@@ -716,6 +755,21 @@ class ResNetUnsupervisedNet(OfficialSEWResNet18FFAdapter):
     pass
 
 
-def build_resnet_model(*, mode_config, in_channels: int, H: int, W: int, **kwargs):
+def build_resnet_model(
+    *,
+    mode_config,
+    strategy_config,
+    in_channels: int,
+    H: int,
+    W: int,
+    **kwargs,
+):
     net_cls = ResNetUnsupervisedNet if mode_config.is_unsupervised else ResNetSupervisedNet
-    return net_cls(in_channels=in_channels, H=H, W=W, mode_config=mode_config, **kwargs)
+    return net_cls(
+        in_channels=in_channels,
+        H=H,
+        W=W,
+        mode_config=mode_config,
+        strategy_config=strategy_config,
+        **kwargs,
+    )
