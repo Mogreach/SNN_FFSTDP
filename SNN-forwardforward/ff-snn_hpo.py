@@ -50,6 +50,8 @@ from pathlib import Path
 
 import numpy as np
 
+from src.cnn_models.common import is_cnn_family_model
+
 
 ROOT = Path(__file__).resolve().parent
 TRAIN_SCRIPT = ROOT / "ff-snn.py"
@@ -74,6 +76,7 @@ SEARCH_SPACE = {
         [784, 256, 10],
     ],
     # CNN convolution configuration. Only used when MODEL == "CNN".
+    # Predefined CNN families such as VGG / ResNet ignore this search axis.
     # Each tuple is: (in_channels, out_channels, kernel_size, stride, padding)
     "cov_cfg": [
         [
@@ -84,13 +87,13 @@ SEARCH_SPACE = {
             (128, 256, 3, 1, 1),
         ]
     ],
-    "T": [8, 16, 32,64],  # Number of FF-STDP steps per batch.
+    "T": [8],  # Number of FF-STDP steps per batch.
     "lr": [0.0078125,0.0078125/2,0.0078125/4,0.0078125/8],
 }
 
 # Base training settings shared by every trial.
-MODEL = "MLP"  # Model family: "MLP" or "CNN"
-DATASET = "MNIST"  # Dataset name. Use None to keep ff-snn.py default behavior.
+MODEL = "VGG6"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
+DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
 LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
@@ -151,7 +154,7 @@ def _parse_runtime_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Run one FF-SNN hyperparameter search.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--model", choices=["MLP", "CNN"])
+    parser.add_argument("--model", choices=["MLP", "CNN", "VGG6", "VGG8", "VGG11", "ResNet"])
     parser.add_argument("--dataset", choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"])
     parser.add_argument("--learning-mode", choices=["unsupervised", "supervised"])
     parser.add_argument("--hidden-layer-update-mode", choices=["autograd", "manual"])
@@ -275,13 +278,25 @@ def _dims_to_str(dims: list[int]) -> str:
     return "[" + ",".join(str(d) for d in dims) + "]"
 
 
+def _uses_dims_search(model_name: str) -> bool:
+    return model_name == "MLP"
+
+
+def _uses_conv_cfg_search(model_name: str) -> bool:
+    return model_name == "CNN"
+
+
+def _is_supported_model(model_name: str) -> bool:
+    return model_name == "MLP" or is_cnn_family_model(model_name)
+
+
 def _search_keys() -> list[str]:
     keys = ["loss_threshold", "v_threshold", "b", "T", "lr"]
-    if MODEL == "MLP":
+    if _uses_dims_search(MODEL):
         keys.append("dims")
-    elif MODEL == "CNN":
+    elif _uses_conv_cfg_search(MODEL):
         keys.append("conv_cfg")
-    else:
+    elif not _is_supported_model(MODEL):
         raise ValueError(f"Unsupported MODEL={MODEL}")
     return keys
 
@@ -377,9 +392,9 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
         if CAPTURE_AUTOGRAD_COMPARISON
         else "-no-capture_autograd_comparison"
     ]
-    if MODEL == "MLP":
+    if _uses_dims_search(MODEL):
         cmd += ["-dims"] + [str(v) for v in params["dims"]]
-    elif MODEL == "CNN":
+    elif _uses_conv_cfg_search(MODEL):
         cmd += ["-conv_cfg", str(params["conv_cfg"])]
     return cmd
 
@@ -728,9 +743,9 @@ def _base_row(
         "status": "ok",
         "error": "",
     }
-    if MODEL == "MLP":
+    if _uses_dims_search(MODEL):
         row["dims"] = _dims_to_str(params["dims"])
-    elif MODEL == "CNN":
+    elif _uses_conv_cfg_search(MODEL):
         row["conv_cfg"] = str(params["conv_cfg"])
     return row
 

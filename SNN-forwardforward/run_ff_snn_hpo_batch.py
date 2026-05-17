@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.cnn_models.common import is_cnn_family_model
 
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
@@ -97,6 +98,14 @@ def _conv_cfgs(dataset: str) -> list[list[list[int]]]:
     ]
 
 
+def _uses_dims_search(model_name: str) -> bool:
+    return model_name == "MLP"
+
+
+def _uses_conv_cfg_search(model_name: str) -> bool:
+    return model_name == "CNN"
+
+
 def build_search_space(dataset: str, model: str) -> dict:
     event_dataset = dataset == "NMNIST"
     larger_input = dataset in {"NMNIST", "CIFAR10"}
@@ -106,12 +115,18 @@ def build_search_space(dataset: str, model: str) -> dict:
         "T": [20, 32] if event_dataset else [8, 16, 32],
         "lr": [0.0078125, 0.00390625, 0.001953125, 0.0009765625],
     }
-    if model == "MLP":
+    if _uses_dims_search(model):
         search_space["b"] = [128, 256, 512] if larger_input else [256, 512, 1024]
         search_space["dims"] = _mlp_dims(dataset)
-    else:
+    elif _uses_conv_cfg_search(model):
         search_space["b"] = [64, 128, 256] if larger_input else [128, 256, 512]
         search_space["conv_cfg"] = _conv_cfgs(dataset)
+    elif is_cnn_family_model(model):
+        # Predefined CNN families own their structure internally, so HPO only
+        # needs the shared optimization hyperparameters.
+        search_space["b"] = [64, 128, 256] if larger_input else [128, 256, 512]
+    else:
+        raise ValueError(f"Unsupported model in batch HPO: {model}")
     return search_space
 
 
@@ -306,9 +321,9 @@ def _compact_params(row: dict) -> str:
         f"loss={row.get('loss_threshold', '')}",
         f"v={row.get('v_threshold', '')}",
     ]
-    if row.get("model") == "MLP" and row.get("dims"):
+    if _uses_dims_search(row.get("model", "")) and row.get("dims"):
         parts.append(f"dims={row['dims']}")
-    if row.get("model") == "CNN" and row.get("conv_cfg"):
+    if _uses_conv_cfg_search(row.get("model", "")) and row.get("conv_cfg"):
         parts.append(f"conv={row['conv_cfg']}")
     return "; ".join(parts)
 

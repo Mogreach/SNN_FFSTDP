@@ -33,6 +33,11 @@ from src.experiment import (
     HIDDEN_LAYER_UPDATE_AUTOGRAD,
     StepResult,
 )
+from src.cnn_models.common import (
+    compute_conv_output_size,
+    compute_pool_output_size,
+    normalize_conv_layer_spec,
+)
 from src.generate_neg_sample import generate_pos_n_neg_sample
 from src.loss import (
     ff_pairwise_goodness_loss,
@@ -95,11 +100,26 @@ class ConvNet(torch.nn.Module):
 
         self.layers = nn.ModuleList()
         input_feature_of_linear = 0
-        for in_ch, out_ch, kernel_size, stride, padding in conv_cfg:
-            H = ((H + 2 * padding - kernel_size) // stride + 1)
-            W = ((W + 2 * padding - kernel_size) // stride + 1)
-            Hp = (H - 2) // 2 + 1
-            Wp = (W - 2) // 2 + 1
+        for raw_layer_spec in conv_cfg:
+            layer_spec = normalize_conv_layer_spec(raw_layer_spec)
+            in_ch = layer_spec.in_channels
+            out_ch = layer_spec.out_channels
+            kernel_size = layer_spec.kernel_size
+            stride = layer_spec.stride
+            padding = layer_spec.padding
+
+            H = compute_conv_output_size(H, kernel_size, stride, padding)
+            W = compute_conv_output_size(W, kernel_size, stride, padding)
+            Hp = compute_pool_output_size(
+                H,
+                layer_spec.pool_kernel_size,
+                layer_spec.pool_stride,
+            )
+            Wp = compute_pool_output_size(
+                W,
+                layer_spec.pool_kernel_size,
+                layer_spec.pool_stride,
+            )
             input_feature_of_linear += out_ch * Hp * Wp
             module = ConvLayer(
                 in_channels=in_ch,
@@ -111,6 +131,8 @@ class ConvNet(torch.nn.Module):
                 kernel_size=kernel_size,
                 stride=stride,
                 padding=padding,
+                pool_kernel_size=layer_spec.pool_kernel_size,
+                pool_stride=layer_spec.pool_stride,
                 epoch=epoch,
                 T=T,
                 lr=lr,
@@ -403,6 +425,8 @@ class ConvLayer(nn.Module):
         kernel_size,
         stride,
         padding,
+        pool_kernel_size,
+        pool_stride,
         epoch,
         T,
         lr,
@@ -413,6 +437,11 @@ class ConvLayer(nn.Module):
         mode_config: ExperimentModeConfig | None = None,
     ):
         super().__init__()
+        pool_layer = (
+            layer.MaxPool2d(pool_kernel_size, pool_stride)
+            if pool_kernel_size is not None and pool_stride is not None
+            else nn.Identity()
+        )
         self.layer = nn.Sequential(
             layer.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False),
             neuron.IFNode(
@@ -421,7 +450,7 @@ class ConvLayer(nn.Module):
                 surrogate_function=surrogate.ATan(),
                 step_mode="s",
             ),
-            layer.MaxPool2d(2, 2),
+            pool_layer,
         )
 
         self.lr = lr
@@ -446,6 +475,8 @@ class ConvLayer(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
+        self.pool_kernel_size = pool_kernel_size
+        self.pool_stride = pool_stride
         self.Hout = H
         self.Wout = W
         self.Hp = Hp

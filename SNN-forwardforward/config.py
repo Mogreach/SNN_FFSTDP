@@ -18,7 +18,7 @@ class ConfigParser:
             "-model",
             type=str,
             default="MLP",
-            choices=["CNN", "MLP"],
+            choices=["CNN", "MLP", "VGG6", "VGG8", "VGG11", "ResNet"],
             help="Network architecture type"
         )
         self.parser.add_argument(
@@ -36,7 +36,7 @@ class ConfigParser:
                 (16, 32, 3, 1, 1),
                 (32, 64, 3, 1, 1),
             ],
-            help="configuration of convolutional layers: (in_channels, out_channels, kernel_size, stride, padding)",
+            help="configuration of convolutional layers for the generic CNN model",
             type=eval,
         )
         self.parser.add_argument(

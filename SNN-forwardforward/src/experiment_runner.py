@@ -15,6 +15,10 @@ from tqdm import tqdm
 from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
 from spikingjelly.datasets.n_mnist import NMNIST
 
+from src.cnn_models import (
+    build_predefined_cnn_model,
+    is_cnn_family_model,
+)
 from src.experiment import (
     ExperimentModeConfig,
     GradientProfilingSnapshot,
@@ -228,28 +232,39 @@ def build_model(args, num_classes, mode_config, sample_batch=None, device=None):
             mode_config=mode_config,
             device=device,
         )
-    if args.model == "CNN":
+    if is_cnn_family_model(args.model):
         if sample_batch is None:
             raise ValueError("CNN model construction requires a sample batch.")
-        _, _, H, W = sample_batch.shape
-        cnn_cls = UnsupervisedCNNNet if mode_config.is_unsupervised else SupervisedCNNNet
-        cnn_kwargs = dict(
-            conv_cfg=args.conv_cfg,
-            tau=args.tau,
-            epoch=args.epochs,
-            T=args.T,
-            lr=args.lr,
-            v_threshold=args.v_threshold,
-            v_threshold_neg=args.v_threshold_neg,
-            opt=args.opt,
-            loss_threshold=args.loss_threshold,
+        if args.model == "CNN":
+            _, _, H, W = sample_batch.shape
+            cnn_cls = (
+                UnsupervisedCNNNet if mode_config.is_unsupervised else SupervisedCNNNet
+            )
+            cnn_kwargs = dict(
+                conv_cfg=args.conv_cfg,
+                tau=args.tau,
+                epoch=args.epochs,
+                T=args.T,
+                lr=args.lr,
+                v_threshold=args.v_threshold,
+                v_threshold_neg=args.v_threshold_neg,
+                opt=args.opt,
+                loss_threshold=args.loss_threshold,
+                num_classes=num_classes,
+                H=H,
+                W=W,
+                mode_config=mode_config,
+                device=device,
+            )
+            return cnn_cls(**cnn_kwargs)
+        return build_predefined_cnn_model(
+            args.model,
+            args=args,
             num_classes=num_classes,
-            H=H,
-            W=W,
             mode_config=mode_config,
+            sample_batch=sample_batch,
             device=device,
         )
-        return cnn_cls(**cnn_kwargs)
     raise ValueError(f"Unsupported model type: {args.model}")
 
 
@@ -317,7 +332,7 @@ def run_experiment(args):
         test_dataset,
     )
     num_classes = infer_num_classes(test_dataset)
-    sample_batch = next(iter(train_loader))[0] if args.model == "CNN" else None
+    sample_batch = next(iter(train_loader))[0] if is_cnn_family_model(args.model) else None
 
     device = torch.device(
         args.device if torch.cuda.is_available() else "cpu"
