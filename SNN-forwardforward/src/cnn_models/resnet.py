@@ -195,22 +195,45 @@ class FFResidualBlockLayer(nn.Module):
             peak_reserved = None
         return peak_alloc, peak_reserved, elapsed_ms
 
-    def cal_goodness(self, freq):
+    def cal_goodness(self, freq, *, membrane_potential=None):
         return compute_goodness(
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
             default_strategy_name=GOODNESS_SQUARE,
+            membrane_potential=membrane_potential,
         )
 
     def _forward_spike_sequence(self, encoded):
         outputs = []
+        membrane_potential_sum = None
         for t in range(self.T):
             outputs.append(self.layer(encoded[t]))
+            membrane_potential = self._collect_membrane_potential_proxy()
+            if membrane_potential is not None:
+                if membrane_potential_sum is None:
+                    membrane_potential_sum = torch.zeros_like(membrane_potential)
+                membrane_potential_sum += membrane_potential
         spike_output = torch.stack(outputs, dim=0)
         out_freq = spike_output.mean(0)
-        goodness = self.cal_goodness(out_freq)
+        avg_membrane_potential = (
+            None if membrane_potential_sum is None else (membrane_potential_sum / self.T)
+        )
+        goodness = self.cal_goodness(
+            out_freq,
+            membrane_potential=avg_membrane_potential,
+        )
         return spike_output, out_freq, goodness
+
+    def _collect_membrane_potential_proxy(self):
+        membrane_values = []
+        for module in self.layer.modules():
+            membrane_potential = getattr(module, "v", None)
+            if torch.is_tensor(membrane_potential):
+                membrane_values.append(membrane_potential.flatten(1).mean(1, keepdim=True))
+        if not membrane_values:
+            return None
+        return torch.stack(membrane_values, dim=0).mean(0)
 
     def _pairwise_loss(self, pos_goodness, neg_goodness):
         return compute_hidden_pair_loss(
@@ -562,9 +585,9 @@ class OfficialResNetFFCore(nn.Module):
             )
             h = self.spike_encoder_fn(h, self.T)
             for hidden_layer in self.layers[:-1]:
-                h = hidden_layer.predict(h)
-                freq = h.mean(0)
-                goodness.append(hidden_layer.cal_goodness(freq).flatten(1).sum(1))
+                h, _, layer_goodness = hidden_layer._forward_spike_sequence(h)
+                functional.reset_net(hidden_layer.layer)
+                goodness.append(layer_goodness.flatten(1).sum(1))
 
             label_goodness = (
                 torch.stack(goodness, dim=1).sum(1)

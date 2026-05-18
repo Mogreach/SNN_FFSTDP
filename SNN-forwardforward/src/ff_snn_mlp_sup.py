@@ -449,12 +449,13 @@ class Layer(nn.Module):
                 # 使用正态分布初始化权重，并添加一个正偏置
                 nn.init.normal_(m.weight.data, std=np.sqrt(2 / self.out_features))
                 m.weight.data += 0.1  # 添加正偏置，确保权重平均值大于 0
-    def cal_goodness(self, freq):
+    def cal_goodness(self, freq, *, membrane_potential=None):
         return compute_goodness(
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
             default_strategy_name=GOODNESS_SIGNED_SQUARE_MEAN,
+            membrane_potential=membrane_potential,
         )
 
     def _validate_manual_strategy_combo(self) -> None:
@@ -487,10 +488,13 @@ class Layer(nn.Module):
         x = self.layer[1](x)   # Linear
         mean = (1 - 1/self.T) * mean + (1/self.T) * x.mean(dim=1)
         var = (1 - 1/self.T) * var + (1/self.T) * x.var(dim=1, unbiased=False)
-        x = ((0.9*self.v_threshold * (x - mean.view(-1,1))) / torch.sqrt(var.view(-1,1) + 1e-5))
-        x = self.layer[2](x)   # IFNode  
+        membrane_potential = (
+            (0.9 * self.v_threshold * (x - mean.view(-1, 1)))
+            / torch.sqrt(var.view(-1, 1) + 1e-5)
+        )
+        x = self.layer[2](membrane_potential)   # IFNode
         # plt.hist(x.detach().flatten().cpu().numpy(), bins=100, density=True)
-        return x, mean, var
+        return x, membrane_potential, mean, var
 
     def _get_linear_weight(self):
         for module in self.layer.modules():
@@ -551,13 +555,26 @@ class Layer(nn.Module):
             self.out_features,
             device=encoded.device,
         )
+        membrane_potential_sum = torch.zeros(
+            batch_size,
+            self.out_features,
+            device=encoded.device,
+        )
         ln_mean = torch.zeros((batch_size,), device=encoded.device)
         ln_var = torch.zeros((batch_size,), device=encoded.device)
         for t in range(self.T):
-            spike_out, ln_mean, ln_var = self.forward(encoded[t], ln_mean, ln_var)
+            spike_out, membrane_potential, ln_mean, ln_var = self.forward(
+                encoded[t],
+                ln_mean,
+                ln_var,
+            )
             output_spike[t] += spike_out
+            membrane_potential_sum += membrane_potential
         out_freq = output_spike.mean(0)
-        goodness = self.cal_goodness(out_freq)
+        goodness = self.cal_goodness(
+            out_freq,
+            membrane_potential=(membrane_potential_sum / self.T),
+        )
         return encoded.sum(0), output_spike, out_freq, goodness, ln_mean, ln_var
 
     def _manual_delta_gradient(
@@ -768,7 +785,7 @@ class Layer(nn.Module):
         ln_mean = torch.zeros((N), device=x.device)
         ln_var = torch.zeros((N), device=x.device)
         for t in range(self.T):
-            spike_out, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
+            spike_out, _, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
             g[t] += spike_out
         functional.reset_net(self.layer)
         return g

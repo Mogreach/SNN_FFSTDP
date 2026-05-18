@@ -1,5 +1,6 @@
 from src.ff_strategies.goodness import (
     GOODNESS_AUTO,
+    GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN,
     compute_goodness,
     list_goodness_strategies,
     register_goodness_strategy,
@@ -7,6 +8,7 @@ from src.ff_strategies.goodness import (
 )
 from src.ff_strategies.negative_sampling import (
     NEG_SAMPLE_AUTO,
+    NEG_SAMPLE_GLOBAL_FOURIER_LABEL,
     generate_pos_n_neg_sample,
     list_negative_sampling_strategies,
     register_negative_sampling_strategy,
@@ -22,8 +24,10 @@ from src.ff_strategies.objectives import (
 
 __all__ = [
     "GOODNESS_AUTO",
+    "GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN",
     "HIDDEN_LOSS_AUTO",
     "NEG_SAMPLE_AUTO",
+    "NEG_SAMPLE_GLOBAL_FOURIER_LABEL",
     "compute_goodness",
     "compute_hidden_pair_loss",
     "generate_pos_n_neg_sample",

@@ -9,7 +9,8 @@ Examples
 --------
 1. Custom goodness:
 
-    def cube_mean_goodness(freq, T):
+    def cube_mean_goodness(freq, T, *, membrane_potential=None, context=None):
+        del membrane_potential, context
         return (T * freq.pow(3)).flatten(1).mean(1, keepdim=True)
 
     register_goodness_strategy("cube_mean", cube_mean_goodness)

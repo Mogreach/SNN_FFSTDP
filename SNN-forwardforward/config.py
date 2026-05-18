@@ -128,7 +128,8 @@ class ConfigParser:
             type=str,
             help=(
                 "Negative sample strategy name. Built-ins include: "
-                "auto, embed_label_onehot, embed_zero_onehot, SCFF."
+                "auto, embed_label_onehot, embed_zero_onehot, SCFF, "
+                "global_fourier_label."
             ),
         )
         self.parser.add_argument(
@@ -137,7 +138,8 @@ class ConfigParser:
             type=str,
             help=(
                 "Hidden-layer goodness strategy name. Built-ins include: "
-                "auto, square, square_mean, signed_square_mean."
+                "auto, square, square_mean, signed_square_mean, "
+                "membrane_potential_square_mean."
             ),
         )
         self.parser.add_argument(

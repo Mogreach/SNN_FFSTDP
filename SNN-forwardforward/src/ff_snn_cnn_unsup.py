@@ -309,9 +309,9 @@ class ConvNet(torch.nn.Module):
             for layer_idx, layer_module in enumerate(self.layers):
                 if layer_idx == len(self.layers) - 1:
                     break
-                h = layer_module.predict(h)
-                freq = h.mean(0)
-                goodness.append(layer_module.cal_goodness(freq).flatten(1).sum(1))
+                _, h, _, layer_goodness, _, _ = layer_module._forward_spike_sequence(h)
+                functional.reset_net(layer_module.layer)
+                goodness.append(layer_goodness.flatten(1).sum(1))
 
             if goodness:
                 label_goodness = torch.stack(goodness, dim=1).sum(1)
@@ -499,12 +499,13 @@ class ConvLayer(nn.Module):
         self.Hp = Hp
         self.Wp = Wp
 
-    def cal_goodness(self, freq):
+    def cal_goodness(self, freq, *, membrane_potential=None):
         return compute_goodness(
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
             default_strategy_name=GOODNESS_SQUARE,
+            membrane_potential=membrane_potential,
         )
 
     def _validate_manual_strategy_combo(self) -> None:
@@ -594,6 +595,13 @@ class ConvLayer(nn.Module):
             self.Wout,
             device=device,
         )
+        membrane_potential_sum = torch.zeros(
+            batch_size,
+            self.Cout,
+            self.Hout,
+            self.Wout,
+            device=device,
+        )
         pool_output_spike = torch.zeros(
             self.T,
             batch_size,
@@ -606,8 +614,13 @@ class ConvLayer(nn.Module):
         ln_var = torch.zeros((batch_size,), device=device)
 
         for t in range(self.T):
-            spike_out, ln_mean, ln_var = self.forward(encoded[t], ln_mean, ln_var)
+            spike_out, membrane_potential, ln_mean, ln_var = self.forward(
+                encoded[t],
+                ln_mean,
+                ln_var,
+            )
             output_spike[t] = spike_out
+            membrane_potential_sum += membrane_potential
             pool_output_spike[t] = self.layer[2](spike_out)
 
         input_spike_sum = encoded.sum(0)
@@ -622,7 +635,10 @@ class ConvLayer(nn.Module):
             -1,
         )
         out_freq = output_spike.mean(0)
-        goodness = self.cal_goodness(out_freq)
+        goodness = self.cal_goodness(
+            out_freq,
+            membrane_potential=(membrane_potential_sum / self.T),
+        )
         return (
             input_spike_sum_unfold,
             pool_output_spike,
@@ -719,11 +735,11 @@ class ConvLayer(nn.Module):
         x = self.layer[0](x)
         mean = (1 - 1 / self.T) * mean + (1 / self.T) * x.mean(dim=(1, 2, 3))
         var = (1 - 1 / self.T) * var + (1 / self.T) * x.var(dim=(1, 2, 3), unbiased=False)
-        x = (
+        membrane_potential = (
             self.v_threshold * (x - mean.view(-1, 1, 1, 1))
         ) / torch.sqrt(var.view(-1, 1, 1, 1) + 1e-5)
-        x = self.layer[1](x)
-        return x, mean, var
+        x = self.layer[1](membrane_potential)
+        return x, membrane_potential, mean, var
 
     def train_unsupervised(self, pos_encoded, neg_encoded, frozen):
         _, batch_size, _, _, _ = pos_encoded.shape
@@ -936,7 +952,7 @@ class ConvLayer(nn.Module):
         ln_mean = torch.zeros((B,), device=x.device)
         ln_var = torch.zeros((B,), device=x.device)
         for t in range(T):
-            spike_out, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
+            spike_out, _, ln_mean, ln_var = self.forward(x[t], ln_mean, ln_var)
             spike_out = self.layer[2](spike_out)
             out[t] = spike_out
         functional.reset_net(self.layer)

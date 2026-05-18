@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import torch
 
@@ -9,8 +11,17 @@ GOODNESS_AUTO = "auto"
 GOODNESS_SQUARE = "square"
 GOODNESS_SQUARE_MEAN = "square_mean"
 GOODNESS_SIGNED_SQUARE_MEAN = "signed_square_mean"
+GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN = "membrane_potential_square_mean"
 
-GoodnessFn = Callable[[torch.Tensor, int], torch.Tensor]
+
+@dataclass(frozen=True)
+class GoodnessContext:
+    freq: torch.Tensor
+    T: int
+    membrane_potential: torch.Tensor | None = None
+
+
+GoodnessFn = Callable[..., torch.Tensor]
 
 _GOODNESS_REGISTRY: dict[str, GoodnessFn] = {}
 
@@ -44,12 +55,39 @@ def compute_goodness(
     T: int,
     strategy_name: str | None,
     default_strategy_name: str,
+    membrane_potential: torch.Tensor | None = None,
 ) -> torch.Tensor:
     resolved_name = resolve_goodness_strategy_name(
         strategy_name,
         default_strategy_name=default_strategy_name,
     )
-    return _GOODNESS_REGISTRY[resolved_name](freq, T)
+    context = GoodnessContext(
+        freq=freq,
+        T=T,
+        membrane_potential=membrane_potential,
+    )
+    return _invoke_goodness_strategy(_GOODNESS_REGISTRY[resolved_name], context)
+
+
+def _invoke_goodness_strategy(
+    fn: GoodnessFn,
+    context: GoodnessContext,
+) -> torch.Tensor:
+    signature = inspect.signature(fn)
+    parameters = tuple(signature.parameters.values())
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+    if len(parameters) == 1 and not accepts_kwargs:
+        return fn(context)
+
+    kwargs = {}
+    if accepts_kwargs or "membrane_potential" in signature.parameters:
+        kwargs["membrane_potential"] = context.membrane_potential
+    if accepts_kwargs or "context" in signature.parameters:
+        kwargs["context"] = context
+    return fn(context.freq, context.T, **kwargs)
 
 
 def _square_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
@@ -67,9 +105,28 @@ def _signed_square_mean_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
     return signed.flatten(1).mean(1, keepdim=True)
 
 
+def _membrane_potential_square_mean_goodness(
+    freq: torch.Tensor,
+    T: int,
+    *,
+    membrane_potential: torch.Tensor | None = None,
+) -> torch.Tensor:
+    del freq
+    if membrane_potential is None:
+        raise ValueError(
+            "Goodness strategy 'membrane_potential_square_mean' requires "
+            "membrane_potential context, but the current layer did not provide it."
+        )
+    return (T * membrane_potential.pow(2)).flatten(1).mean(1, keepdim=True)
+
+
 register_goodness_strategy(GOODNESS_SQUARE, _square_goodness)
 register_goodness_strategy(GOODNESS_SQUARE_MEAN, _square_mean_goodness)
 register_goodness_strategy(
     GOODNESS_SIGNED_SQUARE_MEAN,
     _signed_square_mean_goodness,
+)
+register_goodness_strategy(
+    GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN,
+    _membrane_potential_square_mean_goodness,
 )
