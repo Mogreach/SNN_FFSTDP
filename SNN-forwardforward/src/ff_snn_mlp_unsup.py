@@ -432,7 +432,14 @@ class Layer(nn.Module):
                 surrogate_function=surrogate.ATan(),
                 step_mode="s",
             ),
-        )
+#             neuron.LIFNode(
+#                 tau=tau,
+#                 v_reset=None,
+#                 v_threshold=v_threshold,
+#                 step_mode="s",
+#                 surrogate_function=surrogate.ATan(),
+# )
+            )
         self.lr = lr
         self.v_threshold = v_threshold
         self.spike_input_rate = 0

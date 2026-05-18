@@ -91,11 +91,11 @@ def _invoke_goodness_strategy(
 
 
 def _square_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
-    return T * freq.pow(2)
+    return (T*freq).pow(2)
 
 
 def _square_mean_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
-    return (T * freq.pow(2)).flatten(1).mean(1, keepdim=True)
+    return (T * freq).pow(2).flatten(1).mean(1, keepdim=True)
 
 
 def _signed_square_mean_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:

@@ -63,17 +63,14 @@ OUT_DIR = ROOT / "logs" / "opt"
 # applies the selected search strategy on top of that pool.
 SEARCH_SPACE = {
     # Goodness / delta-loss threshold used by hidden layers.
-    "loss_threshold": [0.4,0.6,0.8,1.2,1.5,2.0],
+    "loss_threshold": [1.0],
     # Neuron firing threshold for hidden layers.
-    "v_threshold": [1.2],
+    "v_threshold": [1.5],
     # Batch size.
-    "b": [256,512,1024],
+    "b": [1024],
     # MLP layer widths. Only used when MODEL == "MLP".
     "dims": [
-        [784, 512, 512, 512, 10],
         [784, 512, 512, 10],
-        [784, 512, 10],
-        [784, 256, 10],
     ],
     # CNN convolution configuration. Only used when MODEL == "CNN".
     # Predefined CNN families such as VGG / ResNet ignore this search axis.
@@ -87,18 +84,18 @@ SEARCH_SPACE = {
             (128, 256, 3, 1, 1),
         ]
     ],
-    "T": [8],  # Number of FF-STDP steps per batch.
-    "lr": [0.0078125,0.0078125/2,0.0078125/4,0.0078125/8],
+    "T": [16],  # Number of FF-STDP steps per batch.
+    "lr": [0.001],
 }
 
 # Base training settings shared by every trial.
-MODEL = "VGG6"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
+MODEL = "MLP"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
 DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
-LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
+LEARNING_MODE = "unsupervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
-NEG_SAMPLE_STRATEGY = "auto"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
-GOODNESS_STRATEGY = "auto"  # Hidden-layer goodness strategy: "auto, square, square_mean, signed_square_mean, membrane_potential_square_mean."
-HIDDEN_LOSS_STRATEGY = "auto"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
+NEG_SAMPLE_STRATEGY = "embed_label_onehot"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
+GOODNESS_STRATEGY = "square_mean"  # Hidden-layer goodness strategy: "auto, square, square_mean, signed_square_mean, membrane_potential_square_mean."
+HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 
@@ -107,7 +104,7 @@ DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 CAPTURE_MANUAL_GRAD_METRICS = True  # Whether to collect manual-gradient profiling stats.
 CAPTURE_AUTOGRAD_COMPARISON = True  # Whether to run extra autograd comparison branches.
 
-EPOCHS = 200  # Full epoch budget used by a complete trial.
+EPOCHS = 20  # Full epoch budget used by a complete trial.
 CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE}"  # Free-form note written into the summary CSV.
 
 # Search settings shared by all strategies.
