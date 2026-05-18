@@ -97,8 +97,8 @@ DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST",
 LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
 NEG_SAMPLE_STRATEGY = "auto"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
-GOODNESS_STRATEGY = "auto"  # Hidden-layer goodness strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
-HIDDEN_LOSS_STRATEGY = "auto"  # Hidden-layer local loss strategy: "auto, square, square_mean, signed_square_mean."
+GOODNESS_STRATEGY = "auto"  # Hidden-layer goodness strategy: "auto, square, square_mean, signed_square_mean, membrane_potential_square_mean."
+HIDDEN_LOSS_STRATEGY = "auto"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 
