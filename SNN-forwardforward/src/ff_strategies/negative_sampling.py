@@ -11,6 +11,7 @@ NEG_SAMPLE_AUTO = "auto"
 NEG_SAMPLE_EMBED_LABEL_ONEHOT = "embed_label_onehot"
 NEG_SAMPLE_EMBED_ZERO_ONEHOT = "embed_zero_onehot"
 NEG_SAMPLE_SCFF = "SCFF"
+NEG_SAMPLE_GLOBAL_FOURIER_LABEL = "global_fourier_label"
 
 NegativeSamplingFn = Callable[[torch.Tensor, torch.Tensor, int], tuple[torch.Tensor, torch.Tensor]]
 
@@ -122,6 +123,83 @@ def overlay_zero_on_x(x, y, classes=10):
     return x_
 
 
+def _build_label_fourier_pattern(
+    y: torch.Tensor,
+    *,
+    image_shape: torch.Size,
+    num_classes: int,
+) -> torch.Tensor:
+    batch_size, channels, height, width = image_shape
+    device = y.device
+    dtype = torch.float32
+
+    yy, xx = torch.meshgrid(
+        torch.linspace(0.0, 1.0, height, device=device, dtype=dtype),
+        torch.linspace(0.0, 1.0, width, device=device, dtype=dtype),
+        indexing="ij",
+    )
+    xx = xx.view(1, 1, height, width)
+    yy = yy.view(1, 1, height, width)
+
+    labels = y.to(device=device, dtype=dtype).view(batch_size, 1, 1, 1)
+    freq_x = 1.0 + torch.remainder(labels, 4.0)
+    freq_y = 1.0 + torch.remainder(torch.floor(labels / 4.0), 4.0)
+    radial_freq = 1.0 + torch.remainder(labels, 3.0)
+    phase = (2.0 * torch.pi * labels) / max(float(num_classes), 1.0)
+
+    base_pattern = (
+        torch.sin(2.0 * torch.pi * (freq_x * xx + freq_y * yy) + phase)
+        + 0.5 * torch.cos(2.0 * torch.pi * radial_freq * (xx - yy) - phase)
+    )
+    base_pattern = base_pattern.expand(-1, channels, -1, -1)
+    return minmax_norm(base_pattern, dims=(2, 3))
+
+
+def _blend_global_label_pattern(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    *,
+    num_classes: int,
+    strength: float = 0.35,
+) -> torch.Tensor:
+    pattern = _build_label_fourier_pattern(
+        y,
+        image_shape=x.shape,
+        num_classes=num_classes,
+    ).to(dtype=x.dtype)
+    blended = (1.0 - strength) * x + strength * pattern
+    return minmax_norm(blended, dims=(2, 3))
+
+
+def generate_global_fourier_label_pos_n_neg_sample(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    num_classes: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Build Fourier-label positive/negative samples with the same contract as the
+    other FF negative-sampling helpers.
+
+    Positive samples are overlaid with the Fourier code of the ground-truth
+    label. Negative samples are overlaid with the Fourier code of a sampled
+    wrong label from a different class.
+    """
+    pos_labels = y
+    neg_labels = get_y_neg(y, num_classes, x.device)
+
+    x_pos = _blend_global_label_pattern(
+        x,
+        pos_labels,
+        num_classes=num_classes,
+    )
+    x_neg = _blend_global_label_pattern(
+        x,
+        neg_labels,
+        num_classes=num_classes,
+    )
+    return x_pos, x_neg
+
+
 def _embed_label_onehot_sampler(x, y, num_classes):
     x_pos = overlay_y_on_x(x, y, classes=num_classes)
     y_neg = get_y_neg(y, num_classes, x.device)
@@ -155,6 +233,14 @@ def _scff_sampler(x, y, num_classes):
     x_pos = minmax_norm(x_pos, dims=(2, 3))
     x_neg = minmax_norm(x_neg, dims=(2, 3))
     return x_pos, x_neg
+
+
+def _global_fourier_label_sampler(x, y, num_classes):
+    return generate_global_fourier_label_pos_n_neg_sample(
+        x,
+        y,
+        num_classes,
+    )
 
 
 def generate_continuous_mask(shape, block_scale=8, smooth=True, device="cpu"):
@@ -239,3 +325,7 @@ register_negative_sampling_strategy(
     _embed_zero_onehot_sampler,
 )
 register_negative_sampling_strategy(NEG_SAMPLE_SCFF, _scff_sampler)
+register_negative_sampling_strategy(
+    NEG_SAMPLE_GLOBAL_FOURIER_LABEL,
+    _global_fourier_label_sampler,
+)
