@@ -42,6 +42,7 @@ from src.cnn_models.common import (
 from src.generate_neg_sample import generate_pos_n_neg_sample
 from src.ff_strategies.goodness import (
     GOODNESS_SQUARE,
+    GOODNESS_SQUARE_MEAN,
     compute_goodness,
     resolve_goodness_strategy_name,
 )
@@ -505,32 +506,33 @@ class ConvLayer(nn.Module):
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE,
+            default_strategy_name=GOODNESS_SQUARE_MEAN,
             membrane_potential=membrane_potential,
         )
 
     def _validate_manual_strategy_combo(self) -> None:
         resolved_goodness = resolve_goodness_strategy_name(
             self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE,
+            default_strategy_name=GOODNESS_SQUARE_MEAN,
         )
         resolved_loss = resolve_hidden_loss_strategy_name(
             self.strategy_config.hidden_loss_strategy,
             self.mode_config,
         )
-        if resolved_goodness != GOODNESS_SQUARE:
+        if resolved_goodness not in {GOODNESS_SQUARE, GOODNESS_SQUARE_MEAN}:
             raise NotImplementedError(
                 "Analytical manual gradients for the CNN hidden layer only "
-                "support the default goodness strategy 'square'. Use autograd "
-                "mode or extend loss.py with a matching analytical gradient."
+                "support the default goodness strategies 'square_mean' and "
+                "legacy 'square'. Use autograd mode or extend loss.py with a "
+                "matching analytical gradient."
             )
-        if resolved_loss != HIDDEN_LOSS_PAIRWISE:
-            raise NotImplementedError(
-                "Analytical manual gradients for the unsupervised CNN hidden "
-                "layer only support the default local loss strategy "
-                "'pairwise_goodness'. Use autograd mode or extend loss.py "
-                "with a matching analytical gradient."
-            )
+        # if resolved_loss != HIDDEN_LOSS_PAIRWISE:
+        #     raise NotImplementedError(
+        #         "Analytical manual gradients for the unsupervised CNN hidden "
+        #         "layer only support the default local loss strategy "
+        #         "'pairwise_goodness'. Use autograd mode or extend loss.py "
+        #         "with a matching analytical gradient."
+        #     )
 
     def _get_conv_weight(self):
         for module in self.layer.modules():

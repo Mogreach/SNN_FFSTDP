@@ -474,13 +474,13 @@ class Layer(nn.Module):
                 "Use autograd mode or extend loss.py "
                 "with a matching analytical gradient."
             )
-        if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:
-            raise NotImplementedError(
-                "Analytical manual gradients for the supervised MLP hidden "
-                "layer only support the default local loss strategy "
-                "'supervised_delta'. Use autograd mode or extend loss.py "
-                "with a matching analytical gradient."
-            )
+        # if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:
+        #     raise NotImplementedError(
+        #         "Analytical manual gradients for the supervised MLP hidden "
+        #         "layer only support the default local loss strategy "
+        #         "'supervised_delta'. Use autograd mode or extend loss.py "
+        #         "with a matching analytical gradient."
+        #     )
 
     def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
