@@ -37,7 +37,7 @@ from src.experiment import (
     StepResult,
 )
 from src.ff_strategies.goodness import (
-    GOODNESS_SIGNED_SQUARE_MEAN,
+    GOODNESS_SQUARE_MEAN,
     compute_goodness,
     resolve_goodness_strategy_name,
 )
@@ -454,24 +454,24 @@ class Layer(nn.Module):
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SIGNED_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SQUARE_MEAN,
             membrane_potential=membrane_potential,
         )
 
     def _validate_manual_strategy_combo(self) -> None:
         resolved_goodness = resolve_goodness_strategy_name(
             self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SIGNED_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SQUARE_MEAN,
         )
         resolved_loss = resolve_hidden_loss_strategy_name(
             self.strategy_config.hidden_loss_strategy,
             self.mode_config,
         )
-        if resolved_goodness != GOODNESS_SIGNED_SQUARE_MEAN:
+        if resolved_goodness != GOODNESS_SQUARE_MEAN:
             raise NotImplementedError(
                 "Analytical manual gradients for the MLP hidden layer only "
-                "support the default goodness strategy "
-                "'signed_square_mean'. Use autograd mode or extend loss.py "
+                "support the default goodness strategy 'square_mean'. "
+                "Use autograd mode or extend loss.py "
                 "with a matching analytical gradient."
             )
         if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:

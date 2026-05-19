@@ -52,6 +52,7 @@ from src.ff_strategies.objectives import (
 )
 from src.loss import (
     gradient_calculation_cnn,
+    pairwise_loss_gradient_calculation_cnn,
 )
 
 
@@ -676,6 +677,41 @@ class ConvLayer(nn.Module):
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
         return weight_grad, peak_alloc, peak_reserved, elapsed_ms
 
+    def _manual_pair_gradient(
+        self,
+        pos_input_spike_sum_unfold,
+        pos_out_freq,
+        pos_goodness,
+        pos_ln_var,
+        pos_ln_mean,
+        neg_input_spike_sum_unfold,
+        neg_out_freq,
+        neg_goodness,
+        neg_ln_var,
+        neg_ln_mean,
+        batch_size,
+    ):
+        profile_ctx = self._begin_profile()
+        weight_grad, pair_loss = pairwise_loss_gradient_calculation_cnn(
+            pos_input_spike_sum_unfold,
+            pos_out_freq,
+            pos_goodness,
+            pos_ln_var,
+            pos_ln_mean,
+            neg_input_spike_sum_unfold,
+            neg_out_freq,
+            neg_goodness,
+            neg_ln_var,
+            neg_ln_mean,
+            self.threshold,
+            self.v_threshold,
+            batch_size,
+            self.Cout,
+        )
+        weight_grad = weight_grad.view_as(self._get_conv_weight())
+        peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
+        return (weight_grad.detach(), pair_loss), peak_alloc, peak_reserved, elapsed_ms
+
     def _autograd_branch_comparison(
         self,
         input_spike_sum_unfold,
@@ -714,6 +750,15 @@ class ConvLayer(nn.Module):
             return
         with torch.no_grad():
             self._get_conv_weight().add_(self.lr * weight_grad)
+
+    def _autograd_pair_comparison(self, pair_loss):
+        profile_ctx = self._begin_profile()
+        self.opt.zero_grad()
+        pair_loss.backward()
+        grad = self._get_conv_weight().grad.detach().clone()
+        peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
+        self.opt.zero_grad()
+        return grad, peak_alloc, peak_reserved, elapsed_ms
 
     def _apply_autograd_update(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
@@ -762,42 +807,21 @@ class ConvLayer(nn.Module):
         neg_bp_peak_reserved = None
 
         if needs_manual_grad:
-            (
-                pos_input_spike_sum_unfold,
-                pos_pool_out,
-                pos_out_freq,
-                pos_goodness,
-                pos_ln_mean,
-                pos_ln_var,
-            ) = self._forward_spike_sequence(pos_encoded)
-            (
-                pos_weight_grad,
-                pos_manual_peak_alloc,
-                pos_manual_peak_reserved,
-                pos_manual_time_ms,
-            ) = self._manual_gradient(
-                pos_input_spike_sum_unfold,
-                pos_out_freq,
-                pos_goodness,
-                pos_ln_var,
-                pos_ln_mean,
-                batch_size,
-                True,
-            )
-            if self.mode_config.profiling.capture_autograd_comparison:
-                # The comparison backward must run before the manual in-place
-                # weight update, otherwise the saved graph sees a newer
-                # parameter version and backward will fail.
-                retain_graph_for_cmp = (
-                    self.mode_config.hidden_layer_update_mode
-                    == HIDDEN_LAYER_UPDATE_AUTOGRAD
-                )
+            if self.mode_config.uses_separate_manual_update_schedule:
                 (
-                    pos_autograd_grad,
-                    pos_bp_peak_alloc,
-                    pos_bp_peak_reserved,
-                    pos_bp_time_ms,
-                ) = self._autograd_branch_comparison(
+                    pos_input_spike_sum_unfold,
+                    pos_pool_out,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_mean,
+                    pos_ln_var,
+                ) = self._forward_spike_sequence(pos_encoded)
+                (
+                    pos_weight_grad,
+                    pos_manual_peak_alloc,
+                    pos_manual_peak_reserved,
+                    pos_manual_time_ms,
+                ) = self._manual_gradient(
                     pos_input_spike_sum_unfold,
                     pos_out_freq,
                     pos_goodness,
@@ -805,40 +829,44 @@ class ConvLayer(nn.Module):
                     pos_ln_mean,
                     batch_size,
                     True,
-                    retain_graph=retain_graph_for_cmp,
                 )
-            self._apply_manual_update(pos_weight_grad, frozen)
-            functional.reset_net(self.layer)
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    retain_graph_for_cmp = (
+                        self.mode_config.hidden_layer_update_mode
+                        == HIDDEN_LAYER_UPDATE_AUTOGRAD
+                    )
+                    (
+                        pos_autograd_grad,
+                        pos_bp_peak_alloc,
+                        pos_bp_peak_reserved,
+                        pos_bp_time_ms,
+                    ) = self._autograd_branch_comparison(
+                        pos_input_spike_sum_unfold,
+                        pos_out_freq,
+                        pos_goodness,
+                        pos_ln_var,
+                        pos_ln_mean,
+                        batch_size,
+                        True,
+                        retain_graph=retain_graph_for_cmp,
+                    )
+                self._apply_manual_update(pos_weight_grad, frozen)
+                functional.reset_net(self.layer)
 
-            (
-                neg_input_spike_sum_unfold,
-                neg_pool_out,
-                neg_out_freq,
-                neg_goodness,
-                neg_ln_mean,
-                neg_ln_var,
-            ) = self._forward_spike_sequence(neg_encoded)
-            (
-                neg_weight_grad,
-                neg_manual_peak_alloc,
-                neg_manual_peak_reserved,
-                neg_manual_time_ms,
-            ) = self._manual_gradient(
-                neg_input_spike_sum_unfold,
-                neg_out_freq,
-                neg_goodness,
-                neg_ln_var,
-                neg_ln_mean,
-                batch_size,
-                False,
-            )
-            if self.mode_config.profiling.capture_autograd_comparison:
                 (
-                    neg_autograd_grad,
-                    neg_bp_peak_alloc,
-                    neg_bp_peak_reserved,
-                    neg_bp_time_ms,
-                ) = self._autograd_branch_comparison(
+                    neg_input_spike_sum_unfold,
+                    neg_pool_out,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_mean,
+                    neg_ln_var,
+                ) = self._forward_spike_sequence(neg_encoded)
+                (
+                    neg_weight_grad,
+                    neg_manual_peak_alloc,
+                    neg_manual_peak_reserved,
+                    neg_manual_time_ms,
+                ) = self._manual_gradient(
                     neg_input_spike_sum_unfold,
                     neg_out_freq,
                     neg_goodness,
@@ -846,30 +874,142 @@ class ConvLayer(nn.Module):
                     neg_ln_mean,
                     batch_size,
                     False,
-                    retain_graph=retain_graph_for_cmp,
                 )
-            self._apply_manual_update(neg_weight_grad, frozen)
-            functional.reset_net(self.layer)
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    (
+                        neg_autograd_grad,
+                        neg_bp_peak_alloc,
+                        neg_bp_peak_reserved,
+                        neg_bp_time_ms,
+                    ) = self._autograd_branch_comparison(
+                        neg_input_spike_sum_unfold,
+                        neg_out_freq,
+                        neg_goodness,
+                        neg_ln_var,
+                        neg_ln_mean,
+                        batch_size,
+                        False,
+                        retain_graph=retain_graph_for_cmp,
+                    )
+                self._apply_manual_update(neg_weight_grad, frozen)
+                functional.reset_net(self.layer)
 
-            alloc_peaks = [
-                value
-                for value in [pos_manual_peak_alloc, neg_manual_peak_alloc]
-                if value is not None
-            ]
-            reserved_peaks = [
-                value
-                for value in [pos_manual_peak_reserved, neg_manual_peak_reserved]
-                if value is not None
-            ]
-            self.last_manual_grad_peak_alloc_bytes = (
-                max(alloc_peaks) if alloc_peaks else None
-            )
-            self.last_manual_grad_peak_reserved_bytes = (
-                max(reserved_peaks) if reserved_peaks else None
-            )
-            self.last_manual_grad_time_ms = float(
-                (pos_manual_time_ms or 0.0) + (neg_manual_time_ms or 0.0)
-            )
+                alloc_peaks = [
+                    value
+                    for value in [pos_manual_peak_alloc, neg_manual_peak_alloc]
+                    if value is not None
+                ]
+                reserved_peaks = [
+                    value
+                    for value in [pos_manual_peak_reserved, neg_manual_peak_reserved]
+                    if value is not None
+                ]
+                self.last_manual_grad_peak_alloc_bytes = (
+                    max(alloc_peaks) if alloc_peaks else None
+                )
+                self.last_manual_grad_peak_reserved_bytes = (
+                    max(reserved_peaks) if reserved_peaks else None
+                )
+                self.last_manual_grad_time_ms = float(
+                    (pos_manual_time_ms or 0.0) + (neg_manual_time_ms or 0.0)
+                )
+
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    cmp_alloc_peaks = [
+                        value
+                        for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]
+                        if value is not None
+                    ]
+                    cmp_reserved_peaks = [
+                        value
+                        for value in [pos_bp_peak_reserved, neg_bp_peak_reserved]
+                        if value is not None
+                    ]
+                    self.last_backward_cmp_peak_alloc_bytes = (
+                        max(cmp_alloc_peaks) if cmp_alloc_peaks else None
+                    )
+                    self.last_backward_cmp_peak_reserved_bytes = (
+                        max(cmp_reserved_peaks) if cmp_reserved_peaks else None
+                    )
+                    self.last_backward_cmp_time_ms = float(
+                        (pos_bp_time_ms or 0.0) + (neg_bp_time_ms or 0.0)
+                    )
+                    if pos_weight_grad is not None:
+                        pos_cos_sim = torch.cosine_similarity(
+                            pos_autograd_grad.flatten(),
+                            -pos_weight_grad.flatten(),
+                            dim=0,
+                        ).detach().cpu().item()
+                    if neg_weight_grad is not None:
+                        neg_cos_sim = torch.cosine_similarity(
+                            neg_autograd_grad.flatten(),
+                            -neg_weight_grad.flatten(),
+                            dim=0,
+                        ).detach().cpu().item()
+            else:
+                (
+                    pos_input_spike_sum_unfold,
+                    pos_pool_out,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_mean,
+                    pos_ln_var,
+                ) = self._forward_spike_sequence(pos_encoded)
+                functional.reset_net(self.layer)
+
+                (
+                    neg_input_spike_sum_unfold,
+                    neg_pool_out,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_mean,
+                    neg_ln_var,
+                ) = self._forward_spike_sequence(neg_encoded)
+                functional.reset_net(self.layer)
+
+                (
+                    manual_result,
+                    manual_peak_alloc,
+                    manual_peak_reserved,
+                    manual_time_ms,
+                ) = self._manual_pair_gradient(
+                    pos_input_spike_sum_unfold,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum_unfold,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    batch_size,
+                )
+                weight_grad, pair_loss = manual_result
+                self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
+                self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
+                self.last_manual_grad_time_ms = float(manual_time_ms or 0.0)
+
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    (
+                        autograd_grad,
+                        bp_peak_alloc,
+                        bp_peak_reserved,
+                        bp_time_ms,
+                    ) = self._autograd_pair_comparison(pair_loss)
+                    self.last_backward_cmp_peak_alloc_bytes = bp_peak_alloc
+                    self.last_backward_cmp_peak_reserved_bytes = bp_peak_reserved
+                    self.last_backward_cmp_time_ms = float(bp_time_ms or 0.0)
+                    cos_sim = torch.cosine_similarity(
+                        autograd_grad.flatten(),
+                        -weight_grad.flatten(),
+                        dim=0,
+                    ).detach().cpu().item()
+                    pos_cos_sim = cos_sim
+                    neg_cos_sim = cos_sim
+
+                self._apply_manual_update(weight_grad, frozen)
+
             self.last_manual_grad_ops_est = float(
                 4.0
                 * batch_size
@@ -880,39 +1020,6 @@ class ConvLayer(nn.Module):
                 * self.kernel_size
                 * self.Cin
             )
-
-            if self.mode_config.profiling.capture_autograd_comparison:
-                cmp_alloc_peaks = [
-                    value
-                    for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]
-                    if value is not None
-                ]
-                cmp_reserved_peaks = [
-                    value
-                    for value in [pos_bp_peak_reserved, neg_bp_peak_reserved]
-                    if value is not None
-                ]
-                self.last_backward_cmp_peak_alloc_bytes = (
-                    max(cmp_alloc_peaks) if cmp_alloc_peaks else None
-                )
-                self.last_backward_cmp_peak_reserved_bytes = (
-                    max(cmp_reserved_peaks) if cmp_reserved_peaks else None
-                )
-                self.last_backward_cmp_time_ms = float(
-                    (pos_bp_time_ms or 0.0) + (neg_bp_time_ms or 0.0)
-                )
-                if pos_weight_grad is not None:
-                    pos_cos_sim = torch.cosine_similarity(
-                        pos_autograd_grad.flatten(),
-                        -pos_weight_grad.flatten(),
-                        dim=0,
-                    ).detach().cpu().item()
-                if neg_weight_grad is not None:
-                    neg_cos_sim = torch.cosine_similarity(
-                        neg_autograd_grad.flatten(),
-                        -neg_weight_grad.flatten(),
-                        dim=0,
-                    ).detach().cpu().item()
         else:
             (
                 pos_input_spike_sum_unfold,

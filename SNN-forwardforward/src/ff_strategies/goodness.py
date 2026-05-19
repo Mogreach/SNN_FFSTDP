@@ -10,8 +10,14 @@ import torch
 GOODNESS_AUTO = "auto"
 GOODNESS_SQUARE = "square"
 GOODNESS_SQUARE_MEAN = "square_mean"
-GOODNESS_SIGNED_SQUARE_MEAN = "signed_square_mean"
 GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN = "membrane_potential_square_mean"
+
+_LEGACY_GOODNESS_ALIASES = {
+    # Spike frequencies in the current code path are non-negative, so the old
+    # signed variant is equivalent to square_mean and can be treated as a
+    # backward-compatible alias.
+    "signed_square_mean": GOODNESS_SQUARE_MEAN,
+}
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,7 @@ def resolve_goodness_strategy_name(
 ) -> str:
     if strategy_name in (None, "", GOODNESS_AUTO):
         return default_strategy_name
+    strategy_name = _LEGACY_GOODNESS_ALIASES.get(strategy_name, strategy_name)
     if strategy_name not in _GOODNESS_REGISTRY:
         raise ValueError(
             "Unknown goodness strategy="
@@ -98,13 +105,6 @@ def _square_mean_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
     return (T * freq).pow(2).flatten(1).mean(1, keepdim=True)
 
 
-def _signed_square_mean_goodness(freq: torch.Tensor, T: int) -> torch.Tensor:
-    # Keeping the sign in the registry makes it easy to experiment with
-    # non-negative spike rates today and signed-rate variants later.
-    signed = T * freq.abs().pow(2) * freq.sign()
-    return signed.flatten(1).mean(1, keepdim=True)
-
-
 def _membrane_potential_square_mean_goodness(
     freq: torch.Tensor,
     T: int,
@@ -122,10 +122,6 @@ def _membrane_potential_square_mean_goodness(
 
 register_goodness_strategy(GOODNESS_SQUARE, _square_goodness)
 register_goodness_strategy(GOODNESS_SQUARE_MEAN, _square_mean_goodness)
-register_goodness_strategy(
-    GOODNESS_SIGNED_SQUARE_MEAN,
-    _signed_square_mean_goodness,
-)
 register_goodness_strategy(
     GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN,
     _membrane_potential_square_mean_goodness,

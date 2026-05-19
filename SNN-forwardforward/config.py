@@ -123,6 +123,17 @@ class ConfigParser:
             help="Update rule used by hidden layers in both supervised and unsupervised FF-SNN training.",
         )
         self.parser.add_argument(
+            "-manual_update_schedule",
+            default="separate",
+            type=str,
+            choices=["separate", "paired"],
+            help=(
+                "When hidden_layer_update_mode=manual, choose whether "
+                "unsupervised hidden layers update after each pos/neg branch "
+                "('separate') or once after both forward passes ('paired')."
+            ),
+        )
+        self.parser.add_argument(
             "-neg_sample_strategy",
             default="auto",
             type=str,
@@ -138,7 +149,7 @@ class ConfigParser:
             type=str,
             help=(
                 "Hidden-layer goodness strategy name. Built-ins include: "
-                "auto, square, square_mean, signed_square_mean, "
+                "auto, square, square_mean, "
                 "membrane_potential_square_mean."
             ),
         )

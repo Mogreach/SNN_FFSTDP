@@ -92,9 +92,10 @@ SEARCH_SPACE = {
 MODEL = "MLP"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
 DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
 LEARNING_MODE = "unsupervised"  # "unsupervised" or "supervised"
-HIDDEN_LAYER_UPDATE_MODE = "autograd"  # Hidden-layer update: "autograd" or "manual"
+HIDDEN_LAYER_UPDATE_MODE = "manual"  # Hidden-layer update: "autograd" or "manual"
+MANUAL_UPDATE_SCHEDULE = "paired"  # Manual hidden-layer update schedule: "separate" or "paired"
 NEG_SAMPLE_STRATEGY = "embed_label_onehot"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
-GOODNESS_STRATEGY = "square_mean"  # Hidden-layer goodness strategy: "auto, square, square_mean, signed_square_mean, membrane_potential_square_mean."
+GOODNESS_STRATEGY = "square_mean"  # Hidden-layer goodness strategy: "auto, square, square_mean, membrane_potential_square_mean."
 HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
@@ -104,11 +105,14 @@ DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 CAPTURE_MANUAL_GRAD_METRICS = True  # Whether to collect manual-gradient profiling stats.
 CAPTURE_AUTOGRAD_COMPARISON = True  # Whether to run extra autograd comparison branches.
 
-EPOCHS = 20  # Full epoch budget used by a complete trial.
-CSV_NOTE = f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE}"  # Free-form note written into the summary CSV.
+EPOCHS = 100  # Full epoch budget used by a complete trial.
+CSV_NOTE = (
+    f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE} "
+    f"{MANUAL_UPDATE_SCHEDULE}"
+)  # Free-form note written into the summary CSV.
 
 # Search settings shared by all strategies.
-SEARCH_STRATEGY = "bayes"  # "grid", "random", "successive_halving", or "bayes"
+SEARCH_STRATEGY = "grid"  # "grid", "random", "successive_halving", or "bayes"
 OPTIMIZE_METRIC = "val_acc_best"  # Main ranking metric, e.g. "val_acc_best" or "test_acc"
 RANDOM_SEED = 42  # Seed for random sampling / warmup candidate order.
 
@@ -128,7 +132,7 @@ BAYES_NOISE = 1e-6  # Small numerical jitter / observation noise added to stabil
 
 # Successive-halving settings.
 SUCCESSIVE_HALVING_INITIAL_CANDIDATES = None  # Optional pre-sampling size for the initial candidate set. None -> use the full set.
-SUCCESSIVE_HALVING_INITIAL_EPOCHS = 50  # Epoch budget for the first screening stage.
+SUCCESSIVE_HALVING_INITIAL_EPOCHS = 10  # Epoch budget for the first screening stage.
 SUCCESSIVE_HALVING_REDUCTION_FACTOR = 2  # After each stage keep about 1 / factor of the best candidates.
 
 # Console / report settings.
@@ -158,6 +162,7 @@ def _parse_runtime_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset", choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"])
     parser.add_argument("--learning-mode", choices=["unsupervised", "supervised"])
     parser.add_argument("--hidden-layer-update-mode", choices=["autograd", "manual"])
+    parser.add_argument("--manual-update-schedule", choices=["separate", "paired"])
     parser.add_argument("--neg-sample-strategy")
     parser.add_argument("--goodness-strategy")
     parser.add_argument("--hidden-loss-strategy")
@@ -206,6 +211,7 @@ def _load_search_space_override(args: argparse.Namespace) -> dict | None:
 
 def _apply_runtime_overrides(args: argparse.Namespace) -> None:
     global MODEL, DATASET, LEARNING_MODE, HIDDEN_LAYER_UPDATE_MODE
+    global MANUAL_UPDATE_SCHEDULE
     global NEG_SAMPLE_STRATEGY, GOODNESS_STRATEGY, HIDDEN_LOSS_STRATEGY
     global DEVICE, DATA_LOADER_WORKERS, CAPTURE_MANUAL_GRAD_METRICS
     global CAPTURE_AUTOGRAD_COMPARISON, EPOCHS, CSV_NOTE, SEARCH_STRATEGY
@@ -225,6 +231,8 @@ def _apply_runtime_overrides(args: argparse.Namespace) -> None:
         LEARNING_MODE = args.learning_mode
     if args.hidden_layer_update_mode is not None:
         HIDDEN_LAYER_UPDATE_MODE = args.hidden_layer_update_mode
+    if args.manual_update_schedule is not None:
+        MANUAL_UPDATE_SCHEDULE = args.manual_update_schedule
     if args.neg_sample_strategy is not None:
         NEG_SAMPLE_STRATEGY = args.neg_sample_strategy
     if args.goodness_strategy is not None:
@@ -281,7 +289,10 @@ def _apply_runtime_overrides(args: argparse.Namespace) -> None:
     if args.csv_note is not None:
         CSV_NOTE = args.csv_note
     else:
-        CSV_NOTE = f"{MODEL} {DATASET} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE}"
+        CSV_NOTE = (
+            f"{MODEL} {DATASET} {LEARNING_MODE} FF-STDP "
+            f"{HIDDEN_LAYER_UPDATE_MODE} {MANUAL_UPDATE_SCHEDULE}"
+        )
 
 
 def _dims_to_str(dims: list[int]) -> str:
@@ -392,6 +403,7 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
         cmd += ["-device", DEVICE]
     cmd += ["-learning_mode", LEARNING_MODE]
     cmd += ["-hidden_layer_update_mode", HIDDEN_LAYER_UPDATE_MODE]
+    cmd += ["-manual_update_schedule", MANUAL_UPDATE_SCHEDULE]
     cmd += ["-neg_sample_strategy", NEG_SAMPLE_STRATEGY]
     cmd += ["-goodness_strategy", GOODNESS_STRATEGY]
     cmd += ["-hidden_loss_strategy", HIDDEN_LOSS_STRATEGY]
@@ -690,6 +702,7 @@ def _base_row(
         "promoted": False,
         "learning_mode": LEARNING_MODE,
         "hidden_layer_update_mode": HIDDEN_LAYER_UPDATE_MODE,
+        "manual_update_schedule": MANUAL_UPDATE_SCHEDULE,
         "neg_sample_strategy": NEG_SAMPLE_STRATEGY,
         "goodness_strategy": GOODNESS_STRATEGY,
         "hidden_loss_strategy": HIDDEN_LOSS_STRATEGY,
@@ -1100,7 +1113,7 @@ def main() -> None:
     _apply_runtime_overrides(runtime_args)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     summary_name = (
-        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{DATASET}-{MODEL}-"
+        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{MANUAL_UPDATE_SCHEDULE}-{DATASET}-{MODEL}-"
         f"{SEARCH_STRATEGY}.csv"
     )
     summary_path = OUT_DIR / summary_name
@@ -1123,6 +1136,7 @@ def main() -> None:
         "promoted",
         "learning_mode",
         "hidden_layer_update_mode",
+        "manual_update_schedule",
         "neg_sample_strategy",
         "goodness_strategy",
         "hidden_loss_strategy",

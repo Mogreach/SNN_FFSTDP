@@ -38,6 +38,7 @@ class Combo:
     model: str
     learning_mode: str
     hidden_layer_update_mode: str
+    manual_update_schedule: str
 
     @property
     def key(self) -> str:
@@ -47,6 +48,7 @@ class Combo:
                 self.model,
                 self.learning_mode,
                 self.hidden_layer_update_mode,
+                self.manual_update_schedule,
             ]
         )
 
@@ -133,6 +135,7 @@ def build_search_space(dataset: str, model: str) -> dict:
 def _expected_best_path(out_dir: Path, combo: Combo, strategy: str) -> Path:
     return out_dir / (
         f"{combo.learning_mode}-{combo.hidden_layer_update_mode}-"
+        f"{combo.manual_update_schedule}-"
         f"{combo.dataset}-{combo.model}-{strategy}.best.json"
     )
 
@@ -193,6 +196,7 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
             model=row.get("model", ""),
             learning_mode=row.get("learning_mode", ""),
             hidden_layer_update_mode=row.get("hidden_layer_update_mode", ""),
+            manual_update_schedule=row.get("manual_update_schedule", "separate"),
         ).key
 
     def consider(row: dict, source: str, path: Path | None = None) -> None:
@@ -249,6 +253,7 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
             "model": model,
             "learning_mode": learning_mode,
             "hidden_layer_update_mode": hidden_layer_update_mode or "",
+            "manual_update_schedule": metrics.get("manual_update_schedule", "separate"),
             "score_metric_used": "val_acc_best",
             "score_value": metrics.get("val_acc_best", ""),
             "run_dir": str(metrics_path.parent),
@@ -340,6 +345,7 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
         "model",
         "learning_mode",
         "hidden_layer_update_mode",
+        "manual_update_schedule",
         "status",
         "score",
         "val_acc_best",
@@ -364,6 +370,7 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
                 "model": combo.model,
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
+                "manual_update_schedule": combo.manual_update_schedule,
                 "status": status,
                 "score": best.get("score_value", "") if best else "",
                 "val_acc_best": best.get("val_acc_best", "") if best else "",
@@ -383,12 +390,13 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
     with md_path.open("w", encoding="utf-8") as mf:
         mf.write("# FF-SNN HPO Batch Report\n\n")
         mf.write(f"Generated at: {generated_at}\n\n")
-        mf.write("| Dataset | Model | Learning | Update | Status | Score | Val Best | Test | Source | Run Dir |\n")
-        mf.write("|---|---|---|---|---|---:|---:|---:|---|---|\n")
+        mf.write("| Dataset | Model | Learning | Update | Manual Schedule | Status | Score | Val Best | Test | Source | Run Dir |\n")
+        mf.write("|---|---|---|---|---|---|---:|---:|---:|---|---|\n")
         for row in rows:
             mf.write(
                 "| {dataset} | {model} | {learning_mode} | {hidden_layer_update_mode} "
-                "| {status} | {score} | {val_acc_best} | {test_acc} | {source} | {run_dir} |\n".format(
+                "| {manual_update_schedule} | {status} | {score} | {val_acc_best} | "
+                "{test_acc} | {source} | {run_dir} |\n".format(
                     **row
                 )
             )
@@ -409,6 +417,8 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         combo.learning_mode,
         "--hidden-layer-update-mode",
         combo.hidden_layer_update_mode,
+        "--manual-update-schedule",
+        combo.manual_update_schedule,
         "--neg-sample-strategy",
         args.neg_sample_strategy,
         "--goodness-strategy",
@@ -436,7 +446,8 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         "--search-space-json",
         json.dumps(search_space),
         "--csv-note",
-        f"batch {combo.dataset} {combo.model} {combo.learning_mode} {combo.hidden_layer_update_mode}",
+        f"batch {combo.dataset} {combo.model} {combo.learning_mode} "
+        f"{combo.hidden_layer_update_mode} {combo.manual_update_schedule}",
     ]
     if args.device:
         cmd += ["--device", args.device]
@@ -470,6 +481,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--models", default="MLP,CNN")
     parser.add_argument("--learning-modes", default="unsupervised,supervised")
     parser.add_argument("--update-modes", default="autograd,manual")
+    parser.add_argument("--manual-update-schedule", choices=["separate", "paired"], default="separate")
     parser.add_argument("--neg-sample-strategy", default="auto")
     parser.add_argument("--goodness-strategy", default="auto")
     parser.add_argument("--hidden-loss-strategy", default="auto")
@@ -511,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     combos = [
-        Combo(dataset, model, learning_mode, update_mode)
+        Combo(dataset, model, learning_mode, update_mode, args.manual_update_schedule)
         for dataset in _split_csv(args.datasets)
         for model in _split_csv(args.models)
         for learning_mode in _split_csv(args.learning_modes)
@@ -553,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
                 "model": combo.model,
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
+                "manual_update_schedule": combo.manual_update_schedule,
                 "status": status,
                 "returncode": result.returncode,
                 "started_at": started_at,

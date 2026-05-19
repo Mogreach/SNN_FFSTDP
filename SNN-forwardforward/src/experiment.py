@@ -9,6 +9,8 @@ LEARNING_MODE_SUPERVISED = "supervised"
 
 HIDDEN_LAYER_UPDATE_AUTOGRAD = "autograd"
 HIDDEN_LAYER_UPDATE_MANUAL = "manual"
+MANUAL_UPDATE_SCHEDULE_SEPARATE = "separate"
+MANUAL_UPDATE_SCHEDULE_PAIRED = "paired"
 
 VALID_LEARNING_MODES = (
     LEARNING_MODE_UNSUPERVISED,
@@ -17,6 +19,10 @@ VALID_LEARNING_MODES = (
 VALID_HIDDEN_LAYER_UPDATE_MODES = (
     HIDDEN_LAYER_UPDATE_AUTOGRAD,
     HIDDEN_LAYER_UPDATE_MANUAL,
+)
+VALID_MANUAL_UPDATE_SCHEDULES = (
+    MANUAL_UPDATE_SCHEDULE_SEPARATE,
+    MANUAL_UPDATE_SCHEDULE_PAIRED,
 )
 
 
@@ -31,9 +37,12 @@ class ProfilingOptions:
 class ExperimentModeConfig:
     # learning_mode selects the supervised / unsupervised experiment branch,
     # while hidden_layer_update_mode selects the hidden-layer update rule that
-    # both MLP implementations support.
+    # both MLP implementations support. manual_update_schedule only matters for
+    # manual hidden-layer updates that explicitly choose when to apply the
+    # analytical gradient relative to pos/neg forward passes.
     learning_mode: str = LEARNING_MODE_UNSUPERVISED
     hidden_layer_update_mode: str = HIDDEN_LAYER_UPDATE_AUTOGRAD
+    manual_update_schedule: str = MANUAL_UPDATE_SCHEDULE_SEPARATE
     profiling: ProfilingOptions = field(default_factory=ProfilingOptions)
 
     def __post_init__(self) -> None:
@@ -43,6 +52,11 @@ class ExperimentModeConfig:
             raise ValueError(
                 "Unsupported hidden_layer_update_mode="
                 f"{self.hidden_layer_update_mode}"
+            )
+        if self.manual_update_schedule not in VALID_MANUAL_UPDATE_SCHEDULES:
+            raise ValueError(
+                "Unsupported manual_update_schedule="
+                f"{self.manual_update_schedule}"
             )
 
     @property
@@ -62,6 +76,14 @@ class ExperimentModeConfig:
         return self.hidden_layer_update_mode == HIDDEN_LAYER_UPDATE_AUTOGRAD
 
     @property
+    def uses_separate_manual_update_schedule(self) -> bool:
+        return self.manual_update_schedule == MANUAL_UPDATE_SCHEDULE_SEPARATE
+
+    @property
+    def uses_paired_manual_update_schedule(self) -> bool:
+        return self.manual_update_schedule == MANUAL_UPDATE_SCHEDULE_PAIRED
+
+    @property
     def run_name(self) -> str:
         return f"{self.learning_mode}_{self.hidden_layer_update_mode}"
 
@@ -69,6 +91,7 @@ class ExperimentModeConfig:
         return {
             "learning_mode": self.learning_mode,
             "hidden_layer_update_mode": self.hidden_layer_update_mode,
+            "manual_update_schedule": self.manual_update_schedule,
             "capture_manual_grad_metrics": self.profiling.capture_manual_grad_metrics,
             "capture_autograd_comparison": self.profiling.capture_autograd_comparison,
         }
@@ -80,6 +103,11 @@ class ExperimentModeConfig:
             args,
             "hidden_layer_update_mode",
             HIDDEN_LAYER_UPDATE_AUTOGRAD,
+        )
+        manual_update_schedule = getattr(
+            args,
+            "manual_update_schedule",
+            MANUAL_UPDATE_SCHEDULE_SEPARATE,
         )
         profiling = ProfilingOptions(
             capture_manual_grad_metrics=getattr(
@@ -96,6 +124,7 @@ class ExperimentModeConfig:
         return cls(
             learning_mode=learning_mode,
             hidden_layer_update_mode=hidden_layer_update_mode,
+            manual_update_schedule=manual_update_schedule,
             profiling=profiling,
         )
 
