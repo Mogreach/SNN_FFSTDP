@@ -149,8 +149,10 @@ class ConfigParser:
             type=str,
             help=(
                 "Hidden-layer goodness strategy name. Built-ins include: "
-                "auto, square, square_mean, "
-                "membrane_potential_square_mean."
+                "auto, spike_square, spike_square_mean, "
+                "freq_square, freq_square_mean, "
+                "membrane_potential_square_mean. "
+                "Legacy aliases: square, square_mean."
             ),
         )
         self.parser.add_argument(

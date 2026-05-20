@@ -1,10 +1,19 @@
 from src.ff_strategies.goodness import (
     GOODNESS_AUTO,
     GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN,
+    GOODNESS_FREQ_SQUARE,
+    GOODNESS_FREQ_SQUARE_MEAN,
+    GOODNESS_SPIKE_SQUARE,
+    GOODNESS_SPIKE_SQUARE_MEAN,
     compute_goodness,
     list_goodness_strategies,
+    prepare_manual_goodness_activity,
+    prepare_manual_goodness_input_gradient,
     register_goodness_strategy,
     resolve_goodness_strategy_name,
+    resolve_goodness_strategy_spec,
+    supports_manual_goodness_activity,
+    supports_manual_goodness_gradient,
 )
 from src.ff_strategies.negative_sampling import (
     NEG_SAMPLE_AUTO,
@@ -24,7 +33,11 @@ from src.ff_strategies.objectives import (
 
 __all__ = [
     "GOODNESS_AUTO",
+    "GOODNESS_FREQ_SQUARE",
+    "GOODNESS_FREQ_SQUARE_MEAN",
     "GOODNESS_MEMBRANE_POTENTIAL_SQUARE_MEAN",
+    "GOODNESS_SPIKE_SQUARE",
+    "GOODNESS_SPIKE_SQUARE_MEAN",
     "HIDDEN_LOSS_AUTO",
     "NEG_SAMPLE_AUTO",
     "NEG_SAMPLE_GLOBAL_FOURIER_LABEL",
@@ -34,12 +47,17 @@ __all__ = [
     "list_goodness_strategies",
     "list_hidden_loss_strategies",
     "list_negative_sampling_strategies",
+    "prepare_manual_goodness_activity",
+    "prepare_manual_goodness_input_gradient",
     "register_goodness_strategy",
     "register_hidden_loss_strategy",
     "register_negative_sampling_strategy",
     "resolve_goodness_strategy_name",
+    "resolve_goodness_strategy_spec",
     "resolve_hidden_loss_strategy_name",
     "resolve_negative_sampling_strategy_name",
+    "supports_manual_goodness_activity",
+    "supports_manual_goodness_gradient",
 ]
 
 # Import the local customization template for optional side-effect

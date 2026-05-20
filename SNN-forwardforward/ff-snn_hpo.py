@@ -95,7 +95,7 @@ LEARNING_MODE = "unsupervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "manual"  # Hidden-layer update: "autograd" or "manual"
 MANUAL_UPDATE_SCHEDULE = "paired"  # Manual hidden-layer update schedule: "separate" or "paired"
 NEG_SAMPLE_STRATEGY = "embed_label_onehot"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
-GOODNESS_STRATEGY = "square_mean"  # Hidden-layer goodness strategy: "auto, square, square_mean, membrane_potential_square_mean."
+GOODNESS_STRATEGY = "spike_square_mean"  # Hidden-layer goodness strategy: "auto, spike_square, spike_square_mean, freq_square, freq_square_mean, membrane_potential_square_mean". Legacy aliases: "square", "square_mean".
 HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
@@ -1108,14 +1108,19 @@ def _write_best_result(summary_path: Path, ranked_records: list[dict]) -> None:
         )
 
 
+def _summary_stem() -> str:
+    return (
+        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{MANUAL_UPDATE_SCHEDULE}-"
+        f"{NEG_SAMPLE_STRATEGY}-{GOODNESS_STRATEGY}-{HIDDEN_LOSS_STRATEGY}-"
+        f"{DATASET}-{MODEL}-{SEARCH_STRATEGY}"
+    )
+
+
 def main() -> None:
     runtime_args = _parse_runtime_args()
     _apply_runtime_overrides(runtime_args)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    summary_name = (
-        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{MANUAL_UPDATE_SCHEDULE}-{DATASET}-{MODEL}-"
-        f"{SEARCH_STRATEGY}.csv"
-    )
+    summary_name = f"{_summary_stem()}.csv"
     summary_path = OUT_DIR / summary_name
 
     fieldnames = [

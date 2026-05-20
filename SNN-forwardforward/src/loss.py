@@ -50,7 +50,7 @@ def _expand_derivative_to_match_activity(derivative, activity):
 
 def gradient_calculation_mlp(
     input_spike_sum,
-    out_freq,
+    goodness_input_gradient,
     goodness,
     ln_var,
     ln_mean,
@@ -66,7 +66,7 @@ def gradient_calculation_mlp(
         else neg_derivative(goodness, loss_threshold)
     )
     loss = ff_goodness_branch_loss(goodness, loss_threshold, is_pos=is_pos)
-    L_to_s_grad = 2 * out_freq * derivative
+    L_to_s_grad = goodness_input_gradient * derivative
     L_to_s_grad = L_to_s_grad.transpose(0, 1)
     weight_grad = -1 * L_to_s_grad @ input_spike_sum / N
     return weight_grad, loss
@@ -74,12 +74,12 @@ def gradient_calculation_mlp(
 
 def pairwise_loss_gradient_calculation_mlp(
     pos_input_spike_sum,
-    pos_out_freq,
+    pos_goodness_input_gradient,
     pos_goodness,
     pos_ln_var,
     pos_ln_mean,
     neg_input_spike_sum,
-    neg_out_freq,
+    neg_goodness_input_gradient,
     neg_goodness,
     neg_ln_var,
     neg_ln_mean,
@@ -88,11 +88,15 @@ def pairwise_loss_gradient_calculation_mlp(
     N,
 ):
     del pos_ln_var, pos_ln_mean, neg_ln_var, neg_ln_mean, v_threshold
-    pos_L_to_s_grad = 2 * pos_out_freq * pos_derivative(pos_goodness, threshold)
+    pos_L_to_s_grad = (
+        pos_goodness_input_gradient * pos_derivative(pos_goodness, threshold)
+    )
     pos_L_to_s_grad = pos_L_to_s_grad.transpose(0, 1)
     pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
 
-    neg_L_to_s_grad = 2 * neg_out_freq * neg_derivative(neg_goodness, threshold)
+    neg_L_to_s_grad = (
+        neg_goodness_input_gradient * neg_derivative(neg_goodness, threshold)
+    )
     neg_L_to_s_grad = neg_L_to_s_grad.transpose(0, 1)
     neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
 
@@ -106,12 +110,12 @@ def pairwise_loss_gradient_calculation_mlp(
 
 def delta_loss_gradient_calculation_mlp(
     pos_input_spike_sum,
-    pos_out_freq,
+    pos_goodness_input_gradient,
     pos_goodness,
     pos_ln_var,
     pos_ln_mean,
     neg_input_spike_sum,
-    neg_out_freq,
+    neg_goodness_input_gradient,
     neg_goodness,
     neg_ln_var,
     neg_ln_mean,
@@ -121,11 +125,11 @@ def delta_loss_gradient_calculation_mlp(
 ):
     del pos_ln_var, pos_ln_mean, neg_ln_var, neg_ln_mean, v_threshold
     delta = alpha * (pos_goodness - neg_goodness)
-    pos_L_to_s_grad = alpha * pos_derivative(delta, 0) * 2 * pos_out_freq
+    pos_L_to_s_grad = alpha * pos_derivative(delta, 0) * pos_goodness_input_gradient
     pos_L_to_s_grad = pos_L_to_s_grad.transpose(0, 1)
     pos_weight_grad = -1 * pos_L_to_s_grad @ pos_input_spike_sum / N
 
-    neg_L_to_s_grad = -alpha * pos_derivative(delta, 0) * 2 * neg_out_freq
+    neg_L_to_s_grad = -alpha * pos_derivative(delta, 0) * neg_goodness_input_gradient
     neg_L_to_s_grad = neg_L_to_s_grad.transpose(0, 1)
     neg_weight_grad = -1 * neg_L_to_s_grad @ neg_input_spike_sum / N
 
@@ -139,7 +143,7 @@ def delta_loss_gradient_calculation_mlp(
 
 def gradient_calculation_cnn(
     input_spike_sum_unfold,
-    out_freq,
+    goodness_input_gradient,
     goodness,
     ln_var,
     ln_mean,
@@ -155,9 +159,9 @@ def gradient_calculation_cnn(
         if is_pos
         else neg_derivative(goodness, loss_threshold)
     )
-    derivative = _expand_derivative_to_match_activity(derivative, out_freq)
+    derivative = _expand_derivative_to_match_activity(derivative, goodness_input_gradient)
     loss = ff_goodness_branch_loss(goodness, loss_threshold, is_pos=is_pos)
-    L_to_s_grad = 2 * out_freq * derivative * (
+    L_to_s_grad = goodness_input_gradient * derivative * (
         v_threshold / torch.sqrt(ln_var.view(B, 1, 1, 1) + 1e-5)
     )
     L_to_s_grad = L_to_s_grad.view(B, Cout, -1)
@@ -168,12 +172,12 @@ def gradient_calculation_cnn(
 
 def pairwise_loss_gradient_calculation_cnn(
     pos_input_spike_sum_unfold,
-    pos_out_freq,
+    pos_goodness_input_gradient,
     pos_goodness,
     pos_ln_var,
     pos_ln_mean,
     neg_input_spike_sum_unfold,
-    neg_out_freq,
+    neg_goodness_input_gradient,
     neg_goodness,
     neg_ln_var,
     neg_ln_mean,
@@ -185,9 +189,9 @@ def pairwise_loss_gradient_calculation_cnn(
     del pos_ln_mean, neg_ln_mean
     pos_derivative_value = _expand_derivative_to_match_activity(
         pos_derivative(pos_goodness, threshold),
-        pos_out_freq,
+        pos_goodness_input_gradient,
     )
-    pos_L_to_s_grad = 2 * pos_out_freq * pos_derivative_value * (
+    pos_L_to_s_grad = pos_goodness_input_gradient * pos_derivative_value * (
         v_threshold / torch.sqrt(pos_ln_var.view(B, 1, 1, 1) + 1e-5)
     )
     pos_L_to_s_grad = pos_L_to_s_grad.view(B, Cout, -1)
@@ -196,9 +200,9 @@ def pairwise_loss_gradient_calculation_cnn(
 
     neg_derivative_value = _expand_derivative_to_match_activity(
         neg_derivative(neg_goodness, threshold),
-        neg_out_freq,
+        neg_goodness_input_gradient,
     )
-    neg_L_to_s_grad = 2 * neg_out_freq * neg_derivative_value * (
+    neg_L_to_s_grad = neg_goodness_input_gradient * neg_derivative_value * (
         v_threshold / torch.sqrt(neg_ln_var.view(B, 1, 1, 1) + 1e-5)
     )
     neg_L_to_s_grad = neg_L_to_s_grad.view(B, Cout, -1)
@@ -215,12 +219,12 @@ def pairwise_loss_gradient_calculation_cnn(
 
 def delta_loss_gradient_calculation_cnn(
     pos_input_spike_sum_unfold,
-    pos_out_freq,
+    pos_goodness_input_gradient,
     pos_goodness,
     pos_ln_var,
     pos_ln_mean,
     neg_input_spike_sum_unfold,
-    neg_out_freq,
+    neg_goodness_input_gradient,
     neg_goodness,
     neg_ln_var,
     neg_ln_mean,
@@ -233,16 +237,16 @@ def delta_loss_gradient_calculation_cnn(
     delta = alpha * (pos_goodness - neg_goodness)
     delta_derivative = _expand_derivative_to_match_activity(
         pos_derivative(delta, 0),
-        pos_out_freq,
+        pos_goodness_input_gradient,
     )
-    pos_L_to_s_grad = alpha * delta_derivative * 2 * pos_out_freq * (
+    pos_L_to_s_grad = alpha * delta_derivative * pos_goodness_input_gradient * (
         v_threshold / torch.sqrt(pos_ln_var.view(B, 1, 1, 1) + 1e-5)
     )
     pos_L_to_s_grad = pos_L_to_s_grad.view(B, Cout, -1)
     pos_L_to_s_grad = pos_L_to_s_grad.permute(1, 0, 2).reshape(Cout, -1)
     pos_weight_grad = -1 * (pos_L_to_s_grad @ pos_input_spike_sum_unfold.T) / B
 
-    neg_L_to_s_grad = -alpha * delta_derivative * 2 * neg_out_freq * (
+    neg_L_to_s_grad = -alpha * delta_derivative * neg_goodness_input_gradient * (
         v_threshold / torch.sqrt(neg_ln_var.view(B, 1, 1, 1) + 1e-5)
     )
     neg_L_to_s_grad = neg_L_to_s_grad.view(B, Cout, -1)

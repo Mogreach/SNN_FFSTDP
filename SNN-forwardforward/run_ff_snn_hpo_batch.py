@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import datetime as dt
 import json
@@ -11,26 +12,272 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.cnn_models.common import is_cnn_family_model
 
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
 HPO_SCRIPT = ROOT / "ff-snn_hpo.py"
 DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch"
 
-DATASET_INPUT_DIMS = {
-    "MNIST": 784,
-    "FashionMNIST": 784,
-    "NMNIST": 2 * 34 * 34,
-    "CIFAR10": 3 * 32 * 32,
-}
-DATASET_CHANNELS = {
-    "MNIST": 1,
-    "FashionMNIST": 1,
-    "NMNIST": 2,
-    "CIFAR10": 3,
+
+# ---------------------------------------------------------------------------
+# Search-space presets
+# ---------------------------------------------------------------------------
+# Edit the discrete HPO ranges here. The structure is intentionally explicit:
+# first choose the model family group, then the dataset, then update the lists.
+# This keeps the searchable ranges in one obvious place instead of scattering
+# them across helper functions.
+SEARCH_SPACE_PRESETS = {
+    "MLP": {
+        "MNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "dims": [
+                [784, 512, 512, 10],
+                [784, 512, 10],
+                [784, 256, 10],
+            ],
+        },
+        "FashionMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "dims": [
+                [784, 512, 512, 10],
+                [784, 512, 10],
+                [784, 256, 10],
+            ],
+        },
+        "NMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "dims": [
+                [2 * 34 * 34, 512, 512, 10],
+                [2 * 34 * 34, 512, 10],
+                [2 * 34 * 34, 256, 10],
+            ],
+        },
+        "CIFAR10": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "dims": [
+                [3 * 32 * 32, 1024, 512, 10],
+                [3 * 32 * 32, 1024, 10],
+                [3 * 32 * 32, 512, 10],
+            ],
+        },
+    },
+    "CNN": {
+        "MNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [1024],
+            "T": [8],
+            "lr": [0.001],
+            "conv_cfg": [
+                [[1, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
+                [[1, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
+                [
+                    [1, 32, 3, 1, 1],
+                    [32, 64, 3, 1, 1],
+                    [64, 128, 3, 1, 1],
+                    [128, 256, 3, 1, 1],
+                ],
+            ],
+        },
+        "FashionMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "conv_cfg": [
+                [[1, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
+                [[1, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
+                [
+                    [1, 32, 3, 1, 1],
+                    [32, 64, 3, 1, 1],
+                    [64, 128, 3, 1, 1],
+                    [128, 256, 3, 1, 1],
+                ],
+            ],
+        },
+        "NMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "conv_cfg": [
+                [[2, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
+                [[2, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
+                [
+                    [2, 32, 3, 1, 1],
+                    [32, 64, 3, 1, 1],
+                    [64, 128, 3, 1, 1],
+                    [128, 256, 3, 1, 1],
+                ],
+            ],
+        },
+        "CIFAR10": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+            "conv_cfg": [
+                [[3, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
+                [[3, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
+                [
+                    [3, 32, 3, 1, 1],
+                    [32, 64, 3, 1, 1],
+                    [64, 128, 3, 1, 1],
+                    [128, 256, 3, 1, 1],
+                ],
+            ],
+        },
+    },
+    "CNN_FAMILY": {
+        "MNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+        },
+        "FashionMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+        },
+        "NMNIST": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+        },
+        "CIFAR10": {
+            "loss_threshold": [0.4, 1.2, 2.0],
+            "v_threshold": [1.5],
+            "b": [512],
+            "T": [16],
+            "lr": [0.0078125, 0.0009765625],
+        },
+    },
 }
 
+
+VALID_DATASETS = tuple(SEARCH_SPACE_PRESETS["MLP"].keys())
+VALID_MODELS = ("MLP", "CNN", "VGG6", "VGG8", "VGG11", "ResNet")
+VALID_LEARNING_MODES = ("unsupervised", "supervised")
+VALID_UPDATE_MODES = ("autograd", "manual")
+VALID_MANUAL_UPDATE_SCHEDULES = ("separate", "paired")
+VALID_NEG_SAMPLE_STRATEGIES = (
+    "auto",
+    "embed_label_onehot",
+    "embed_zero_onehot",
+    "SCFF",
+    "global_fourier_label",
+)
+VALID_GOODNESS_STRATEGIES = (
+    "auto",
+    "spike_square",
+    "spike_square_mean",
+    "freq_square",
+    "freq_square_mean",
+    "membrane_potential_square_mean",
+    "square",
+    "square_mean",
+)
+VALID_HIDDEN_LOSS_STRATEGIES = (
+    "auto",
+    "pairwise_goodness",
+    "supervised_delta",
+    "scaled_supervised_delta",
+)
+
+CNN_FAMILY_MODELS = {"VGG6", "VGG8", "VGG11", "ResNet"}
+DEFAULT_AUTOGRAD_MANUAL_SCHEDULE = "separate"
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Sequentially run FF-SNN HPO over dataset/model and experiment "
+            "strategy combinations."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--datasets", default="MNIST,FashionMNIST,NMNIST,CIFAR10")
+    parser.add_argument("--exclude-datasets", default="FashionMNIST,NMNIST")
+    parser.add_argument("--models", default="MLP,CNN")
+    parser.add_argument("--exclude-models", default="")
+    parser.add_argument("--learning-modes", default="unsupervised,supervised")
+    parser.add_argument("--exclude-learning-modes", default="")
+    parser.add_argument("--update-modes", default="autograd,manual")
+    parser.add_argument("--exclude-update-modes", default="")
+    parser.add_argument("--manual-update-schedules", default="separate,paired")
+    parser.add_argument("--exclude-manual-update-schedules", default="")
+    parser.add_argument("--neg-sample-strategies", default="embed_label_onehot,SCFF")
+    parser.add_argument("--exclude-neg-sample-strategies", default="")
+    parser.add_argument("--goodness-strategies", default="spike_square_mean,freq_square_mean")
+    parser.add_argument("--exclude-goodness-strategies", default="")
+    parser.add_argument("--hidden-loss-strategies", default="pairwise_goodness,supervised_delta")
+    parser.add_argument("--exclude-hidden-loss-strategies", default="")
+
+    # Backward-compatible single-value aliases.
+    parser.add_argument("--manual-update-schedule", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--neg-sample-strategy", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--goodness-strategy", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--hidden-loss-strategy", default=None, help=argparse.SUPPRESS)
+
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument(
+        "--search-strategy",
+        choices=["grid", "random", "successive_halving", "bayes"],
+        default="successive_halving",
+    )
+    parser.add_argument("--optimize-metric", default="val_acc_best")
+    parser.add_argument("--random-seed", type=int, default=42)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--device")
+    parser.add_argument("--bayes-max-trials", type=int, default=10)
+    parser.add_argument("--bayes-init-random-trials", type=int, default=4)
+    parser.add_argument("--bayes-acquisition", choices=["ucb", "ei"], default="ucb")
+    parser.add_argument("--random-search-trials", type=int, default=16)
+    parser.add_argument("--successive-halving-initial-epochs", type=int, default=10)
+    parser.add_argument("--successive-halving-reduction-factor", type=int, default=2)
+    parser.add_argument("--capture-manual-grad-metrics", action="store_true")
+    parser.add_argument("--capture-autograd-comparison", action="store_true")
+    parser.add_argument("--require-cuda", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rerun combinations even if a .best.json already exists.",
+    )
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="Only rebuild batch_report.md and batch_summary.csv from existing results.",
+    )
+    parser.add_argument("--limit", type=int, help="Run only the first N combinations.")
+    parser.add_argument("--top-k-to-print", type=int, default=5)
+    args = parser.parse_args(argv)
+    _apply_legacy_axis_aliases(args)
+    return args
 
 @dataclass(frozen=True)
 class Combo:
@@ -39,6 +286,9 @@ class Combo:
     learning_mode: str
     hidden_layer_update_mode: str
     manual_update_schedule: str
+    neg_sample_strategy: str
+    goodness_strategy: str
+    hidden_loss_strategy: str
 
     @property
     def key(self) -> str:
@@ -49,6 +299,24 @@ class Combo:
                 self.learning_mode,
                 self.hidden_layer_update_mode,
                 self.manual_update_schedule,
+                self.neg_sample_strategy,
+                self.goodness_strategy,
+                self.hidden_loss_strategy,
+            ]
+        )
+
+    def summary_stem(self, search_strategy: str) -> str:
+        return "-".join(
+            [
+                self.learning_mode,
+                self.hidden_layer_update_mode,
+                self.manual_update_schedule,
+                self.neg_sample_strategy,
+                self.goodness_strategy,
+                self.hidden_loss_strategy,
+                self.dataset,
+                self.model,
+                search_strategy,
             ]
         )
 
@@ -57,96 +325,76 @@ def _split_csv(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _mlp_dims(dataset: str) -> list[list[int]]:
-    input_dim = DATASET_INPUT_DIMS[dataset]
-    if dataset == "CIFAR10":
-        return [
-            [input_dim, 1024, 512, 10],
-            [input_dim, 1024, 10],
-            [input_dim, 512, 10],
-        ]
-    if dataset == "NMNIST":
-        return [
-            [input_dim, 512, 512, 10],
-            [input_dim, 512, 10],
-            [input_dim, 256, 10],
-        ]
-    return [
-        [input_dim, 512, 512, 10],
-        [input_dim, 512, 10],
-        [input_dim, 256, 10],
+def _apply_legacy_axis_aliases(args: argparse.Namespace) -> None:
+    # Keep older one-value flags working while the batch runner moves to
+    # include/exclude style plural flags.
+    alias_pairs = [
+        ("manual_update_schedules", "manual_update_schedule"),
+        ("neg_sample_strategies", "neg_sample_strategy"),
+        ("goodness_strategies", "goodness_strategy"),
+        ("hidden_loss_strategies", "hidden_loss_strategy"),
     ]
+    for plural_attr, legacy_attr in alias_pairs:
+        legacy_value = getattr(args, legacy_attr, None)
+        if legacy_value:
+            setattr(args, plural_attr, legacy_value)
 
 
-def _conv_cfgs(dataset: str) -> list[list[list[int]]]:
-    in_ch = DATASET_CHANNELS[dataset]
-    return [
-        [
-            [in_ch, 16, 3, 1, 1],
-            [16, 32, 3, 1, 1],
-            [32, 64, 3, 1, 1],
-        ],
-        [
-            [in_ch, 32, 3, 1, 1],
-            [32, 64, 3, 1, 1],
-            [64, 128, 3, 1, 1],
-        ],
-        [
-            [in_ch, 32, 3, 1, 1],
-            [32, 64, 3, 1, 1],
-            [64, 128, 3, 1, 1],
-            [128, 256, 3, 1, 1],
-        ],
-    ]
+def _select_axis_values(
+    include_csv: str,
+    exclude_csv: str,
+    valid_values: tuple[str, ...],
+    axis_name: str,
+) -> list[str]:
+    selected = _split_csv(include_csv) if include_csv else list(valid_values)
+    excluded = set(_split_csv(exclude_csv))
+    unknown_selected = sorted(set(selected) - set(valid_values))
+    unknown_excluded = sorted(excluded - set(valid_values))
+    if unknown_selected:
+        raise ValueError(
+            f"Unsupported {axis_name} values: {unknown_selected}. "
+            f"Valid choices: {list(valid_values)}"
+        )
+    if unknown_excluded:
+        raise ValueError(
+            f"Unsupported excluded {axis_name} values: {unknown_excluded}. "
+            f"Valid choices: {list(valid_values)}"
+        )
+    filtered = [value for value in selected if value not in excluded]
+    if not filtered:
+        raise ValueError(f"No values left for axis {axis_name} after exclusion.")
+    return filtered
 
 
-def _uses_dims_search(model_name: str) -> bool:
-    return model_name == "MLP"
-
-
-def _uses_conv_cfg_search(model_name: str) -> bool:
-    return model_name == "CNN"
+def _search_space_group(model: str) -> str:
+    if model == "MLP":
+        return "MLP"
+    if model == "CNN":
+        return "CNN"
+    if model in CNN_FAMILY_MODELS:
+        return "CNN_FAMILY"
+    raise ValueError(f"Unsupported model in batch HPO: {model}")
 
 
 def build_search_space(dataset: str, model: str) -> dict:
-    event_dataset = dataset == "NMNIST"
-    larger_input = dataset in {"NMNIST", "CIFAR10"}
-    search_space = {
-        "loss_threshold": [0.4, 0.8, 1.2, 1.5, 2.0],
-        "v_threshold": [1.0, 1.2],
-        "T": [20, 32] if event_dataset else [8, 16, 32],
-        "lr": [0.0078125, 0.00390625, 0.001953125, 0.0009765625],
-    }
-    if _uses_dims_search(model):
-        search_space["b"] = [128, 256, 512] if larger_input else [256, 512, 1024]
-        search_space["dims"] = _mlp_dims(dataset)
-    elif _uses_conv_cfg_search(model):
-        search_space["b"] = [64, 128, 256] if larger_input else [128, 256, 512]
-        search_space["conv_cfg"] = _conv_cfgs(dataset)
-    elif is_cnn_family_model(model):
-        # Predefined CNN families own their structure internally, so HPO only
-        # needs the shared optimization hyperparameters.
-        search_space["b"] = [64, 128, 256] if larger_input else [128, 256, 512]
-    else:
-        raise ValueError(f"Unsupported model in batch HPO: {model}")
-    return search_space
+    group = _search_space_group(model)
+    try:
+        return copy.deepcopy(SEARCH_SPACE_PRESETS[group][dataset])
+    except KeyError as exc:
+        raise ValueError(
+            f"Missing search-space preset for group={group} dataset={dataset}"
+        ) from exc
 
 
-def _expected_best_path(out_dir: Path, combo: Combo, strategy: str) -> Path:
-    return out_dir / (
-        f"{combo.learning_mode}-{combo.hidden_layer_update_mode}-"
-        f"{combo.manual_update_schedule}-"
-        f"{combo.dataset}-{combo.model}-{strategy}.best.json"
-    )
+def _expected_best_path(out_dir: Path, combo: Combo, search_strategy: str) -> Path:
+    return out_dir / f"{combo.summary_stem(search_strategy)}.best.json"
 
 
 def _runtime_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
-    env.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
-    Path(env["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
-    Path(env["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
-    return env
+    # Keep the batch runner side-effect free with respect to project-local
+    # cache directories. If callers want custom cache paths they can still set
+    # MPLCONFIGDIR / XDG_CACHE_HOME in the shell before launching the script.
+    return os.environ.copy()
 
 
 def _torch_cuda_available() -> bool:
@@ -178,44 +426,62 @@ def _append_run_record(path: Path, record: dict) -> None:
         wf.write("\n")
 
 
+def _score_of_row(row: dict) -> float:
+    for key in ("score_value", "val_acc_best", "test_acc"):
+        try:
+            return float(row.get(key, ""))
+        except (TypeError, ValueError):
+            continue
+    return float("-inf")
+
+
+def _combo_from_row(row: dict) -> Combo | None:
+    dataset = row.get("dataset", "")
+    model = row.get("model", "")
+    learning_mode = row.get("learning_mode", "")
+    hidden_layer_update_mode = row.get("hidden_layer_update_mode", "")
+    if not all([dataset, model, learning_mode, hidden_layer_update_mode]):
+        return None
+    return Combo(
+        dataset=dataset,
+        model=model,
+        learning_mode=learning_mode,
+        hidden_layer_update_mode=hidden_layer_update_mode,
+        manual_update_schedule=row.get(
+            "manual_update_schedule",
+            DEFAULT_AUTOGRAD_MANUAL_SCHEDULE,
+        ),
+        neg_sample_strategy=row.get("neg_sample_strategy", "auto"),
+        goodness_strategy=row.get("goodness_strategy", "auto"),
+        hidden_loss_strategy=row.get("hidden_loss_strategy", "auto"),
+    )
+
+
+def _remember_best_row(
+    best_by_key: dict[str, dict],
+    row: dict,
+    *,
+    source: str,
+    path: Path | None = None,
+) -> None:
+    combo = _combo_from_row(row)
+    if combo is None:
+        return
+    candidate = dict(row)
+    candidate["_source"] = source
+    candidate["_best_json"] = str(path) if path is not None and source == "best_json" else ""
+    current = best_by_key.get(combo.key)
+    if current is None or _score_of_row(candidate) > _score_of_row(current):
+        best_by_key[combo.key] = candidate
+
+
 def _load_best_results(out_dir: Path) -> dict[str, dict]:
-    best_by_key = {}
-
-    def score_of(row: dict) -> float:
-        for key in ("score_value", "val_acc_best", "test_acc"):
-            try:
-                value = float(row.get(key, ""))
-            except (TypeError, ValueError):
-                continue
-            return value
-        return float("-inf")
-
-    def key_of(row: dict) -> str:
-        return Combo(
-            dataset=row.get("dataset", ""),
-            model=row.get("model", ""),
-            learning_mode=row.get("learning_mode", ""),
-            hidden_layer_update_mode=row.get("hidden_layer_update_mode", ""),
-            manual_update_schedule=row.get("manual_update_schedule", "separate"),
-        ).key
-
-    def consider(row: dict, source: str, path: Path | None = None) -> None:
-        key = key_of(row)
-        if key == "|||":
-            return
-        row["_source"] = source
-        if path is not None and source == "best_json":
-            row["_best_json"] = str(path)
-        else:
-            row.setdefault("_best_json", "")
-        current = best_by_key.get(key)
-        if current is None or score_of(row) > score_of(current):
-            best_by_key[key] = row
+    best_by_key: dict[str, dict] = {}
 
     for best_path in sorted(out_dir.glob("*.best.json")):
         with best_path.open("r", encoding="utf-8") as bf:
             row = json.load(bf)
-        consider(row, "best_json", best_path)
+        _remember_best_row(best_by_key, row, source="best_json", path=best_path)
 
     for summary_path in sorted(out_dir.glob("*.csv")):
         if summary_path.name == "batch_summary.csv" or summary_path.stat().st_size == 0:
@@ -223,11 +489,9 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
         with summary_path.open("r", newline="", encoding="utf-8") as sf:
             reader = csv.DictReader(sf)
             for row in reader:
-                if row.get("status") != "ok":
+                if row.get("status") != "ok" or not row.get("score_value"):
                     continue
-                if not row.get("score_value"):
-                    continue
-                consider(row, "summary_csv", summary_path)
+                _remember_best_row(best_by_key, row, source="summary_csv", path=summary_path)
 
     for metrics_path in sorted(out_dir.rglob("metrics.json")):
         try:
@@ -237,7 +501,7 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
         if len(rel_parts) < 7:
             continue
         learning_mode, dataset, model, run_name = rel_parts[:4]
-        if learning_mode not in {"unsupervised", "supervised"}:
+        if learning_mode not in VALID_LEARNING_MODES:
             continue
         try:
             with metrics_path.open("r", encoding="utf-8") as mf:
@@ -253,7 +517,13 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
             "model": model,
             "learning_mode": learning_mode,
             "hidden_layer_update_mode": hidden_layer_update_mode or "",
-            "manual_update_schedule": metrics.get("manual_update_schedule", "separate"),
+            "manual_update_schedule": metrics.get(
+                "manual_update_schedule",
+                DEFAULT_AUTOGRAD_MANUAL_SCHEDULE,
+            ),
+            "neg_sample_strategy": metrics.get("neg_sample_strategy", "auto"),
+            "goodness_strategy": metrics.get("goodness_strategy", "auto"),
+            "hidden_loss_strategy": metrics.get("hidden_loss_strategy", "auto"),
             "score_metric_used": "val_acc_best",
             "score_value": metrics.get("val_acc_best", ""),
             "run_dir": str(metrics_path.parent),
@@ -269,7 +539,8 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
         if args_path.exists():
             args_text = args_path.read_text(encoding="utf-8", errors="replace")
             row.update(_extract_args_metadata(args_text))
-        consider(row, "metrics_json", metrics_path)
+        _remember_best_row(best_by_key, row, source="metrics_json", path=metrics_path)
+
     return best_by_key
 
 
@@ -326,9 +597,9 @@ def _compact_params(row: dict) -> str:
         f"loss={row.get('loss_threshold', '')}",
         f"v={row.get('v_threshold', '')}",
     ]
-    if _uses_dims_search(row.get("model", "")) and row.get("dims"):
+    if row.get("dims"):
         parts.append(f"dims={row['dims']}")
-    if _uses_conv_cfg_search(row.get("model", "")) and row.get("conv_cfg"):
+    if row.get("conv_cfg"):
         parts.append(f"conv={row['conv_cfg']}")
     return "; ".join(parts)
 
@@ -346,6 +617,9 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
         "learning_mode",
         "hidden_layer_update_mode",
         "manual_update_schedule",
+        "neg_sample_strategy",
+        "goodness_strategy",
+        "hidden_loss_strategy",
         "status",
         "score",
         "val_acc_best",
@@ -371,6 +645,9 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
                 "manual_update_schedule": combo.manual_update_schedule,
+                "neg_sample_strategy": combo.neg_sample_strategy,
+                "goodness_strategy": combo.goodness_strategy,
+                "hidden_loss_strategy": combo.hidden_loss_strategy,
                 "status": status,
                 "score": best.get("score_value", "") if best else "",
                 "val_acc_best": best.get("val_acc_best", "") if best else "",
@@ -390,18 +667,32 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
     with md_path.open("w", encoding="utf-8") as mf:
         mf.write("# FF-SNN HPO Batch Report\n\n")
         mf.write(f"Generated at: {generated_at}\n\n")
-        mf.write("| Dataset | Model | Learning | Update | Manual Schedule | Status | Score | Val Best | Test | Source | Run Dir |\n")
-        mf.write("|---|---|---|---|---|---|---:|---:|---:|---|---|\n")
+        mf.write(
+            "| Dataset | Model | Learning | Update | Manual Schedule | "
+            "Neg Sample | Goodness | Hidden Loss | Status | Score | Val Best | "
+            "Test | Source | Run Dir |\n"
+        )
+        mf.write(
+            "|---|---|---|---|---|---|---|---|---|---:|---:|---:|---|---|\n"
+        )
         for row in rows:
             mf.write(
-                "| {dataset} | {model} | {learning_mode} | {hidden_layer_update_mode} "
-                "| {manual_update_schedule} | {status} | {score} | {val_acc_best} | "
-                "{test_acc} | {source} | {run_dir} |\n".format(
+                "| {dataset} | {model} | {learning_mode} | "
+                "{hidden_layer_update_mode} | {manual_update_schedule} | "
+                "{neg_sample_strategy} | {goodness_strategy} | "
+                "{hidden_loss_strategy} | {status} | {score} | "
+                "{val_acc_best} | {test_acc} | {source} | {run_dir} |\n".format(
                     **row
                 )
             )
-        mf.write("\nStatus `partial` means a completed HPO summary was not found, so the row was recovered from an intermediate CSV or metrics file.\n")
-        mf.write("Detailed parameters are available in `batch_summary.csv` and each `.best.json` file when present.\n")
+        mf.write(
+            "\nStatus `partial` means a completed HPO summary was not found, "
+            "so the row was recovered from an intermediate CSV or metrics file.\n"
+        )
+        mf.write(
+            "Detailed parameters are available in `batch_summary.csv` and each "
+            "`.best.json` file when present.\n"
+        )
 
 
 def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
@@ -420,11 +711,11 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         "--manual-update-schedule",
         combo.manual_update_schedule,
         "--neg-sample-strategy",
-        args.neg_sample_strategy,
+        combo.neg_sample_strategy,
         "--goodness-strategy",
-        args.goodness_strategy,
+        combo.goodness_strategy,
         "--hidden-loss-strategy",
-        args.hidden_loss_strategy,
+        combo.hidden_loss_strategy,
         "--epochs",
         str(args.epochs),
         "--out-dir",
@@ -446,8 +737,12 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         "--search-space-json",
         json.dumps(search_space),
         "--csv-note",
-        f"batch {combo.dataset} {combo.model} {combo.learning_mode} "
-        f"{combo.hidden_layer_update_mode} {combo.manual_update_schedule}",
+        (
+            f"batch {combo.dataset} {combo.model} {combo.learning_mode} "
+            f"{combo.hidden_layer_update_mode} {combo.manual_update_schedule} "
+            f"{combo.neg_sample_strategy} {combo.goodness_strategy} "
+            f"{combo.hidden_loss_strategy}"
+        ),
     ]
     if args.device:
         cmd += ["--device", args.device]
@@ -472,41 +767,88 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
     return cmd
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Sequentially run FF-SNN HPO over dataset/model/mode combinations.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+
+
+
+def build_combos(args: argparse.Namespace) -> list[Combo]:
+    datasets = _select_axis_values(
+        args.datasets,
+        args.exclude_datasets,
+        VALID_DATASETS,
+        "datasets",
     )
-    parser.add_argument("--datasets", default="MNIST,FashionMNIST,NMNIST,CIFAR10")
-    parser.add_argument("--models", default="MLP,CNN")
-    parser.add_argument("--learning-modes", default="unsupervised,supervised")
-    parser.add_argument("--update-modes", default="autograd,manual")
-    parser.add_argument("--manual-update-schedule", choices=["separate", "paired"], default="separate")
-    parser.add_argument("--neg-sample-strategy", default="auto")
-    parser.add_argument("--goodness-strategy", default="auto")
-    parser.add_argument("--hidden-loss-strategy", default="auto")
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--search-strategy", choices=["grid", "random", "successive_halving", "bayes"], default="bayes")
-    parser.add_argument("--optimize-metric", default="val_acc_best")
-    parser.add_argument("--random-seed", type=int, default=42)
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--device")
-    parser.add_argument("--bayes-max-trials", type=int, default=50)
-    parser.add_argument("--bayes-init-random-trials", type=int, default=4)
-    parser.add_argument("--bayes-acquisition", choices=["ucb", "ei"], default="ucb")
-    parser.add_argument("--random-search-trials", type=int, default=16)
-    parser.add_argument("--successive-halving-initial-epochs", type=int, default=50)
-    parser.add_argument("--successive-halving-reduction-factor", type=int, default=2)
-    parser.add_argument("--capture-manual-grad-metrics", action="store_true")
-    parser.add_argument("--capture-autograd-comparison", action="store_true")
-    parser.add_argument("--require-cuda", action="store_true")
-    parser.add_argument("--force", action="store_true", help="Rerun combinations even if a .best.json already exists.")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--report-only", action="store_true", help="Only rebuild batch_report.md and batch_summary.csv from existing results.")
-    parser.add_argument("--limit", type=int, help="Run only the first N combinations.")
-    parser.add_argument("--top-k-to-print", type=int, default=5)
-    return parser.parse_args(argv)
+    models = _select_axis_values(
+        args.models,
+        args.exclude_models,
+        VALID_MODELS,
+        "models",
+    )
+    learning_modes = _select_axis_values(
+        args.learning_modes,
+        args.exclude_learning_modes,
+        VALID_LEARNING_MODES,
+        "learning_modes",
+    )
+    update_modes = _select_axis_values(
+        args.update_modes,
+        args.exclude_update_modes,
+        VALID_UPDATE_MODES,
+        "update_modes",
+    )
+    manual_schedules = _select_axis_values(
+        args.manual_update_schedules,
+        args.exclude_manual_update_schedules,
+        VALID_MANUAL_UPDATE_SCHEDULES,
+        "manual_update_schedules",
+    )
+    neg_sample_strategies = _select_axis_values(
+        args.neg_sample_strategies,
+        args.exclude_neg_sample_strategies,
+        VALID_NEG_SAMPLE_STRATEGIES,
+        "neg_sample_strategies",
+    )
+    goodness_strategies = _select_axis_values(
+        args.goodness_strategies,
+        args.exclude_goodness_strategies,
+        VALID_GOODNESS_STRATEGIES,
+        "goodness_strategies",
+    )
+    hidden_loss_strategies = _select_axis_values(
+        args.hidden_loss_strategies,
+        args.exclude_hidden_loss_strategies,
+        VALID_HIDDEN_LOSS_STRATEGIES,
+        "hidden_loss_strategies",
+    )
+
+    combos: list[Combo] = []
+    for dataset in datasets:
+        for model in models:
+            for learning_mode in learning_modes:
+                for update_mode in update_modes:
+                    # manual_update_schedule only matters when the hidden layer
+                    # truly uses analytical/manual updates. Autograd would
+                    # otherwise create redundant duplicate runs.
+                    if update_mode == "manual":
+                        schedules_for_mode = manual_schedules
+                    else:
+                        schedules_for_mode = [DEFAULT_AUTOGRAD_MANUAL_SCHEDULE]
+                    for manual_update_schedule in schedules_for_mode:
+                        for neg_sample_strategy in neg_sample_strategies:
+                            for goodness_strategy in goodness_strategies:
+                                for hidden_loss_strategy in hidden_loss_strategies:
+                                    combos.append(
+                                        Combo(
+                                            dataset=dataset,
+                                            model=model,
+                                            learning_mode=learning_mode,
+                                            hidden_layer_update_mode=update_mode,
+                                            manual_update_schedule=manual_update_schedule,
+                                            neg_sample_strategy=neg_sample_strategy,
+                                            goodness_strategy=goodness_strategy,
+                                            hidden_loss_strategy=hidden_loss_strategy,
+                                        )
+                                    )
+    return combos
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -522,13 +864,7 @@ def main(argv: list[str] | None = None) -> int:
         print("[BATCH] CUDA is required but is not available. Aborting.")
         return 2
 
-    combos = [
-        Combo(dataset, model, learning_mode, update_mode, args.manual_update_schedule)
-        for dataset in _split_csv(args.datasets)
-        for model in _split_csv(args.models)
-        for learning_mode in _split_csv(args.learning_modes)
-        for update_mode in _split_csv(args.update_modes)
-    ]
+    combos = build_combos(args)
     if args.limit is not None:
         combos = combos[: args.limit]
 
@@ -566,6 +902,9 @@ def main(argv: list[str] | None = None) -> int:
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
                 "manual_update_schedule": combo.manual_update_schedule,
+                "neg_sample_strategy": combo.neg_sample_strategy,
+                "goodness_strategy": combo.goodness_strategy,
+                "hidden_loss_strategy": combo.hidden_loss_strategy,
                 "status": status,
                 "returncode": result.returncode,
                 "started_at": started_at,

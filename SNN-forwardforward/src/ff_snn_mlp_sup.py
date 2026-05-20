@@ -22,6 +22,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from src.loss import (
     delta_loss_gradient_calculation_mlp,
+    pairwise_loss_gradient_calculation_mlp,
 )
 from spikingjelly.activation_based import (
     neuron,
@@ -37,11 +38,14 @@ from src.experiment import (
     StepResult,
 )
 from src.ff_strategies.goodness import (
-    GOODNESS_SQUARE_MEAN,
+    GOODNESS_SPIKE_SQUARE_MEAN,
     compute_goodness,
+    prepare_manual_goodness_input_gradient,
     resolve_goodness_strategy_name,
+    supports_manual_goodness_gradient,
 )
 from src.ff_strategies.objectives import (
+    HIDDEN_LOSS_PAIRWISE,
     HIDDEN_LOSS_SUPERVISED_DELTA,
     compute_hidden_pair_loss,
     resolve_hidden_loss_strategy_name,
@@ -454,33 +458,41 @@ class Layer(nn.Module):
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
             membrane_potential=membrane_potential,
         )
 
-    def _validate_manual_strategy_combo(self) -> None:
+    def _validate_manual_strategy_combo(self) -> str:
         resolved_goodness = resolve_goodness_strategy_name(
             self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
         )
         resolved_loss = resolve_hidden_loss_strategy_name(
             self.strategy_config.hidden_loss_strategy,
             self.mode_config,
         )
-        if resolved_goodness != GOODNESS_SQUARE_MEAN:
+        if not supports_manual_goodness_gradient(
+            resolved_goodness,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
+        ):
             raise NotImplementedError(
                 "Analytical manual gradients for the MLP hidden layer only "
-                "support the default goodness strategy 'square_mean'. "
-                "Use autograd mode or extend loss.py "
+                "support goodness strategies that define a manual analytical "
+                "gradient rule. Use autograd mode or register the goodness "
+                "strategy with manual_activity_transform and "
+                "manual_input_gradient_transform."
+            )
+        if resolved_loss not in {
+            HIDDEN_LOSS_PAIRWISE,
+            HIDDEN_LOSS_SUPERVISED_DELTA,
+        }:
+            raise NotImplementedError(
+                "Analytical manual gradients for the MLP hidden layer only "
+                "support local loss strategies 'pairwise_goodness' and "
+                "'supervised_delta'. Use autograd mode or extend loss.py "
                 "with a matching analytical gradient."
             )
-        # if resolved_loss != HIDDEN_LOSS_SUPERVISED_DELTA:
-        #     raise NotImplementedError(
-        #         "Analytical manual gradients for the supervised MLP hidden "
-        #         "layer only support the default local loss strategy "
-        #         "'supervised_delta'. Use autograd mode or extend loss.py "
-        #         "with a matching analytical gradient."
-        #     )
+        return resolved_loss
 
     def forward(self, x, mean, var):
         # 对第1维度（通道维度）计算L2范数，然后进行归一化
@@ -577,38 +589,84 @@ class Layer(nn.Module):
         )
         return encoded.sum(0), output_spike, out_freq, goodness, ln_mean, ln_var
 
-    def _manual_delta_gradient(
+    def _prepare_manual_goodness_input_gradient(
+        self,
+        freq,
+    ):
+        return prepare_manual_goodness_input_gradient(
+            freq,
+            T=self.T,
+            strategy_name=self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
+        )
+
+    def _zero_manual_branch_state(
+        self,
+        input_spike_sum,
+        goodness_input_gradient,
+        goodness,
+        ln_var,
+        ln_mean,
+    ):
+        return (
+            torch.zeros_like(input_spike_sum),
+            torch.zeros_like(goodness_input_gradient),
+            torch.zeros_like(goodness),
+            torch.zeros_like(ln_var),
+            torch.zeros_like(ln_mean),
+        )
+
+    def _manual_hidden_loss_gradient(
         self,
         pos_input_spike_sum,
-        pos_out_freq,
+        pos_goodness_input_gradient,
         pos_goodness,
         pos_ln_var,
         pos_ln_mean,
         neg_input_spike_sum,
-        neg_out_freq,
+        neg_goodness_input_gradient,
         neg_goodness,
         neg_ln_var,
         neg_ln_mean,
         batch_size,
+        hidden_loss_name,
     ):
         profile_ctx = self._begin_profile()
-        weight_grad, delta_loss = delta_loss_gradient_calculation_mlp(
-            pos_input_spike_sum,
-            pos_out_freq,
-            pos_goodness,
-            pos_ln_var,
-            pos_ln_mean,
-            neg_input_spike_sum,
-            neg_out_freq,
-            neg_goodness,
-            neg_ln_var,
-            neg_ln_mean,
-            self.threshold,
-            self.v_threshold,
-            batch_size,
-        )
+        with torch.no_grad():
+            if hidden_loss_name == HIDDEN_LOSS_SUPERVISED_DELTA:
+                weight_grad, _ = delta_loss_gradient_calculation_mlp(
+                    pos_input_spike_sum,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    self.threshold,
+                    self.v_threshold,
+                    batch_size,
+                )
+            else:
+                weight_grad, _ = pairwise_loss_gradient_calculation_mlp(
+                    pos_input_spike_sum,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    self.threshold,
+                    self.v_threshold,
+                    batch_size,
+                )
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
-        return (weight_grad.detach(), delta_loss), peak_alloc, peak_reserved, elapsed_ms
+        return weight_grad.detach(), peak_alloc, peak_reserved, elapsed_ms
     def _apply_manual_update(self, weight_grad, frozen):
         if frozen:
             return
@@ -630,10 +688,17 @@ class Layer(nn.Module):
         peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
         self.last_backward_peak_alloc_bytes = peak_alloc
         self.last_backward_peak_reserved_bytes = peak_reserved
-    def _autograd_delta_comparison(self, delta_loss):
+    def _autograd_hidden_loss_comparison(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
-        delta_loss.backward()
+        hidden_loss = compute_hidden_pair_loss(
+            pos_goodness,
+            neg_goodness,
+            threshold=self.threshold,
+            strategy_name=self.strategy_config.hidden_loss_strategy,
+            mode_config=self.mode_config,
+        )
+        hidden_loss.backward()
         grad = self._get_linear_weight().grad.detach().clone()
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
         self.opt.zero_grad()
@@ -646,11 +711,11 @@ class Layer(nn.Module):
         needs_manual_grad = (
             self.mode_config.uses_manual_update
         )
+        manual_hidden_loss_name = None
         if needs_manual_grad:
-            self._validate_manual_strategy_combo()
+            manual_hidden_loss_name = self._validate_manual_strategy_combo()
 
         weight_grad = None
-        delta_loss = None
 
         pos_cos_sim = None
         neg_cos_sim = None
@@ -664,108 +729,283 @@ class Layer(nn.Module):
         bp_time_ms = None
 
         # =========================================================
-        # Forward pass
-        # =========================================================
-        (
-            pos_input_spike_sum,
-            pos_output_spike,
-            pos_out_freq,
-            pos_goodness,
-            pos_ln_mean,
-            pos_ln_var,
-        ) = self._forward_spike_sequence(pos_encoded)
-        functional.reset_net(self.layer)
-
-        (
-            neg_input_spike_sum,
-            neg_output_spike,
-            neg_out_freq,
-            neg_goodness,
-            neg_ln_mean,
-            neg_ln_var,
-        ) = self._forward_spike_sequence(neg_encoded)
-        functional.reset_net(self.layer)
-
-        # =========================================================
         # Manual gradient branch
         # =========================================================
         if needs_manual_grad:
+            if self.mode_config.uses_separate_manual_update_schedule:
+                (
+                    pos_input_spike_sum,
+                    pos_output_spike,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_mean,
+                    pos_ln_var,
+                ) = self._forward_spike_sequence(pos_encoded)
+                pos_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(pos_out_freq)
+                )
+                (
+                    zero_neg_input_spike_sum,
+                    zero_neg_goodness_input_gradient,
+                    zero_neg_goodness,
+                    zero_neg_ln_var,
+                    zero_neg_ln_mean,
+                ) = self._zero_manual_branch_state(
+                    pos_input_spike_sum,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                )
+                (
+                    pos_weight_grad,
+                    pos_manual_peak_alloc,
+                    pos_manual_peak_reserved,
+                    pos_manual_time_ms,
+                ) = self._manual_hidden_loss_gradient(
+                    pos_input_spike_sum,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    zero_neg_input_spike_sum,
+                    zero_neg_goodness_input_gradient,
+                    zero_neg_goodness,
+                    zero_neg_ln_var,
+                    zero_neg_ln_mean,
+                    batch_size,
+                    manual_hidden_loss_name,
+                )
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    (
+                        pos_autograd_grad,
+                        pos_bp_peak_alloc,
+                        pos_bp_peak_reserved,
+                        pos_bp_time_ms,
+                    ) = self._autograd_hidden_loss_comparison(
+                        pos_goodness,
+                        zero_neg_goodness,
+                    )
+                self._apply_manual_update(pos_weight_grad, frozen)
+                functional.reset_net(self.layer)
 
-            (
-                manual_result,
-                manual_peak_alloc,
-                manual_peak_reserved,
-                manual_time_ms,
-            ) = self._manual_delta_gradient(
-                pos_input_spike_sum,
-                pos_out_freq,
-                pos_goodness,
-                pos_ln_var,
-                pos_ln_mean,
-                neg_input_spike_sum,
-                neg_out_freq,
-                neg_goodness,
-                neg_ln_var,
-                neg_ln_mean,
-                batch_size,
-            )
+                (
+                    neg_input_spike_sum,
+                    neg_output_spike,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_mean,
+                    neg_ln_var,
+                ) = self._forward_spike_sequence(neg_encoded)
+                neg_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(neg_out_freq)
+                )
+                (
+                    zero_pos_input_spike_sum,
+                    zero_pos_goodness_input_gradient,
+                    zero_pos_goodness,
+                    zero_pos_ln_var,
+                    zero_pos_ln_mean,
+                ) = self._zero_manual_branch_state(
+                    neg_input_spike_sum,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                )
+                (
+                    neg_weight_grad,
+                    neg_manual_peak_alloc,
+                    neg_manual_peak_reserved,
+                    neg_manual_time_ms,
+                ) = self._manual_hidden_loss_gradient(
+                    zero_pos_input_spike_sum,
+                    zero_pos_goodness_input_gradient,
+                    zero_pos_goodness,
+                    zero_pos_ln_var,
+                    zero_pos_ln_mean,
+                    neg_input_spike_sum,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    batch_size,
+                    manual_hidden_loss_name,
+                )
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    (
+                        neg_autograd_grad,
+                        neg_bp_peak_alloc,
+                        neg_bp_peak_reserved,
+                        neg_bp_time_ms,
+                    ) = self._autograd_hidden_loss_comparison(
+                        zero_pos_goodness,
+                        neg_goodness,
+                    )
+                self._apply_manual_update(neg_weight_grad, frozen)
+                functional.reset_net(self.layer)
 
-            weight_grad, delta_loss = manual_result
+                manual_peak_alloc_values = [
+                    value
+                    for value in [pos_manual_peak_alloc, neg_manual_peak_alloc]
+                    if value is not None
+                ]
+                manual_peak_reserved_values = [
+                    value
+                    for value in [pos_manual_peak_reserved, neg_manual_peak_reserved]
+                    if value is not None
+                ]
+                self.last_manual_grad_peak_alloc_bytes = (
+                    max(manual_peak_alloc_values)
+                    if manual_peak_alloc_values
+                    else None
+                )
+                self.last_manual_grad_peak_reserved_bytes = (
+                    max(manual_peak_reserved_values)
+                    if manual_peak_reserved_values
+                    else None
+                )
+                self.last_manual_grad_time_ms = float(
+                    (pos_manual_time_ms or 0.0) + (neg_manual_time_ms or 0.0)
+                )
 
-            self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
-            self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
-            self.last_manual_grad_time_ms = float(
-                manual_time_ms or 0.0
-            )
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    cmp_peak_alloc_values = [
+                        value
+                        for value in [pos_bp_peak_alloc, neg_bp_peak_alloc]
+                        if value is not None
+                    ]
+                    cmp_peak_reserved_values = [
+                        value
+                        for value in [pos_bp_peak_reserved, neg_bp_peak_reserved]
+                        if value is not None
+                    ]
+                    self.last_backward_cmp_peak_alloc_bytes = (
+                        max(cmp_peak_alloc_values)
+                        if cmp_peak_alloc_values
+                        else None
+                    )
+                    self.last_backward_cmp_peak_reserved_bytes = (
+                        max(cmp_peak_reserved_values)
+                        if cmp_peak_reserved_values
+                        else None
+                    )
+                    self.last_backward_cmp_time_ms = float(
+                        (pos_bp_time_ms or 0.0) + (neg_bp_time_ms or 0.0)
+                    )
+                    if pos_weight_grad is not None:
+                        pos_cos_sim = torch.cosine_similarity(
+                            pos_autograd_grad.flatten(),
+                            -pos_weight_grad.flatten(),
+                            dim=0,
+                        ).detach().cpu().item()
+                    if neg_weight_grad is not None:
+                        neg_cos_sim = torch.cosine_similarity(
+                            neg_autograd_grad.flatten(),
+                            -neg_weight_grad.flatten(),
+                            dim=0,
+                        ).detach().cpu().item()
+            else:
+                (
+                    pos_input_spike_sum,
+                    pos_output_spike,
+                    pos_out_freq,
+                    pos_goodness,
+                    pos_ln_mean,
+                    pos_ln_var,
+                ) = self._forward_spike_sequence(pos_encoded)
+                functional.reset_net(self.layer)
+
+                pos_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(pos_out_freq)
+                )
+                (
+                    neg_input_spike_sum,
+                    neg_output_spike,
+                    neg_out_freq,
+                    neg_goodness,
+                    neg_ln_mean,
+                    neg_ln_var,
+                ) = self._forward_spike_sequence(neg_encoded)
+                functional.reset_net(self.layer)
+                neg_goodness_input_gradient = self._prepare_manual_goodness_input_gradient(
+                    neg_out_freq
+                )
+
+                (
+                    weight_grad,
+                    manual_peak_alloc,
+                    manual_peak_reserved,
+                    manual_time_ms,
+                ) = self._manual_hidden_loss_gradient(
+                    pos_input_spike_sum,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    batch_size,
+                    manual_hidden_loss_name,
+                )
+
+                self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
+                self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
+                self.last_manual_grad_time_ms = float(manual_time_ms or 0.0)
+
+                if self.mode_config.profiling.capture_autograd_comparison:
+                    (
+                        autograd_grad,
+                        bp_peak_alloc,
+                        bp_peak_reserved,
+                        bp_time_ms,
+                    ) = self._autograd_hidden_loss_comparison(
+                        pos_goodness,
+                        neg_goodness,
+                    )
+                    self.last_backward_cmp_peak_alloc_bytes = bp_peak_alloc
+                    self.last_backward_cmp_peak_reserved_bytes = bp_peak_reserved
+                    self.last_backward_cmp_time_ms = float(bp_time_ms or 0.0)
+                    cos_sim = torch.cosine_similarity(
+                        autograd_grad.flatten(),
+                        -weight_grad.flatten(),
+                        dim=0,
+                    ).detach().cpu().item()
+                    pos_cos_sim = cos_sim
+                    neg_cos_sim = cos_sim
+
+                self._apply_manual_update(weight_grad, frozen)
 
             self.last_manual_grad_ops_est = float(
                 4.0 * batch_size * self.out_features * self.in_features
             )
-            # -----------------------------------------------------
-            # Optional autograd comparison
-            # -----------------------------------------------------
-            if self.mode_config.profiling.capture_autograd_comparison:
-                # The comparison backward must run before the manual in-place
-                # weight update, otherwise the saved graph sees a newer
-                # parameter version and backward will fail.
-
-                (
-                    autograd_grad,
-                    bp_peak_alloc,
-                    bp_peak_reserved,
-                    bp_time_ms,
-                ) = self._autograd_delta_comparison(
-                    delta_loss
-                )
-
-                self.last_backward_cmp_peak_alloc_bytes = (
-                    bp_peak_alloc
-                )
-                self.last_backward_cmp_peak_reserved_bytes = (
-                    bp_peak_reserved
-                )
-                self.last_backward_cmp_time_ms = float(
-                    bp_time_ms or 0.0
-                )
-
-                cos_sim = torch.cosine_similarity(
-                    autograd_grad.flatten(),
-                    -weight_grad.flatten(),
-                    dim=0,
-                ).detach().cpu().item()
-
-                pos_cos_sim = cos_sim
-                neg_cos_sim = cos_sim
-
-            # -----------------------------------------------------
-            # Apply manual update
-            # -----------------------------------------------------
-            self._apply_manual_update(weight_grad, frozen)
 
         # =========================================================
         # Pure autograd branch
         # =========================================================
         else:
+            (
+                pos_input_spike_sum,
+                pos_output_spike,
+                pos_out_freq,
+                pos_goodness,
+                pos_ln_mean,
+                pos_ln_var,
+            ) = self._forward_spike_sequence(pos_encoded)
+            functional.reset_net(self.layer)
+
+            (
+                neg_input_spike_sum,
+                neg_output_spike,
+                neg_out_freq,
+                neg_goodness,
+                neg_ln_mean,
+                neg_ln_var,
+            ) = self._forward_spike_sequence(neg_encoded)
+            functional.reset_net(self.layer)
             self._apply_autograd_update(pos_goodness, neg_goodness)
         return (
             pos_output_spike.detach(),
@@ -802,6 +1042,7 @@ class OutputLayer(nn.Module):
         tau,
         loss_threshold,
         mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -824,6 +1065,7 @@ class OutputLayer(nn.Module):
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
         self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None

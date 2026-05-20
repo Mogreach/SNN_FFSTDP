@@ -17,7 +17,7 @@ from src.experiment import (
     StepResult,
 )
 from src.ff_strategies.goodness import (
-    GOODNESS_SQUARE,
+    GOODNESS_SPIKE_SQUARE,
     compute_goodness,
 )
 from src.ff_strategies.objectives import (
@@ -200,7 +200,7 @@ class FFResidualBlockLayer(nn.Module):
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE,
             membrane_potential=membrane_potential,
         )
 

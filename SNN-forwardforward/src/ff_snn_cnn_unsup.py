@@ -31,7 +31,6 @@ from src.experiment import (
     ExperimentModeConfig,
     ExperimentStrategyConfig,
     GradientProfilingSnapshot,
-    HIDDEN_LAYER_UPDATE_AUTOGRAD,
     StepResult,
 )
 from src.cnn_models.common import (
@@ -41,18 +40,21 @@ from src.cnn_models.common import (
 )
 from src.generate_neg_sample import generate_pos_n_neg_sample
 from src.ff_strategies.goodness import (
-    GOODNESS_SQUARE,
-    GOODNESS_SQUARE_MEAN,
+    GOODNESS_SPIKE_SQUARE,
+    GOODNESS_SPIKE_SQUARE_MEAN,
     compute_goodness,
+    prepare_manual_goodness_input_gradient,
     resolve_goodness_strategy_name,
+    supports_manual_goodness_gradient,
 )
 from src.ff_strategies.objectives import (
     HIDDEN_LOSS_PAIRWISE,
+    HIDDEN_LOSS_SUPERVISED_DELTA,
     compute_hidden_pair_loss,
     resolve_hidden_loss_strategy_name,
 )
 from src.loss import (
-    gradient_calculation_cnn,
+    delta_loss_gradient_calculation_cnn,
     pairwise_loss_gradient_calculation_cnn,
 )
 
@@ -172,6 +174,8 @@ class ConvNet(torch.nn.Module):
                 v_threshold_neg=v_threshold_neg,
                 tau=tau,
                 loss_threshold=loss_threshold,
+                mode_config=self.mode_config,
+                strategy_config=self.strategy_config,
             ).to(self.device)
         )
 
@@ -506,33 +510,41 @@ class ConvLayer(nn.Module):
             freq,
             T=self.T,
             strategy_name=self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
             membrane_potential=membrane_potential,
         )
 
-    def _validate_manual_strategy_combo(self) -> None:
+    def _validate_manual_strategy_combo(self) -> str:
         resolved_goodness = resolve_goodness_strategy_name(
             self.strategy_config.goodness_strategy,
-            default_strategy_name=GOODNESS_SQUARE_MEAN,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
         )
         resolved_loss = resolve_hidden_loss_strategy_name(
             self.strategy_config.hidden_loss_strategy,
             self.mode_config,
         )
-        if resolved_goodness not in {GOODNESS_SQUARE, GOODNESS_SQUARE_MEAN}:
+        if not supports_manual_goodness_gradient(
+            resolved_goodness,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
+        ):
             raise NotImplementedError(
                 "Analytical manual gradients for the CNN hidden layer only "
-                "support the default goodness strategies 'square_mean' and "
-                "legacy 'square'. Use autograd mode or extend loss.py with a "
-                "matching analytical gradient."
+                "support goodness strategies that define a manual analytical "
+                "gradient rule. Use autograd mode or register the goodness "
+                "strategy with manual_activity_transform and "
+                "manual_input_gradient_transform."
             )
-        # if resolved_loss != HIDDEN_LOSS_PAIRWISE:
-        #     raise NotImplementedError(
-        #         "Analytical manual gradients for the unsupervised CNN hidden "
-        #         "layer only support the default local loss strategy "
-        #         "'pairwise_goodness'. Use autograd mode or extend loss.py "
-        #         "with a matching analytical gradient."
-        #     )
+        if resolved_loss not in {
+            HIDDEN_LOSS_PAIRWISE,
+            HIDDEN_LOSS_SUPERVISED_DELTA,
+        }:
+            raise NotImplementedError(
+                "Analytical manual gradients for the CNN hidden layer only "
+                "support local loss strategies 'pairwise_goodness' and "
+                "'supervised_delta'. Use autograd mode or extend loss.py "
+                "with a matching analytical gradient."
+            )
+        return resolved_loss
 
     def _get_conv_weight(self):
         for module in self.layer.modules():
@@ -651,101 +663,87 @@ class ConvLayer(nn.Module):
             ln_var,
         )
 
-    def _manual_gradient(
+    def _prepare_manual_goodness_input_gradient(
+        self,
+        freq,
+    ):
+        return prepare_manual_goodness_input_gradient(
+            freq,
+            T=self.T,
+            strategy_name=self.strategy_config.goodness_strategy,
+            default_strategy_name=GOODNESS_SPIKE_SQUARE_MEAN,
+        )
+
+    def _zero_manual_branch_state(
         self,
         input_spike_sum_unfold,
-        out_freq,
+        goodness_input_gradient,
         goodness,
         ln_var,
         ln_mean,
-        batch_size,
-        is_pos,
     ):
-        profile_ctx = self._begin_profile()
-        with torch.no_grad():
-            weight_grad = gradient_calculation_cnn(
-                input_spike_sum_unfold,
-                out_freq,
-                goodness,
-                ln_var,
-                ln_mean,
-                self.threshold,
-                self.v_threshold,
-                batch_size,
-                self.Cout,
-                is_pos,
-            )[0]
-        weight_grad = weight_grad.view_as(self._get_conv_weight())
-        peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
-        return weight_grad, peak_alloc, peak_reserved, elapsed_ms
+        return (
+            torch.zeros_like(input_spike_sum_unfold),
+            torch.zeros_like(goodness_input_gradient),
+            torch.zeros_like(goodness),
+            torch.zeros_like(ln_var),
+            torch.zeros_like(ln_mean),
+        )
 
-    def _manual_pair_gradient(
+    def _manual_hidden_loss_gradient(
         self,
         pos_input_spike_sum_unfold,
-        pos_out_freq,
+        pos_goodness_input_gradient,
         pos_goodness,
         pos_ln_var,
         pos_ln_mean,
         neg_input_spike_sum_unfold,
-        neg_out_freq,
+        neg_goodness_input_gradient,
         neg_goodness,
         neg_ln_var,
         neg_ln_mean,
         batch_size,
+        hidden_loss_name,
     ):
         profile_ctx = self._begin_profile()
-        weight_grad, pair_loss = pairwise_loss_gradient_calculation_cnn(
-            pos_input_spike_sum_unfold,
-            pos_out_freq,
-            pos_goodness,
-            pos_ln_var,
-            pos_ln_mean,
-            neg_input_spike_sum_unfold,
-            neg_out_freq,
-            neg_goodness,
-            neg_ln_var,
-            neg_ln_mean,
-            self.threshold,
-            self.v_threshold,
-            batch_size,
-            self.Cout,
-        )
+        with torch.no_grad():
+            if hidden_loss_name == HIDDEN_LOSS_SUPERVISED_DELTA:
+                weight_grad, _ = delta_loss_gradient_calculation_cnn(
+                    pos_input_spike_sum_unfold,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum_unfold,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    self.threshold,
+                    self.v_threshold,
+                    batch_size,
+                    self.Cout,
+                )
+            else:
+                weight_grad, _ = pairwise_loss_gradient_calculation_cnn(
+                    pos_input_spike_sum_unfold,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                    neg_input_spike_sum_unfold,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                    self.threshold,
+                    self.v_threshold,
+                    batch_size,
+                    self.Cout,
+                )
         weight_grad = weight_grad.view_as(self._get_conv_weight())
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
-        return (weight_grad.detach(), pair_loss), peak_alloc, peak_reserved, elapsed_ms
-
-    def _autograd_branch_comparison(
-        self,
-        input_spike_sum_unfold,
-        out_freq,
-        goodness,
-        ln_var,
-        ln_mean,
-        batch_size,
-        is_pos,
-        *,
-        retain_graph,
-    ):
-        _, loss = gradient_calculation_cnn(
-            input_spike_sum_unfold,
-            out_freq,
-            goodness,
-            ln_var,
-            ln_mean,
-            self.threshold,
-            self.v_threshold,
-            batch_size,
-            self.Cout,
-            is_pos,
-        )
-
-        profile_ctx = self._begin_profile()
-        self.opt.zero_grad()
-        loss.backward(retain_graph=retain_graph)
-        grad = self._get_conv_weight().grad.detach().clone()
-        peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
-        self.opt.zero_grad()
-        return grad, peak_alloc, peak_reserved, elapsed_ms
+        return weight_grad.detach(), peak_alloc, peak_reserved, elapsed_ms
 
     def _apply_manual_update(self, weight_grad, frozen):
         if frozen:
@@ -753,10 +751,17 @@ class ConvLayer(nn.Module):
         with torch.no_grad():
             self._get_conv_weight().add_(self.lr * weight_grad)
 
-    def _autograd_pair_comparison(self, pair_loss):
+    def _autograd_hidden_loss_comparison(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
-        pair_loss.backward()
+        hidden_loss = compute_hidden_pair_loss(
+            pos_goodness,
+            neg_goodness,
+            threshold=self.threshold,
+            strategy_name=self.strategy_config.hidden_loss_strategy,
+            mode_config=self.mode_config,
+        )
+        hidden_loss.backward()
         grad = self._get_conv_weight().grad.detach().clone()
         peak_alloc, peak_reserved, elapsed_ms = self._end_profile(profile_ctx)
         self.opt.zero_grad()
@@ -792,8 +797,9 @@ class ConvLayer(nn.Module):
         _, batch_size, _, _, _ = pos_encoded.shape
         self._reset_runtime_stats()
         needs_manual_grad = self.mode_config.uses_manual_update
+        manual_hidden_loss_name = None
         if needs_manual_grad:
-            self._validate_manual_strategy_combo()
+            manual_hidden_loss_name = self._validate_manual_strategy_combo()
 
         pos_weight_grad = None
         neg_weight_grad = None
@@ -818,39 +824,50 @@ class ConvLayer(nn.Module):
                     pos_ln_mean,
                     pos_ln_var,
                 ) = self._forward_spike_sequence(pos_encoded)
+                pos_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(pos_out_freq)
+                )
+                (
+                    zero_neg_input_spike_sum_unfold,
+                    zero_neg_goodness_input_gradient,
+                    zero_neg_goodness,
+                    zero_neg_ln_var,
+                    zero_neg_ln_mean,
+                ) = self._zero_manual_branch_state(
+                    pos_input_spike_sum_unfold,
+                    pos_goodness_input_gradient,
+                    pos_goodness,
+                    pos_ln_var,
+                    pos_ln_mean,
+                )
                 (
                     pos_weight_grad,
                     pos_manual_peak_alloc,
                     pos_manual_peak_reserved,
                     pos_manual_time_ms,
-                ) = self._manual_gradient(
+                ) = self._manual_hidden_loss_gradient(
                     pos_input_spike_sum_unfold,
-                    pos_out_freq,
+                    pos_goodness_input_gradient,
                     pos_goodness,
                     pos_ln_var,
                     pos_ln_mean,
+                    zero_neg_input_spike_sum_unfold,
+                    zero_neg_goodness_input_gradient,
+                    zero_neg_goodness,
+                    zero_neg_ln_var,
+                    zero_neg_ln_mean,
                     batch_size,
-                    True,
+                    manual_hidden_loss_name,
                 )
                 if self.mode_config.profiling.capture_autograd_comparison:
-                    retain_graph_for_cmp = (
-                        self.mode_config.hidden_layer_update_mode
-                        == HIDDEN_LAYER_UPDATE_AUTOGRAD
-                    )
                     (
                         pos_autograd_grad,
                         pos_bp_peak_alloc,
                         pos_bp_peak_reserved,
                         pos_bp_time_ms,
-                    ) = self._autograd_branch_comparison(
-                        pos_input_spike_sum_unfold,
-                        pos_out_freq,
+                    ) = self._autograd_hidden_loss_comparison(
                         pos_goodness,
-                        pos_ln_var,
-                        pos_ln_mean,
-                        batch_size,
-                        True,
-                        retain_graph=retain_graph_for_cmp,
+                        zero_neg_goodness,
                     )
                 self._apply_manual_update(pos_weight_grad, frozen)
                 functional.reset_net(self.layer)
@@ -863,19 +880,40 @@ class ConvLayer(nn.Module):
                     neg_ln_mean,
                     neg_ln_var,
                 ) = self._forward_spike_sequence(neg_encoded)
+                neg_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(neg_out_freq)
+                )
+                (
+                    zero_pos_input_spike_sum_unfold,
+                    zero_pos_goodness_input_gradient,
+                    zero_pos_goodness,
+                    zero_pos_ln_var,
+                    zero_pos_ln_mean,
+                ) = self._zero_manual_branch_state(
+                    neg_input_spike_sum_unfold,
+                    neg_goodness_input_gradient,
+                    neg_goodness,
+                    neg_ln_var,
+                    neg_ln_mean,
+                )
                 (
                     neg_weight_grad,
                     neg_manual_peak_alloc,
                     neg_manual_peak_reserved,
                     neg_manual_time_ms,
-                ) = self._manual_gradient(
+                ) = self._manual_hidden_loss_gradient(
+                    zero_pos_input_spike_sum_unfold,
+                    zero_pos_goodness_input_gradient,
+                    zero_pos_goodness,
+                    zero_pos_ln_var,
+                    zero_pos_ln_mean,
                     neg_input_spike_sum_unfold,
-                    neg_out_freq,
+                    neg_goodness_input_gradient,
                     neg_goodness,
                     neg_ln_var,
                     neg_ln_mean,
                     batch_size,
-                    False,
+                    manual_hidden_loss_name,
                 )
                 if self.mode_config.profiling.capture_autograd_comparison:
                     (
@@ -883,15 +921,9 @@ class ConvLayer(nn.Module):
                         neg_bp_peak_alloc,
                         neg_bp_peak_reserved,
                         neg_bp_time_ms,
-                    ) = self._autograd_branch_comparison(
-                        neg_input_spike_sum_unfold,
-                        neg_out_freq,
+                    ) = self._autograd_hidden_loss_comparison(
+                        zero_pos_goodness,
                         neg_goodness,
-                        neg_ln_var,
-                        neg_ln_mean,
-                        batch_size,
-                        False,
-                        retain_graph=retain_graph_for_cmp,
                     )
                 self._apply_manual_update(neg_weight_grad, frozen)
                 functional.reset_net(self.layer)
@@ -959,6 +991,9 @@ class ConvLayer(nn.Module):
                 ) = self._forward_spike_sequence(pos_encoded)
                 functional.reset_net(self.layer)
 
+                pos_goodness_input_gradient = (
+                    self._prepare_manual_goodness_input_gradient(pos_out_freq)
+                )
                 (
                     neg_input_spike_sum_unfold,
                     neg_pool_out,
@@ -968,26 +1003,29 @@ class ConvLayer(nn.Module):
                     neg_ln_var,
                 ) = self._forward_spike_sequence(neg_encoded)
                 functional.reset_net(self.layer)
+                neg_goodness_input_gradient = self._prepare_manual_goodness_input_gradient(
+                    neg_out_freq
+                )
 
                 (
-                    manual_result,
+                    weight_grad,
                     manual_peak_alloc,
                     manual_peak_reserved,
                     manual_time_ms,
-                ) = self._manual_pair_gradient(
+                ) = self._manual_hidden_loss_gradient(
                     pos_input_spike_sum_unfold,
-                    pos_out_freq,
+                    pos_goodness_input_gradient,
                     pos_goodness,
                     pos_ln_var,
                     pos_ln_mean,
                     neg_input_spike_sum_unfold,
-                    neg_out_freq,
+                    neg_goodness_input_gradient,
                     neg_goodness,
                     neg_ln_var,
                     neg_ln_mean,
                     batch_size,
+                    manual_hidden_loss_name,
                 )
-                weight_grad, pair_loss = manual_result
                 self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
                 self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
                 self.last_manual_grad_time_ms = float(manual_time_ms or 0.0)
@@ -998,7 +1036,10 @@ class ConvLayer(nn.Module):
                         bp_peak_alloc,
                         bp_peak_reserved,
                         bp_time_ms,
-                    ) = self._autograd_pair_comparison(pair_loss)
+                    ) = self._autograd_hidden_loss_comparison(
+                        pos_goodness,
+                        neg_goodness,
+                    )
                     self.last_backward_cmp_peak_alloc_bytes = bp_peak_alloc
                     self.last_backward_cmp_peak_reserved_bytes = bp_peak_reserved
                     self.last_backward_cmp_time_ms = float(bp_time_ms or 0.0)
@@ -1080,6 +1121,8 @@ class OutputLayer(nn.Module):
         v_threshold_neg,
         tau,
         loss_threshold,
+        mode_config: ExperimentModeConfig | None = None,
+        strategy_config: ExperimentStrategyConfig | None = None,
     ):
         super().__init__()
         self.layer = nn.Sequential(
@@ -1095,6 +1138,8 @@ class OutputLayer(nn.Module):
         self.threshold = loss_threshold
         self.encoder = encoding.PoissonEncoder()
         self.opt = Adam(self.parameters(), lr=lr)
+        self.mode_config = mode_config or ExperimentModeConfig()
+        self.strategy_config = strategy_config or ExperimentStrategyConfig()
         self.last_backward_peak_alloc_bytes = None
         self.last_backward_peak_reserved_bytes = None
         self.last_manual_grad_peak_alloc_bytes = None

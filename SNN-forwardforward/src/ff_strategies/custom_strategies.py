@@ -15,6 +15,11 @@ Examples
 
     register_goodness_strategy("cube_mean", cube_mean_goodness)
 
+   If the strategy should also support analytical `manual` gradients for
+   MLP/CNN layers, also provide:
+   - `manual_activity_transform(freq, T)`
+   - `manual_input_gradient_transform(freq, T)`
+
 2. Custom hidden-layer loss:
 
     def margin_pair_loss(pos_goodness, neg_goodness, threshold, mode_config):
