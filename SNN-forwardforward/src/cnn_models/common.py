@@ -96,6 +96,10 @@ class FFNetDelegatorMixin:
         self._sync_runtime_stats()
         return step_result
 
+    def set_label_reference_bank(self, label_reference_bank):
+        if hasattr(self.ff_net, "set_label_reference_bank"):
+            self.ff_net.set_label_reference_bank(label_reference_bank)
+
     def save(self, args, path):
         self.ff_net.save(args, path)
 

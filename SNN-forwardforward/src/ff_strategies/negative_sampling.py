@@ -54,6 +54,48 @@ def minmax_norm(x, dims=(1, 2, 3), eps=1e-10):
     return x
 
 
+def _spatial_norm_dims(x: torch.Tensor) -> tuple[int, ...]:
+    # SCFF-style image mixing should normalize over the spatial dimensions only.
+    if x.ndim >= 3:
+        return tuple(range(x.ndim - 2, x.ndim))
+    return tuple(range(1, x.ndim))
+
+
+def _select_label_reference_images(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    label_reference_bank: torch.Tensor,
+) -> torch.Tensor:
+    if label_reference_bank.ndim != x.ndim:
+        raise ValueError(
+            "label_reference_bank must have shape [num_classes, ...sample_shape] "
+            f"matching the input sample rank. Got bank.ndim={label_reference_bank.ndim}, "
+            f"x.ndim={x.ndim}."
+        )
+
+    label_indices = y.to(device=x.device, dtype=torch.long)
+    if label_indices.numel() == 0:
+        return torch.empty_like(x)
+    if int(label_indices.max().item()) >= int(label_reference_bank.shape[0]):
+        raise ValueError(
+            "label_reference_bank does not cover all requested labels. "
+            f"bank classes={label_reference_bank.shape[0]}, "
+            f"requested max label={int(label_indices.max().item())}."
+        )
+
+    reference_bank = label_reference_bank.to(device=x.device, dtype=x.dtype)
+    return reference_bank.index_select(0, label_indices)
+
+
+def _mix_with_label_reference_images(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    label_reference_bank: torch.Tensor,
+) -> torch.Tensor:
+    reference_images = _select_label_reference_images(x, y, label_reference_bank)
+    return minmax_norm(x + reference_images, dims=_spatial_norm_dims(x))
+
+
 def generate_pos_n_neg_sample(
     x,
     y,
@@ -62,13 +104,15 @@ def generate_pos_n_neg_sample(
     *,
     strategy_name: str | None = None,
     mode_config=None,
+    sampling_context: dict | None = None,
 ):
     """
     Backward-compatible wrapper around the new negative-sampling registry.
 
     Legacy callers can keep passing `type=...`; new code should prefer
     `strategy_name=...` plus `mode_config` so one experiment setting flows
-    through the whole project consistently.
+    through the whole project consistently. `sampling_context` is reserved for
+    prediction-time helpers such as label-conditioned SCFF reference images.
     """
     if strategy_name is None:
         strategy_name = type
@@ -82,7 +126,15 @@ def generate_pos_n_neg_sample(
             "Unknown negative sampling strategy="
             f"{strategy_name!r}. Registered: {sorted(_NEGATIVE_SAMPLING_REGISTRY)}"
         )
-    return _NEGATIVE_SAMPLING_REGISTRY[strategy_name](x, y, num_classes)
+    sampler_fn = _NEGATIVE_SAMPLING_REGISTRY[strategy_name]
+    if sampling_context is None:
+        return sampler_fn(x, y, num_classes)
+    return sampler_fn(
+        x,
+        y,
+        num_classes,
+        sampling_context=sampling_context,
+    )
 
 
 def get_y_neg(y, num_classes, device):
@@ -213,12 +265,24 @@ def _embed_zero_onehot_sampler(x, y, num_classes):
     return x_pos, x_neg
 
 
-def _scff_sampler(x, y, num_classes):
+def _scff_sampler(x, y, num_classes, *, sampling_context=None):
+    label_reference_bank = None
+    if sampling_context is not None:
+        label_reference_bank = sampling_context.get("label_reference_bank")
+
+    if label_reference_bank is not None:
+        # Prediction-time SCFF can inject the hypothesis label directly by
+        # mixing the input with a reference image from that class.
+        x_pos = _mix_with_label_reference_images(x, y, label_reference_bank)
+        neg_labels = get_y_neg(y, num_classes, x.device)
+        x_neg = _mix_with_label_reference_images(x, neg_labels, label_reference_bank)
+        return x_pos, x_neg
+
     del y, num_classes
     p = 1
     batch_size = x.shape[0]
     if batch_size <= 1:
-        x_pos = minmax_norm(x + x, dims=(2, 3))
+        x_pos = minmax_norm(x + x, dims=_spatial_norm_dims(x))
         return x_pos, x_pos.clone()
     x_pos = x + x
     random_indices = (torch.randperm(batch_size - 1, device=x.device) + 1)[
@@ -230,8 +294,9 @@ def _scff_sampler(x, y, num_classes):
         x_neg = x[(labels + i) % batch_size]
         batch_negs.append(x + x_neg)
     x_neg = torch.cat(batch_negs, dim=0)
-    x_pos = minmax_norm(x_pos, dims=(2, 3))
-    x_neg = minmax_norm(x_neg, dims=(2, 3))
+    norm_dims = _spatial_norm_dims(x)
+    x_pos = minmax_norm(x_pos, dims=norm_dims)
+    x_neg = minmax_norm(x_neg, dims=norm_dims)
     return x_pos, x_neg
 
 

@@ -28,7 +28,11 @@ from src.ff_snn_cnn_sup import (
     spike_encoder as supervised_spike_encoder,
 )
 from src.ff_snn_cnn_unsup import spike_encoder as unsupervised_spike_encoder
-from src.generate_neg_sample import generate_pos_n_neg_sample
+from src.generate_neg_sample import (
+    NEG_SAMPLE_SCFF,
+    generate_pos_n_neg_sample,
+    resolve_negative_sampling_strategy_name,
+)
 
 
 class OfficialSEWResNet18Backbone(sew_resnet.SEWResNet):
@@ -412,6 +416,7 @@ class OfficialResNetFFCore(nn.Module):
         self.last_backward_cmp_peak_alloc_bytes = None
         self.last_backward_cmp_peak_reserved_bytes = None
         self.last_backward_cmp_time_ms = None
+        self.label_reference_bank = None
 
         self.layers = nn.ModuleList(layer_module.to(self.device) for layer_module in hidden_layers)
         input_feature_of_linear = self._infer_output_feature_count(
@@ -433,6 +438,21 @@ class OfficialResNetFFCore(nn.Module):
                 mode_config=self.mode_config,
             ).to(self.device)
         )
+
+    def set_label_reference_bank(self, label_reference_bank) -> None:
+        if label_reference_bank is None:
+            self.label_reference_bank = None
+            return
+        self.label_reference_bank = label_reference_bank.detach().clone().to(self.device)
+
+    def _prediction_sampling_context(self) -> dict | None:
+        resolved_strategy = resolve_negative_sampling_strategy_name(
+            self.strategy_config.neg_sample_strategy or self.sample_type,
+            self.mode_config,
+        )
+        if resolved_strategy != NEG_SAMPLE_SCFF or self.label_reference_bank is None:
+            return None
+        return {"label_reference_bank": self.label_reference_bank}
 
     def _infer_output_feature_count(self, *, in_channels: int, H: int, W: int) -> int:
         dummy = torch.zeros((1, in_channels, H, W), device=self.device)
@@ -568,6 +588,7 @@ class OfficialResNetFFCore(nn.Module):
             return self.predict_winner(x)
 
         goodness_per_label = []
+        sampling_context = self._prediction_sampling_context()
         for label_idx in range(self.num_classes):
             goodness = []
             label = torch.full(
@@ -582,6 +603,7 @@ class OfficialResNetFFCore(nn.Module):
                 num_classes=self.num_classes,
                 strategy_name=self.strategy_config.neg_sample_strategy or self.sample_type,
                 mode_config=self.mode_config,
+                sampling_context=sampling_context,
             )
             h = self.spike_encoder_fn(h, self.T)
             for hidden_layer in self.layers[:-1]:

@@ -30,6 +30,10 @@ from src.ff_snn_cnn_unsup import ConvNet as UnsupervisedCNNNet
 from src.ff_snn_cnn_sup import ConvNet as SupervisedCNNNet
 from src.ff_snn_mlp_sup import Net as SupervisedMLPNet
 from src.ff_snn_mlp_unsup import Net as UnsupervisedMLPNet
+from src.generate_neg_sample import (
+    NEG_SAMPLE_SCFF,
+    resolve_negative_sampling_strategy_name,
+)
 from src.metrics_tracker import ExperimentMetricsTracker
 
 
@@ -186,6 +190,57 @@ def infer_num_classes(dataset):
         _, y = dataset[idx]
         labels.add(int(y))
     return len(labels)
+
+
+def build_label_reference_bank(dataset, num_classes):
+    # Prediction-time SCFF needs one reference image per class so each
+    # candidate label can mix in the matching class prototype.
+    reference_samples = [None] * num_classes
+    missing_labels = set(range(num_classes))
+
+    for sample_idx in range(len(dataset)):
+        sample, label = dataset[sample_idx]
+        label_idx = int(label)
+        if label_idx not in missing_labels:
+            continue
+
+        if not torch.is_tensor(sample):
+            sample = torch.as_tensor(sample)
+        reference_samples[label_idx] = sample.detach().clone().float()
+        missing_labels.remove(label_idx)
+        if not missing_labels:
+            break
+
+    if missing_labels:
+        raise RuntimeError(
+            "Could not build a complete SCFF label reference bank. Missing labels: "
+            f"{sorted(missing_labels)}"
+        )
+    return torch.stack(reference_samples, dim=0)
+
+
+def attach_prediction_label_reference_bank(
+    net,
+    train_dataset,
+    num_classes,
+    mode_config,
+    strategy_config,
+):
+    resolved_neg_sample_strategy = resolve_negative_sampling_strategy_name(
+        strategy_config.neg_sample_strategy,
+        mode_config,
+    )
+    if not mode_config.is_unsupervised or resolved_neg_sample_strategy != NEG_SAMPLE_SCFF:
+        return
+    if not hasattr(net, "set_label_reference_bank"):
+        raise NotImplementedError(
+            f"The selected model {type(net).__name__} does not expose "
+            "set_label_reference_bank(), so SCFF prediction-time label mixing "
+            "cannot be enabled."
+        )
+
+    label_reference_bank = build_label_reference_bank(train_dataset, num_classes)
+    net.set_label_reference_bank(label_reference_bank)
 
 
 def normalize_step_result(step_result) -> StepResult:
@@ -357,6 +412,13 @@ def run_experiment(args):
         strategy_config,
         sample_batch=sample_batch,
         device=device,
+    )
+    attach_prediction_label_reference_bank(
+        net,
+        train_dataset,
+        num_classes,
+        mode_config,
+        strategy_config,
     )
     out_dir = create_output_dir(args, mode_config)
 

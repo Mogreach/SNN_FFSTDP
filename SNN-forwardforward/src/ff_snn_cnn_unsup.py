@@ -38,7 +38,11 @@ from src.cnn_models.common import (
     compute_pool_output_size,
     normalize_conv_layer_spec,
 )
-from src.generate_neg_sample import generate_pos_n_neg_sample
+from src.generate_neg_sample import (
+    NEG_SAMPLE_SCFF,
+    generate_pos_n_neg_sample,
+    resolve_negative_sampling_strategy_name,
+)
 from src.ff_strategies.goodness import (
     GOODNESS_SPIKE_SQUARE,
     GOODNESS_SPIKE_SQUARE_MEAN,
@@ -113,6 +117,7 @@ class ConvNet(torch.nn.Module):
         self.last_backward_cmp_peak_alloc_bytes = None
         self.last_backward_cmp_peak_reserved_bytes = None
         self.last_backward_cmp_time_ms = None
+        self.label_reference_bank = None
 
         self.layers = nn.ModuleList()
         input_feature_of_linear = 0
@@ -292,8 +297,24 @@ class ConvNet(torch.nn.Module):
         self.last_backward_cmp_time_ms = snapshot.backward_cmp_time_ms
         return snapshot
 
+    def set_label_reference_bank(self, label_reference_bank) -> None:
+        if label_reference_bank is None:
+            self.label_reference_bank = None
+            return
+        self.label_reference_bank = label_reference_bank.detach().clone().to(self.device)
+
+    def _prediction_sampling_context(self) -> dict | None:
+        resolved_strategy = resolve_negative_sampling_strategy_name(
+            self.strategy_config.neg_sample_strategy,
+            self.mode_config,
+        )
+        if resolved_strategy != NEG_SAMPLE_SCFF or self.label_reference_bank is None:
+            return None
+        return {"label_reference_bank": self.label_reference_bank}
+
     def predict_multiple(self, x):
         goodness_per_label = []
+        sampling_context = self._prediction_sampling_context()
         for label_idx in range(self.num_classes):
             goodness = []
             # Prediction follows the original FF idea: evaluate every label
@@ -310,6 +331,7 @@ class ConvNet(torch.nn.Module):
                 num_classes=self.num_classes,
                 strategy_name=self.strategy_config.neg_sample_strategy,
                 mode_config=self.mode_config,
+                sampling_context=sampling_context,
             )
             h = spike_encoder(h, self.T)
             for layer_idx, layer_module in enumerate(self.layers):
