@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
 HPO_SCRIPT = ROOT / "ff-snn_hpo.py"
-DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch"
+DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_5_25"
 
 
 # ---------------------------------------------------------------------------
@@ -220,20 +220,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--datasets", default="MNIST,FashionMNIST,NMNIST,CIFAR10")
-    parser.add_argument("--exclude-datasets", default="FashionMNIST,NMNIST")
+    parser.add_argument("--exclude-datasets", default="")
     parser.add_argument("--models", default="MLP,CNN")
     parser.add_argument("--exclude-models", default="")
     parser.add_argument("--learning-modes", default="unsupervised,supervised")
     parser.add_argument("--exclude-learning-modes", default="")
     parser.add_argument("--update-modes", default="autograd,manual")
     parser.add_argument("--exclude-update-modes", default="")
-    parser.add_argument("--manual-update-schedules", default="separate,paired")
+    parser.add_argument("--manual-update-schedules", default="paired")
     parser.add_argument("--exclude-manual-update-schedules", default="")
     parser.add_argument("--neg-sample-strategies", default="embed_label_onehot,SCFF")
     parser.add_argument("--exclude-neg-sample-strategies", default="")
-    parser.add_argument("--goodness-strategies", default="spike_square_mean,freq_square_mean")
+    parser.add_argument("--goodness-strategies", default="spike_square_mean")
     parser.add_argument("--exclude-goodness-strategies", default="")
-    parser.add_argument("--hidden-loss-strategies", default="pairwise_goodness,supervised_delta")
+    parser.add_argument("--hidden-loss-strategies", default="supervised_delta")
     parser.add_argument("--exclude-hidden-loss-strategies", default="")
 
     # Backward-compatible single-value aliases.
@@ -243,7 +243,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hidden-loss-strategy", default=None, help=argparse.SUPPRESS)
 
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument(
         "--search-strategy",
         choices=["grid", "random", "successive_halving", "bayes"],
@@ -257,7 +257,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bayes-init-random-trials", type=int, default=4)
     parser.add_argument("--bayes-acquisition", choices=["ucb", "ei"], default="ucb")
     parser.add_argument("--random-search-trials", type=int, default=16)
-    parser.add_argument("--successive-halving-initial-epochs", type=int, default=10)
+    parser.add_argument("--successive-halving-initial-epochs", type=int, default=5)
     parser.add_argument("--successive-halving-reduction-factor", type=int, default=2)
     parser.add_argument("--capture-manual-grad-metrics", action="store_true")
     parser.add_argument("--capture-autograd-comparison", action="store_true")
