@@ -391,10 +391,11 @@ def _expected_best_path(out_dir: Path, combo: Combo, search_strategy: str) -> Pa
 
 
 def _runtime_env() -> dict[str, str]:
-    # Keep the batch runner side-effect free with respect to project-local
-    # cache directories. If callers want custom cache paths they can still set
-    # MPLCONFIGDIR / XDG_CACHE_HOME in the shell before launching the script.
-    return os.environ.copy()
+    env = os.environ.copy()
+    env["MPLBACKEND"] = "Agg"
+    env.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
+    env.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
+    return env
 
 
 def _torch_cuda_available() -> bool:
