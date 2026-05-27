@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
 HPO_SCRIPT = ROOT / "ff-snn_hpo.py"
-DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_5_25"
+DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_5_27_CNN"
 
 
 # ---------------------------------------------------------------------------
@@ -151,28 +151,28 @@ SEARCH_SPACE_PRESETS = {
         "MNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [512],
+            "b": [2048],
             "T": [16],
             "lr": [0.0078125, 0.0009765625],
         },
         "FashionMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [512],
+            "b": [2048],
             "T": [16],
             "lr": [0.0078125, 0.0009765625],
         },
         "NMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [512],
+            "b": [2048],
             "T": [16],
             "lr": [0.0078125, 0.0009765625],
         },
         "CIFAR10": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [512],
+            "b": [2048],
             "T": [16],
             "lr": [0.0078125, 0.0009765625],
         },
@@ -221,7 +221,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--datasets", default="MNIST,FashionMNIST,NMNIST,CIFAR10")
     parser.add_argument("--exclude-datasets", default="")
-    parser.add_argument("--models", default="MLP,CNN")
+    parser.add_argument("--models", default="CNN")
     parser.add_argument("--exclude-models", default="")
     parser.add_argument("--learning-modes", default="unsupervised,supervised")
     parser.add_argument("--exclude-learning-modes", default="")
