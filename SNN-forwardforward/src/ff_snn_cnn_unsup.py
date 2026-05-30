@@ -789,7 +789,9 @@ class ConvLayer(nn.Module):
         self.opt.zero_grad()
         return grad, peak_alloc, peak_reserved, elapsed_ms
 
-    def _apply_autograd_update(self, pos_goodness, neg_goodness):
+    def _apply_autograd_update(self, pos_goodness, neg_goodness, frozen):
+        if frozen:
+            return
         profile_ctx = self._begin_profile()
         self.opt.zero_grad()
         loss = compute_hidden_pair_loss(
@@ -802,8 +804,16 @@ class ConvLayer(nn.Module):
         loss.backward()
         self.opt.step()
         peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
-        self.last_backward_peak_alloc_bytes = peak_alloc
-        self.last_backward_peak_reserved_bytes = peak_reserved
+        if peak_alloc is not None:
+            self.last_backward_peak_alloc_bytes = max(
+                self.last_backward_peak_alloc_bytes or 0.0,
+                peak_alloc,
+            )
+        if peak_reserved is not None:
+            self.last_backward_peak_reserved_bytes = max(
+                self.last_backward_peak_reserved_bytes or 0.0,
+                peak_reserved,
+            )
 
     def forward(self, x, mean, var):
         x = self.layer[0](x)
@@ -837,7 +847,7 @@ class ConvLayer(nn.Module):
         neg_bp_peak_reserved = None
 
         if needs_manual_grad:
-            if self.mode_config.uses_separate_manual_update_schedule:
+            if self.mode_config.uses_separate_update_schedule:
                 (
                     pos_input_spike_sum_unfold,
                     pos_pool_out,
@@ -1094,6 +1104,12 @@ class ConvLayer(nn.Module):
                 pos_ln_mean,
                 pos_ln_var,
             ) = self._forward_spike_sequence(pos_encoded)
+            if self.mode_config.uses_separate_update_schedule:
+                self._apply_autograd_update(
+                    pos_goodness,
+                    torch.zeros_like(pos_goodness),
+                    frozen,
+                )
             functional.reset_net(self.layer)
             (
                 neg_input_spike_sum_unfold,
@@ -1103,8 +1119,15 @@ class ConvLayer(nn.Module):
                 neg_ln_mean,
                 neg_ln_var,
             ) = self._forward_spike_sequence(neg_encoded)
+            if self.mode_config.uses_separate_update_schedule:
+                self._apply_autograd_update(
+                    torch.zeros_like(neg_goodness),
+                    neg_goodness,
+                    frozen,
+                )
+            else:
+                self._apply_autograd_update(pos_goodness, neg_goodness, frozen)
             functional.reset_net(self.layer)
-            self._apply_autograd_update(pos_goodness, neg_goodness)
 
         return (
             pos_pool_out.detach(),

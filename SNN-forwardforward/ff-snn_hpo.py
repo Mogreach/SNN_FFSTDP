@@ -67,14 +67,14 @@ os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
 # applies the selected search strategy on top of that pool.
 SEARCH_SPACE = {
     # Goodness / delta-loss threshold used by hidden layers.
-    "loss_threshold": [1.0],
+    "loss_threshold": [2.0],
     # Neuron firing threshold for hidden layers.
     "v_threshold": [1.5],
     # Batch size.
     "b": [1024],
     # MLP layer widths. Only used when MODEL == "MLP".
     "dims": [
-        [784, 512, 512, 10],
+        [784, 512, 10],
     ],
     # CNN convolution configuration. Only used when MODEL == "CNN".
     # Predefined CNN families such as VGG / ResNet ignore this search axis.
@@ -89,15 +89,14 @@ SEARCH_SPACE = {
         ]
     ],
     "T": [16],  # Number of FF-STDP steps per batch.
-    "lr": [0.001],
+    "lr": [0.0078125],
 }
-
 # Base training settings shared by every trial.
 MODEL = "CNN"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
 DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
 LEARNING_MODE = "supervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "manual"  # Hidden-layer update: "autograd" or "manual"
-MANUAL_UPDATE_SCHEDULE = "paired"  # Manual hidden-layer update schedule: "separate" or "paired"
+UPDATE_SCHEDULE = "paired"  # Hidden-layer update timing for manual/autograd: "separate" or "paired"
 NEG_SAMPLE_STRATEGY = "SCFF"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
 GOODNESS_STRATEGY = "spike_square_mean"  # Hidden-layer goodness strategy: "auto, spike_square, spike_square_mean, freq_square, freq_square_mean, membrane_potential_square_mean". Legacy aliases: "square", "square_mean".
 HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
@@ -109,10 +108,10 @@ DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 CAPTURE_MANUAL_GRAD_METRICS = True  # Whether to collect manual-gradient profiling stats.
 CAPTURE_AUTOGRAD_COMPARISON = True  # Whether to run extra autograd comparison branches.
 
-EPOCHS = 1  # Full epoch budget used by a complete trial.
+EPOCHS = 5  # Full epoch budget used by a complete trial.
 CSV_NOTE = (
     f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE} "
-    f"{MANUAL_UPDATE_SCHEDULE}"
+    f"{UPDATE_SCHEDULE}"
 )  # Free-form note written into the summary CSV.
 
 # Search settings shared by all strategies.
@@ -215,7 +214,7 @@ def _load_search_space_override(args: argparse.Namespace) -> dict | None:
 
 def _apply_runtime_overrides(args: argparse.Namespace) -> None:
     global MODEL, DATASET, LEARNING_MODE, HIDDEN_LAYER_UPDATE_MODE
-    global MANUAL_UPDATE_SCHEDULE
+    global UPDATE_SCHEDULE
     global NEG_SAMPLE_STRATEGY, GOODNESS_STRATEGY, HIDDEN_LOSS_STRATEGY
     global DEVICE, DATA_LOADER_WORKERS, CAPTURE_MANUAL_GRAD_METRICS
     global CAPTURE_AUTOGRAD_COMPARISON, EPOCHS, CSV_NOTE, SEARCH_STRATEGY
@@ -235,8 +234,8 @@ def _apply_runtime_overrides(args: argparse.Namespace) -> None:
         LEARNING_MODE = args.learning_mode
     if args.hidden_layer_update_mode is not None:
         HIDDEN_LAYER_UPDATE_MODE = args.hidden_layer_update_mode
-    if args.manual_update_schedule is not None:
-        MANUAL_UPDATE_SCHEDULE = args.manual_update_schedule
+    if args.update_schedule is not None:
+        UPDATE_SCHEDULE = args.update_schedule
     if args.neg_sample_strategy is not None:
         NEG_SAMPLE_STRATEGY = args.neg_sample_strategy
     if args.goodness_strategy is not None:
@@ -295,7 +294,7 @@ def _apply_runtime_overrides(args: argparse.Namespace) -> None:
     else:
         CSV_NOTE = (
             f"{MODEL} {DATASET} {LEARNING_MODE} FF-STDP "
-            f"{HIDDEN_LAYER_UPDATE_MODE} {MANUAL_UPDATE_SCHEDULE}"
+            f"{HIDDEN_LAYER_UPDATE_MODE} {UPDATE_SCHEDULE}"
         )
 
 
@@ -407,7 +406,7 @@ def _build_cmd(params: dict, *, epoch_budget: int) -> list[str]:
         cmd += ["-device", DEVICE]
     cmd += ["-learning_mode", LEARNING_MODE]
     cmd += ["-hidden_layer_update_mode", HIDDEN_LAYER_UPDATE_MODE]
-    cmd += ["-manual_update_schedule", MANUAL_UPDATE_SCHEDULE]
+    cmd += ["-update_schedule", UPDATE_SCHEDULE]
     cmd += ["-neg_sample_strategy", NEG_SAMPLE_STRATEGY]
     cmd += ["-goodness_strategy", GOODNESS_STRATEGY]
     cmd += ["-hidden_loss_strategy", HIDDEN_LOSS_STRATEGY]
@@ -714,7 +713,7 @@ def _base_row(
         "promoted": False,
         "learning_mode": LEARNING_MODE,
         "hidden_layer_update_mode": HIDDEN_LAYER_UPDATE_MODE,
-        "manual_update_schedule": MANUAL_UPDATE_SCHEDULE,
+        "update_schedule": UPDATE_SCHEDULE,
         "neg_sample_strategy": NEG_SAMPLE_STRATEGY,
         "goodness_strategy": GOODNESS_STRATEGY,
         "hidden_loss_strategy": HIDDEN_LOSS_STRATEGY,
@@ -1122,7 +1121,7 @@ def _write_best_result(summary_path: Path, ranked_records: list[dict]) -> None:
 
 def _summary_stem() -> str:
     return (
-        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{MANUAL_UPDATE_SCHEDULE}-"
+        f"{LEARNING_MODE}-{HIDDEN_LAYER_UPDATE_MODE}-{UPDATE_SCHEDULE}-"
         f"{NEG_SAMPLE_STRATEGY}-{GOODNESS_STRATEGY}-{HIDDEN_LOSS_STRATEGY}-"
         f"{DATASET}-{MODEL}-{SEARCH_STRATEGY}"
     )
@@ -1153,7 +1152,7 @@ def main() -> None:
         "promoted",
         "learning_mode",
         "hidden_layer_update_mode",
-        "manual_update_schedule",
+        "update_schedule",
         "neg_sample_strategy",
         "goodness_strategy",
         "hidden_loss_strategy",

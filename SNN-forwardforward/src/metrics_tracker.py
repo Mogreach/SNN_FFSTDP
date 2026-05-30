@@ -583,7 +583,7 @@ class ExperimentMetricsTracker:
         metrics = {
             "learning_mode": self.mode_config.learning_mode,
             "hidden_layer_update_mode": self.mode_config.hidden_layer_update_mode,
-            "manual_update_schedule": self.mode_config.manual_update_schedule,
+            "update_schedule": self.mode_config.update_schedule,
             "neg_sample_strategy": self.strategy_config.neg_sample_strategy,
             "goodness_strategy": self.strategy_config.goodness_strategy,
             "hidden_loss_strategy": self.strategy_config.hidden_loss_strategy,

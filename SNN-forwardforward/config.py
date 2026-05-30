@@ -123,14 +123,15 @@ class ConfigParser:
             help="Update rule used by hidden layers in both supervised and unsupervised FF-SNN training.",
         )
         self.parser.add_argument(
-            "-manual_update_schedule",
+            "-update_schedule",
             default="separate",
             type=str,
             choices=["separate", "paired"],
             help=(
-                "When hidden_layer_update_mode=manual, choose whether "
-                "unsupervised hidden layers update after each pos/neg branch "
-                "('separate') or once after both forward passes ('paired')."
+                "Hidden-layer update timing for manual and autograd modes: "
+                "update after each pos/neg branch ('separate') or once after "
+                "both forward passes ('paired'). The parameter name is kept "
+                "for backward compatibility."
             ),
         )
         self.parser.add_argument(
