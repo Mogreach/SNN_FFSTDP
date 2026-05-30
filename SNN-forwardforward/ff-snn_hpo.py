@@ -161,7 +161,7 @@ def _parse_runtime_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset", choices=["MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"])
     parser.add_argument("--learning-mode", choices=["unsupervised", "supervised"])
     parser.add_argument("--hidden-layer-update-mode", choices=["autograd", "manual"])
-    parser.add_argument("--manual-update-schedule", choices=["separate", "paired"])
+    parser.add_argument("--update-schedule", choices=["separate", "paired"])
     parser.add_argument("--neg-sample-strategy")
     parser.add_argument("--goodness-strategy")
     parser.add_argument("--hidden-loss-strategy")

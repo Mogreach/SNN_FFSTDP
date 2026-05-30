@@ -227,8 +227,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exclude-learning-modes", default="")
     parser.add_argument("--update-modes", default="autograd,manual")
     parser.add_argument("--exclude-update-modes", default="")
-    parser.add_argument("--manual-update-schedules", default="separate,paired")
-    parser.add_argument("--exclude-manual-update-schedules", default="")
+    parser.add_argument("--update-schedules", default="separate,paired")
+    parser.add_argument("--exclude-update-schedules", default="")
     parser.add_argument("--neg-sample-strategies", default="embed_label_onehot,SCFF")
     parser.add_argument("--exclude-neg-sample-strategies", default="")
     parser.add_argument("--goodness-strategies", default="spike_square_mean,freq_square_mean")
@@ -237,7 +237,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exclude-hidden-loss-strategies", default="")
 
     # Backward-compatible single-value aliases.
-    parser.add_argument("--manual-update-schedule", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--update-schedule", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--neg-sample-strategy", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--goodness-strategy", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--hidden-loss-strategy", default=None, help=argparse.SUPPRESS)
@@ -708,7 +708,7 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         combo.learning_mode,
         "--hidden-layer-update-mode",
         combo.hidden_layer_update_mode,
-        "--manual-update-schedule",
+        "--update-schedule",
         combo.update_schedule,
         "--neg-sample-strategy",
         combo.neg_sample_strategy,
