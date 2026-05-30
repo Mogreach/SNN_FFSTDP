@@ -767,8 +767,16 @@ class ConvLayer(nn.Module):
         delta_loss.backward()
         self.opt.step()
         peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
-        self.last_backward_peak_alloc_bytes = peak_alloc
-        self.last_backward_peak_reserved_bytes = peak_reserved
+        if peak_alloc is not None:
+            self.last_backward_peak_alloc_bytes = max(
+                self.last_backward_peak_alloc_bytes or 0.0,
+                peak_alloc,
+            )
+        if peak_reserved is not None:
+            self.last_backward_peak_reserved_bytes = max(
+                self.last_backward_peak_reserved_bytes or 0.0,
+                peak_reserved,
+            )
 
     def _autograd_hidden_loss_comparison(self, pos_goodness, neg_goodness):
         profile_ctx = self._begin_profile()
@@ -802,7 +810,7 @@ class ConvLayer(nn.Module):
         # Manual gradient branch
         # =========================================================
         if needs_manual_grad:
-            if self.mode_config.uses_separate_manual_update_schedule:
+            if self.mode_config.uses_separate_update_schedule:
                 (
                     pos_input_spike_sum_unfold,
                     pos_pool_out,
@@ -1073,6 +1081,12 @@ class ConvLayer(nn.Module):
                 pos_ln_mean,
                 pos_ln_var,
             ) = self._forward_spike_sequence(pos_encoded)
+            if self.mode_config.uses_separate_update_schedule:
+                self._apply_autograd_update(
+                    pos_goodness,
+                    torch.zeros_like(pos_goodness),
+                    frozen,
+                )
             functional.reset_net(self.layer)
 
             (
@@ -1083,8 +1097,15 @@ class ConvLayer(nn.Module):
                 neg_ln_mean,
                 neg_ln_var,
             ) = self._forward_spike_sequence(neg_encoded)
+            if self.mode_config.uses_separate_update_schedule:
+                self._apply_autograd_update(
+                    torch.zeros_like(neg_goodness),
+                    neg_goodness,
+                    frozen,
+                )
+            else:
+                self._apply_autograd_update(pos_goodness, neg_goodness, frozen)
             functional.reset_net(self.layer)
-            self._apply_autograd_update(pos_goodness, neg_goodness, frozen)
 
         return (
             pos_pool_out.detach(),

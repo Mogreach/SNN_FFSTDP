@@ -239,7 +239,7 @@ class FFResidualBlockLayer(nn.Module):
             return None
         return torch.stack(membrane_values, dim=0).mean(0)
 
-    def _pairwise_loss(self, pos_goodness, neg_goodness):
+    def _hidden_loss(self, pos_goodness, neg_goodness):
         return compute_hidden_pair_loss(
             pos_goodness,
             neg_goodness,
@@ -288,17 +288,19 @@ class FFResidualBlockLayer(nn.Module):
         self.opt.zero_grad()
         return autograd_grads, peak_alloc, peak_reserved, elapsed_ms
 
-    def _train_pair(self, pos_encoded, neg_encoded, frozen):
-        self._reset_runtime_stats()
-        pos_out, _, pos_goodness = self._forward_spike_sequence(pos_encoded)
-        functional.reset_net(self.layer)
-        neg_out, _, neg_goodness = self._forward_spike_sequence(neg_encoded)
-        functional.reset_net(self.layer)
+    def _record_peak(self, attr_name, value):
+        if value is None:
+            return
+        current_value = getattr(self, attr_name)
+        setattr(self, attr_name, max(current_value or 0.0, value))
 
-        pos_cos_sim = None
-        neg_cos_sim = None
-        loss = self._pairwise_loss(pos_goodness, neg_goodness)
+    def _add_elapsed_time(self, attr_name, elapsed_ms):
+        if elapsed_ms is None:
+            return
+        current_value = getattr(self, attr_name)
+        setattr(self, attr_name, float(current_value or 0.0) + float(elapsed_ms))
 
+    def _apply_local_loss_update(self, loss, frozen):
         if self.mode_config.uses_manual_update:
             (
                 params,
@@ -307,13 +309,14 @@ class FFResidualBlockLayer(nn.Module):
                 manual_peak_reserved,
                 manual_time_ms,
             ) = self._manual_local_grad(loss)
-            self.last_manual_grad_peak_alloc_bytes = manual_peak_alloc
-            self.last_manual_grad_peak_reserved_bytes = manual_peak_reserved
-            self.last_manual_grad_time_ms = float(manual_time_ms or 0.0)
+            self._record_peak("last_manual_grad_peak_alloc_bytes", manual_peak_alloc)
+            self._record_peak("last_manual_grad_peak_reserved_bytes", manual_peak_reserved)
+            self._add_elapsed_time("last_manual_grad_time_ms", manual_time_ms)
             self.last_manual_grad_ops_est = float(
-                sum(int(param.numel()) for param in params)
-            )
+                self.last_manual_grad_ops_est or 0.0
+            ) + float(sum(int(param.numel()) for param in params))
 
+            cos_sim = None
             if self.mode_config.profiling.capture_autograd_comparison:
                 (
                     autograd_grads,
@@ -321,30 +324,65 @@ class FFResidualBlockLayer(nn.Module):
                     bp_peak_reserved,
                     bp_time_ms,
                 ) = self._autograd_local_grad_comparison(loss, params)
-                self.last_backward_cmp_peak_alloc_bytes = bp_peak_alloc
-                self.last_backward_cmp_peak_reserved_bytes = bp_peak_reserved
-                self.last_backward_cmp_time_ms = float(bp_time_ms or 0.0)
+                self._record_peak("last_backward_cmp_peak_alloc_bytes", bp_peak_alloc)
+                self._record_peak("last_backward_cmp_peak_reserved_bytes", bp_peak_reserved)
+                self._add_elapsed_time("last_backward_cmp_time_ms", bp_time_ms)
 
-                flat_manual = self._flatten_grads(manual_grads)
-                flat_autograd = self._flatten_grads(autograd_grads)
                 cos_sim = torch.cosine_similarity(
-                    flat_autograd,
-                    flat_manual,
+                    self._flatten_grads(autograd_grads),
+                    self._flatten_grads(manual_grads),
                     dim=0,
                 ).detach().cpu().item()
-                pos_cos_sim = cos_sim
-                neg_cos_sim = cos_sim
 
             self._apply_manual_update(params, manual_grads, frozen)
+            return cos_sim
 
-        elif not frozen:
-            profile_ctx = self._begin_profile()
-            self.opt.zero_grad()
-            loss.backward()
-            self.opt.step()
-            peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
-            self.last_backward_peak_alloc_bytes = peak_alloc
-            self.last_backward_peak_reserved_bytes = peak_reserved
+        if frozen:
+            return None
+
+        profile_ctx = self._begin_profile()
+        self.opt.zero_grad()
+        loss.backward()
+        self.opt.step()
+        peak_alloc, peak_reserved, _ = self._end_profile(profile_ctx)
+        self._record_peak("last_backward_peak_alloc_bytes", peak_alloc)
+        self._record_peak("last_backward_peak_reserved_bytes", peak_reserved)
+        return None
+
+    def _train_pair(self, pos_encoded, neg_encoded, frozen):
+        self._reset_runtime_stats()
+        pos_cos_sim = None
+        neg_cos_sim = None
+        pos_out, _, pos_goodness = self._forward_spike_sequence(pos_encoded)
+        functional.reset_net(self.layer)
+
+        if self.mode_config.uses_separate_update_schedule:
+            pos_cos_sim = self._apply_local_loss_update(
+                self._hidden_loss(
+                    pos_goodness,
+                    torch.zeros_like(pos_goodness),
+                ),
+                frozen,
+            )
+
+            neg_out, _, neg_goodness = self._forward_spike_sequence(neg_encoded)
+            functional.reset_net(self.layer)
+            neg_cos_sim = self._apply_local_loss_update(
+                self._hidden_loss(
+                    torch.zeros_like(neg_goodness),
+                    neg_goodness,
+                ),
+                frozen,
+            )
+        else:
+            neg_out, _, neg_goodness = self._forward_spike_sequence(neg_encoded)
+            functional.reset_net(self.layer)
+            cos_sim = self._apply_local_loss_update(
+                self._hidden_loss(pos_goodness, neg_goodness),
+                frozen,
+            )
+            pos_cos_sim = cos_sim
+            neg_cos_sim = cos_sim
 
         return (
             pos_out.detach(),

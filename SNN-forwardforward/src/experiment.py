@@ -37,9 +37,9 @@ class ProfilingOptions:
 class ExperimentModeConfig:
     # learning_mode selects the supervised / unsupervised experiment branch,
     # while hidden_layer_update_mode selects the hidden-layer update rule that
-    # both MLP implementations support. manual_update_schedule only matters for
-    # manual hidden-layer updates that explicitly choose when to apply the
-    # analytical gradient relative to pos/neg forward passes.
+    # both MLP implementations support. manual_update_schedule is kept as the
+    # public name for backward compatibility, but it controls update timing for
+    # both analytical/manual and autograd hidden-layer updates.
     learning_mode: str = LEARNING_MODE_UNSUPERVISED
     hidden_layer_update_mode: str = HIDDEN_LAYER_UPDATE_AUTOGRAD
     manual_update_schedule: str = MANUAL_UPDATE_SCHEDULE_SEPARATE
@@ -77,10 +77,18 @@ class ExperimentModeConfig:
 
     @property
     def uses_separate_manual_update_schedule(self) -> bool:
-        return self.manual_update_schedule == MANUAL_UPDATE_SCHEDULE_SEPARATE
+        return self.uses_separate_update_schedule
 
     @property
     def uses_paired_manual_update_schedule(self) -> bool:
+        return self.uses_paired_update_schedule
+
+    @property
+    def uses_separate_update_schedule(self) -> bool:
+        return self.manual_update_schedule == MANUAL_UPDATE_SCHEDULE_SEPARATE
+
+    @property
+    def uses_paired_update_schedule(self) -> bool:
         return self.manual_update_schedule == MANUAL_UPDATE_SCHEDULE_PAIRED
 
     @property

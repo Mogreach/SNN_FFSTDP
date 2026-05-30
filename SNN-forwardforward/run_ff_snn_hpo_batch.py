@@ -210,7 +210,7 @@ VALID_HIDDEN_LOSS_STRATEGIES = (
 )
 
 CNN_FAMILY_MODELS = {"VGG6", "VGG8", "VGG11", "ResNet"}
-DEFAULT_AUTOGRAD_MANUAL_SCHEDULE = "separate"
+DEFAULT_UPDATE_SCHEDULE = "separate"
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -449,7 +449,7 @@ def _combo_from_row(row: dict) -> Combo | None:
         hidden_layer_update_mode=hidden_layer_update_mode,
         manual_update_schedule=row.get(
             "manual_update_schedule",
-            DEFAULT_AUTOGRAD_MANUAL_SCHEDULE,
+            DEFAULT_UPDATE_SCHEDULE,
         ),
         neg_sample_strategy=row.get("neg_sample_strategy", "auto"),
         goodness_strategy=row.get("goodness_strategy", "auto"),
@@ -519,7 +519,7 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
             "hidden_layer_update_mode": hidden_layer_update_mode or "",
             "manual_update_schedule": metrics.get(
                 "manual_update_schedule",
-                DEFAULT_AUTOGRAD_MANUAL_SCHEDULE,
+                DEFAULT_UPDATE_SCHEDULE,
             ),
             "neg_sample_strategy": metrics.get("neg_sample_strategy", "auto"),
             "goodness_strategy": metrics.get("goodness_strategy", "auto"),
@@ -825,14 +825,9 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
         for model in models:
             for learning_mode in learning_modes:
                 for update_mode in update_modes:
-                    # manual_update_schedule only matters when the hidden layer
-                    # truly uses analytical/manual updates. Autograd would
-                    # otherwise create redundant duplicate runs.
-                    if update_mode == "manual":
-                        schedules_for_mode = manual_schedules
-                    else:
-                        schedules_for_mode = [DEFAULT_AUTOGRAD_MANUAL_SCHEDULE]
-                    for manual_update_schedule in schedules_for_mode:
+                    # The legacy parameter name is retained, but the schedule
+                    # controls update timing for manual and autograd modes.
+                    for manual_update_schedule in manual_schedules:
                         for neg_sample_strategy in neg_sample_strategies:
                             for goodness_strategy in goodness_strategies:
                                 for hidden_loss_strategy in hidden_loss_strategies:

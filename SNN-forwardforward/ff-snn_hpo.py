@@ -63,14 +63,14 @@ OUT_DIR = ROOT / "logs" / "opt"
 # applies the selected search strategy on top of that pool.
 SEARCH_SPACE = {
     # Goodness / delta-loss threshold used by hidden layers.
-    "loss_threshold": [1.0],
+    "loss_threshold": [2.0],
     # Neuron firing threshold for hidden layers.
     "v_threshold": [1.5],
     # Batch size.
     "b": [1024],
     # MLP layer widths. Only used when MODEL == "MLP".
     "dims": [
-        [784, 512, 512, 10],
+        [784, 512, 10],
     ],
     # CNN convolution configuration. Only used when MODEL == "CNN".
     # Predefined CNN families such as VGG / ResNet ignore this search axis.
@@ -85,7 +85,7 @@ SEARCH_SPACE = {
         ]
     ],
     "T": [16],  # Number of FF-STDP steps per batch.
-    "lr": [0.001],
+    "lr": [0.0078125],
 }
 
 # Base training settings shared by every trial.
@@ -93,8 +93,8 @@ MODEL = "MLP"  # Model family: "MLP" "CNN" "VGG6" "VGG8" "VGG11" or "ResNet"
 DATASET = "MNIST"  # Dataset name. "MNIST", "N-MNIST", "NMNIST", "FashionMNIST", "CIFAR10", "DVS128Gesture"
 LEARNING_MODE = "unsupervised"  # "unsupervised" or "supervised"
 HIDDEN_LAYER_UPDATE_MODE = "manual"  # Hidden-layer update: "autograd" or "manual"
-MANUAL_UPDATE_SCHEDULE = "paired"  # Manual hidden-layer update schedule: "separate" or "paired"
-NEG_SAMPLE_STRATEGY = "embed_label_onehot"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
+MANUAL_UPDATE_SCHEDULE = "paired"  # Hidden-layer update timing for manual/autograd: "separate" or "paired"
+NEG_SAMPLE_STRATEGY = "SCFF"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
 GOODNESS_STRATEGY = "spike_square_mean"  # Hidden-layer goodness strategy: "auto, spike_square, spike_square_mean, freq_square, freq_square_mean, membrane_potential_square_mean". Legacy aliases: "square", "square_mean".
 HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
@@ -105,7 +105,7 @@ DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 CAPTURE_MANUAL_GRAD_METRICS = True  # Whether to collect manual-gradient profiling stats.
 CAPTURE_AUTOGRAD_COMPARISON = True  # Whether to run extra autograd comparison branches.
 
-EPOCHS = 100  # Full epoch budget used by a complete trial.
+EPOCHS = 5  # Full epoch budget used by a complete trial.
 CSV_NOTE = (
     f"{MODEL} {LEARNING_MODE} FF-STDP {HIDDEN_LAYER_UPDATE_MODE} "
     f"{MANUAL_UPDATE_SCHEDULE}"
