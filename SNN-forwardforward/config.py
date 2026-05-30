@@ -123,7 +123,7 @@ class ConfigParser:
             help="Update rule used by hidden layers in both supervised and unsupervised FF-SNN training.",
         )
         self.parser.add_argument(
-            "-manual_update_schedule",
+            "-update_schedule",
             default="separate",
             type=str,
             choices=["separate", "paired"],

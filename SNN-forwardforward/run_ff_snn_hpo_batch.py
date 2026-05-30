@@ -184,7 +184,7 @@ VALID_DATASETS = tuple(SEARCH_SPACE_PRESETS["MLP"].keys())
 VALID_MODELS = ("MLP", "CNN", "VGG6", "VGG8", "VGG11", "ResNet")
 VALID_LEARNING_MODES = ("unsupervised", "supervised")
 VALID_UPDATE_MODES = ("autograd", "manual")
-VALID_MANUAL_UPDATE_SCHEDULES = ("separate", "paired")
+VALID_UPDATE_SCHEDULES = ("separate", "paired")
 VALID_NEG_SAMPLE_STRATEGIES = (
     "auto",
     "embed_label_onehot",
@@ -285,7 +285,7 @@ class Combo:
     model: str
     learning_mode: str
     hidden_layer_update_mode: str
-    manual_update_schedule: str
+    update_schedule: str
     neg_sample_strategy: str
     goodness_strategy: str
     hidden_loss_strategy: str
@@ -298,7 +298,7 @@ class Combo:
                 self.model,
                 self.learning_mode,
                 self.hidden_layer_update_mode,
-                self.manual_update_schedule,
+                self.update_schedule,
                 self.neg_sample_strategy,
                 self.goodness_strategy,
                 self.hidden_loss_strategy,
@@ -310,7 +310,7 @@ class Combo:
             [
                 self.learning_mode,
                 self.hidden_layer_update_mode,
-                self.manual_update_schedule,
+                self.update_schedule,
                 self.neg_sample_strategy,
                 self.goodness_strategy,
                 self.hidden_loss_strategy,
@@ -329,7 +329,7 @@ def _apply_legacy_axis_aliases(args: argparse.Namespace) -> None:
     # Keep older one-value flags working while the batch runner moves to
     # include/exclude style plural flags.
     alias_pairs = [
-        ("manual_update_schedules", "manual_update_schedule"),
+        ("update_schedules", "update_schedule"),
         ("neg_sample_strategies", "neg_sample_strategy"),
         ("goodness_strategies", "goodness_strategy"),
         ("hidden_loss_strategies", "hidden_loss_strategy"),
@@ -447,8 +447,8 @@ def _combo_from_row(row: dict) -> Combo | None:
         model=model,
         learning_mode=learning_mode,
         hidden_layer_update_mode=hidden_layer_update_mode,
-        manual_update_schedule=row.get(
-            "manual_update_schedule",
+        update_schedule=row.get(
+            "update_schedule",
             DEFAULT_UPDATE_SCHEDULE,
         ),
         neg_sample_strategy=row.get("neg_sample_strategy", "auto"),
@@ -517,8 +517,8 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
             "model": model,
             "learning_mode": learning_mode,
             "hidden_layer_update_mode": hidden_layer_update_mode or "",
-            "manual_update_schedule": metrics.get(
-                "manual_update_schedule",
+            "update_schedule": metrics.get(
+                "update_schedule",
                 DEFAULT_UPDATE_SCHEDULE,
             ),
             "neg_sample_strategy": metrics.get("neg_sample_strategy", "auto"),
@@ -616,7 +616,7 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
         "model",
         "learning_mode",
         "hidden_layer_update_mode",
-        "manual_update_schedule",
+        "update_schedule",
         "neg_sample_strategy",
         "goodness_strategy",
         "hidden_loss_strategy",
@@ -644,7 +644,7 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
                 "model": combo.model,
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
-                "manual_update_schedule": combo.manual_update_schedule,
+                "update_schedule": combo.update_schedule,
                 "neg_sample_strategy": combo.neg_sample_strategy,
                 "goodness_strategy": combo.goodness_strategy,
                 "hidden_loss_strategy": combo.hidden_loss_strategy,
@@ -678,7 +678,7 @@ def write_reports(out_dir: Path, combos: list[Combo], records_path: Path) -> Non
         for row in rows:
             mf.write(
                 "| {dataset} | {model} | {learning_mode} | "
-                "{hidden_layer_update_mode} | {manual_update_schedule} | "
+                "{hidden_layer_update_mode} | {update_schedule} | "
                 "{neg_sample_strategy} | {goodness_strategy} | "
                 "{hidden_loss_strategy} | {status} | {score} | "
                 "{val_acc_best} | {test_acc} | {source} | {run_dir} |\n".format(
@@ -709,7 +709,7 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         "--hidden-layer-update-mode",
         combo.hidden_layer_update_mode,
         "--manual-update-schedule",
-        combo.manual_update_schedule,
+        combo.update_schedule,
         "--neg-sample-strategy",
         combo.neg_sample_strategy,
         "--goodness-strategy",
@@ -739,7 +739,7 @@ def build_command(args: argparse.Namespace, combo: Combo) -> list[str]:
         "--csv-note",
         (
             f"batch {combo.dataset} {combo.model} {combo.learning_mode} "
-            f"{combo.hidden_layer_update_mode} {combo.manual_update_schedule} "
+            f"{combo.hidden_layer_update_mode} {combo.update_schedule} "
             f"{combo.neg_sample_strategy} {combo.goodness_strategy} "
             f"{combo.hidden_loss_strategy}"
         ),
@@ -796,10 +796,10 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
         "update_modes",
     )
     manual_schedules = _select_axis_values(
-        args.manual_update_schedules,
-        args.exclude_manual_update_schedules,
-        VALID_MANUAL_UPDATE_SCHEDULES,
-        "manual_update_schedules",
+        args.update_schedules,
+        args.exclude_update_schedules,
+        VALID_UPDATE_SCHEDULES,
+        "update_schedules",
     )
     neg_sample_strategies = _select_axis_values(
         args.neg_sample_strategies,
@@ -827,7 +827,7 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
                 for update_mode in update_modes:
                     # The legacy parameter name is retained, but the schedule
                     # controls update timing for manual and autograd modes.
-                    for manual_update_schedule in manual_schedules:
+                    for update_schedule in manual_schedules:
                         for neg_sample_strategy in neg_sample_strategies:
                             for goodness_strategy in goodness_strategies:
                                 for hidden_loss_strategy in hidden_loss_strategies:
@@ -837,7 +837,7 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
                                             model=model,
                                             learning_mode=learning_mode,
                                             hidden_layer_update_mode=update_mode,
-                                            manual_update_schedule=manual_update_schedule,
+                                            update_schedule=update_schedule,
                                             neg_sample_strategy=neg_sample_strategy,
                                             goodness_strategy=goodness_strategy,
                                             hidden_loss_strategy=hidden_loss_strategy,
@@ -896,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
                 "model": combo.model,
                 "learning_mode": combo.learning_mode,
                 "hidden_layer_update_mode": combo.hidden_layer_update_mode,
-                "manual_update_schedule": combo.manual_update_schedule,
+                "update_schedule": combo.update_schedule,
                 "neg_sample_strategy": combo.neg_sample_strategy,
                 "goodness_strategy": combo.goodness_strategy,
                 "hidden_loss_strategy": combo.hidden_loss_strategy,
