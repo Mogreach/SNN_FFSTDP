@@ -15,6 +15,12 @@ os.environ["MPLBACKEND"] = "Agg"
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
 
+if os.environ.get("SNN_DISABLE_CUDNN", "").strip().lower() in {"1", "true", "yes", "on"}:
+    import torch
+
+    torch.backends.cudnn.enabled = False
+    print("[runtime] cuDNN disabled via SNN_DISABLE_CUDNN", flush=True)
+
 from config import ConfigParser
 from src.experiment_runner import run_experiment
 
