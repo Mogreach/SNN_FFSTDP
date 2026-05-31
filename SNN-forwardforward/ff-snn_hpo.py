@@ -43,10 +43,15 @@ import math
 import numbers
 import os
 import random
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+os.environ["MPLBACKEND"] = "Agg"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
 
 import numpy as np
 
@@ -57,9 +62,14 @@ ROOT = Path(__file__).resolve().parent
 TRAIN_SCRIPT = ROOT / "ff-snn.py"
 OUT_DIR = ROOT / "logs" / "opt"
 
-os.environ["MPLBACKEND"] = "Agg"
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
-os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
+
+def _training_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["MPLBACKEND"] = "Agg"
+    env.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
+    env.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
+    return env
+
 
 # Search-space definition.
 # Each key represents one searchable axis.
@@ -780,6 +790,7 @@ def _base_row(
         "manual_vs_autograd_time_per_sample_reduction_pct": "",
         "manual_vs_autograd_throughput_gain_pct": "",
         "run_dir": "",
+        "trial_log_path": "",
         "status": "ok",
         "error": "",
     }
@@ -813,14 +824,35 @@ def _run_trial(
 
     started = time.time()
     cmd = _build_cmd(params, epoch_budget=stage_epochs)
+    trial_log_path = (
+        OUT_DIR
+        / "_trial_logs"
+        / _summary_stem()
+        / f"stage{stage_index:02d}_{candidate['candidate_id']}_idx{candidate_index:04d}.log"
+    )
+    trial_log_path.parent.mkdir(parents=True, exist_ok=True)
+    row["trial_log_path"] = str(trial_log_path)
     print(
         f"[HPO] stage={stage_index} epochs={stage_epochs} "
-        f"candidate={candidate['candidate_id']} params={params}"
+        f"candidate={candidate['candidate_id']} params={params} "
+        f"log={trial_log_path}"
     )
-    result = subprocess.run(cmd, env=_training_env())
+    with trial_log_path.open("w", encoding="utf-8") as trial_log:
+        trial_log.write(f"[HPO] command: {shlex.join(cmd)}\n")
+        trial_log.flush()
+        result = subprocess.run(
+            cmd,
+            env=_training_env(),
+            stdout=trial_log,
+            stderr=subprocess.STDOUT,
+        )
     if result.returncode != 0:
         row["status"] = "failed"
         row["error"] = f"train_exit_code={result.returncode}"
+        print(
+            f"[HPO] trial failed: candidate={candidate['candidate_id']} "
+            f"returncode={result.returncode} log={trial_log_path}"
+        )
         return {
             "candidate": candidate,
             "row": row,
@@ -831,6 +863,10 @@ def _run_trial(
     if metrics_path is None:
         row["status"] = "failed"
         row["error"] = "metrics_not_found"
+        print(
+            f"[HPO] trial failed: candidate={candidate['candidate_id']} "
+            f"metrics_not_found log={trial_log_path}"
+        )
         return {
             "candidate": candidate,
             "row": row,
@@ -1127,7 +1163,7 @@ def _summary_stem() -> str:
     )
 
 
-def main() -> None:
+def main() -> int:
     runtime_args = _parse_runtime_args()
     _apply_runtime_overrides(runtime_args)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1219,6 +1255,7 @@ def main() -> None:
         "manual_vs_autograd_time_per_sample_reduction_pct",
         "manual_vs_autograd_throughput_gain_pct",
         "run_dir",
+        "trial_log_path",
         "status",
         "error",
     ]
@@ -1246,7 +1283,8 @@ def main() -> None:
             ranked_records = _run_single_stage_search(writer, csv_file, summary_path)
 
     _write_best_result(summary_path, ranked_records)
+    return 0 if ranked_records else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
