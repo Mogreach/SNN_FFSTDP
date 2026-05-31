@@ -387,23 +387,49 @@ def create_output_dir(args, mode_config):
     return out_dir
 
 
+def append_output_log(out_dir, message):
+    with open(os.path.join(out_dir, "output_log.txt"), "a", encoding="utf-8") as log_file:
+        log_file.write(f"{message}\n")
+        log_file.flush()
+
+
 def run_experiment(args):
     mode_config = ExperimentModeConfig.from_args(args)
     strategy_config = ExperimentStrategyConfig.from_args(args)
+    out_dir = create_output_dir(args, mode_config)
+    log_file_path = os.path.join(out_dir, "output_log.txt")
+    append_output_log(out_dir, f"Experiment setup started. model={args.model}")
     # The runner owns the orchestration only; model-specific math stays inside
     # the network modules and metrics formatting stays inside the tracker.
     train_dataset, test_dataset = build_datasets(args)
+    append_output_log(
+        out_dir,
+        f"Datasets built. train={len(train_dataset)} test={len(test_dataset)}",
+    )
     train_loader, val_loader, test_loader = build_data_loaders(
         args,
         train_dataset,
         test_dataset,
     )
+    append_output_log(
+        out_dir,
+        (
+            f"DataLoaders built. train_batches={len(train_loader)} "
+            f"val_batches={len(val_loader)} test_batches={len(test_loader)} "
+            f"workers={args.j}"
+        ),
+    )
     num_classes = infer_num_classes(test_dataset)
-    sample_batch = next(iter(train_loader))[0] if is_cnn_family_model(args.model) else None
+    sample_batch = None
+    if is_cnn_family_model(args.model):
+        append_output_log(out_dir, "Fetching CNN sample batch for model shape inference.")
+        sample_batch = next(iter(train_loader))[0]
+        append_output_log(out_dir, f"CNN sample batch shape={tuple(sample_batch.shape)}")
 
     device = torch.device(
         args.device if torch.cuda.is_available() else "cpu"
     )
+    append_output_log(out_dir, f"Using device={device}")
     use_cuda_mem_stat = torch.cuda.is_available() and device.type == "cuda"
     net = build_model(
         args,
@@ -413,6 +439,7 @@ def run_experiment(args):
         sample_batch=sample_batch,
         device=device,
     )
+    append_output_log(out_dir, f"Model built. type={type(net).__name__}")
     attach_prediction_label_reference_bank(
         net,
         train_dataset,
@@ -420,7 +447,7 @@ def run_experiment(args):
         mode_config,
         strategy_config,
     )
-    out_dir = create_output_dir(args, mode_config)
+    append_output_log(out_dir, "Prediction label reference bank attached if required.")
 
     with open(os.path.join(out_dir, "args.txt"), "w", encoding="utf-8") as args_txt:
         args_txt.write(str(args))
@@ -441,20 +468,26 @@ def run_experiment(args):
         mode_config=mode_config,
         strategy_config=strategy_config,
     )
-    log_file_path = os.path.join(out_dir, "output_log.txt")
     original_stdout = sys.stdout
     max_val_acc = 0.0
     training_start_time = time.time()
 
     try:
-        with open(log_file_path, "w", encoding="utf-8") as log_file:
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
             sys.stdout = log_file
+            print(f"Training started. epochs={args.epochs}", flush=True)
+            train_batches = len(train_loader)
+            progress_interval = max(1, train_batches // 10)
             for epoch_idx in tqdm(range(args.epochs)):
                 net.train()
                 tracker.begin_epoch()
+                print(
+                    f"Epoch: {epoch_idx + 1}/{args.epochs} started",
+                    flush=True,
+                )
                 # Preserve the original late-epoch freezing behavior.
                 frozen = False  # epoch_idx > (0.8 * args.epochs)
-                for x, y in train_loader:
+                for batch_idx, (x, y) in enumerate(train_loader, start=1):
                     x, y = x.to(device), y.to(device)
                     if use_cuda_mem_stat:
                         torch.cuda.synchronize(device)
@@ -475,6 +508,16 @@ def run_experiment(args):
                         batch_size=int(y.numel()),
                         train_memory_snapshot=train_memory_snapshot,
                     )
+                    if (
+                        batch_idx == 1
+                        or batch_idx == train_batches
+                        or batch_idx % progress_interval == 0
+                    ):
+                        print(
+                            f"Epoch: {epoch_idx + 1}/{args.epochs}, "
+                            f"Batch: {batch_idx}/{train_batches}",
+                            flush=True,
+                        )
 
                 # Validation is kept outside the per-batch tracker so the tracker
                 # remains focused on training-side measurements.
@@ -483,8 +526,11 @@ def run_experiment(args):
                     loss_threshold=args.loss_threshold,
                     train_acc=val_acc,
                 )
-                print(f"Epoch: {epoch_idx + 1}/{args.epochs}, Loss: {loss.mean():.4f}")
-                print(f"Val Acc:  {val_acc:.2f}%")
+                print(
+                    f"Epoch: {epoch_idx + 1}/{args.epochs}, Loss: {loss.mean():.4f}",
+                    flush=True,
+                )
+                print(f"Val Acc:  {val_acc:.2f}%", flush=True)
                 if val_acc >= max_val_acc:
                     net.save(args, os.path.join(out_dir, "checkpoint_max.pth"))
                     max_val_acc = val_acc

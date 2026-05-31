@@ -9,6 +9,12 @@ contact       : 1245598043@qq.com
 License       : MIT
 ====================================================================
 """
+import os
+
+os.environ["MPLBACKEND"] = "Agg"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-cache")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fontconfig-cache")
+
 from config import ConfigParser
 from src.experiment_runner import run_experiment
 
