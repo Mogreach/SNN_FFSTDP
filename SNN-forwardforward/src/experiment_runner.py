@@ -192,6 +192,18 @@ def infer_num_classes(dataset):
     return len(labels)
 
 
+def build_cnn_shape_sample(dataset):
+    sample, _ = dataset[0]
+    if not torch.is_tensor(sample):
+        sample = torch.as_tensor(sample)
+    if sample.ndim != 3:
+        raise ValueError(
+            "CNN shape inference expects one sample with shape [C, H, W], "
+            f"but received shape={tuple(sample.shape)}."
+        )
+    return sample.unsqueeze(0)
+
+
 def build_label_reference_bank(dataset, num_classes):
     # Prediction-time SCFF needs one reference image per class so each
     # candidate label can mix in the matching class prototype.
@@ -422,9 +434,9 @@ def run_experiment(args):
     num_classes = infer_num_classes(test_dataset)
     sample_batch = None
     if is_cnn_family_model(args.model):
-        append_output_log(out_dir, "Fetching CNN sample batch for model shape inference.")
-        sample_batch = next(iter(train_loader))[0]
-        append_output_log(out_dir, f"CNN sample batch shape={tuple(sample_batch.shape)}")
+        append_output_log(out_dir, "Fetching one CNN dataset sample for model shape inference.")
+        sample_batch = build_cnn_shape_sample(train_dataset)
+        append_output_log(out_dir, f"CNN shape sample shape={tuple(sample_batch.shape)}")
 
     device = torch.device(
         args.device if torch.cuda.is_available() else "cpu"
