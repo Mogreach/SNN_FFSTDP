@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from typing import Callable
+from typing import Callable, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -13,7 +13,7 @@ NEG_SAMPLE_EMBED_ZERO_ONEHOT = "embed_zero_onehot"
 NEG_SAMPLE_SCFF = "SCFF"
 NEG_SAMPLE_GLOBAL_FOURIER_LABEL = "global_fourier_label"
 
-NegativeSamplingFn = Callable[[torch.Tensor, torch.Tensor, int], tuple[torch.Tensor, torch.Tensor]]
+NegativeSamplingFn = Callable[[torch.Tensor, torch.Tensor, int], Tuple[torch.Tensor, torch.Tensor]]
 
 _NEGATIVE_SAMPLING_REGISTRY: dict[str, NegativeSamplingFn] = {}
 
