@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
 HPO_SCRIPT = ROOT / "ff-snn_hpo.py"
-DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_5_27_CNN"
+DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_6_11_CNN"
 
 
 # ---------------------------------------------------------------------------
