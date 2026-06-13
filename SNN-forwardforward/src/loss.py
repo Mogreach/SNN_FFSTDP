@@ -20,11 +20,6 @@ def ff_supervised_delta_loss(pos_goodness, neg_goodness, alpha):
     return torch.log(1 + torch.exp(-alpha * delta)).mean()
 
 
-def ff_scaled_supervised_delta_loss(pos_goodness, neg_goodness, alpha):
-    scaled_delta = alpha * (pos_goodness - neg_goodness)
-    return torch.log(1 + torch.exp(-alpha * scaled_delta)).mean()
-
-
 def ff_goodness_branch_loss(goodness, threshold, *, is_pos):
     if is_pos:
         return ff_positive_goodness_loss(goodness, threshold)

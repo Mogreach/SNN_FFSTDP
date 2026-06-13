@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent
 HPO_SCRIPT = ROOT / "ff-snn_hpo.py"
-DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_6_11_CNN"
+DEFAULT_OUT_DIR = ROOT / "logs" / "opt_batch_6_14"
 
 
 # ---------------------------------------------------------------------------
@@ -33,11 +33,14 @@ SEARCH_SPACE_PRESETS = {
             "v_threshold": [1.5],
             "b": [1024],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
             "dims": [
+                [784, 512, 512, 512, 512, 512, 10],
+                [784, 512, 512, 512, 512, 10],
+                [784, 512, 512, 512, 10],
                 [784, 512, 512, 10],
-                [784, 512, 10],
-                [784, 256, 10],
+                # [784, 512, 10],
+                # [784, 256, 10],
             ],
         },
         "FashionMNIST": {
@@ -45,11 +48,14 @@ SEARCH_SPACE_PRESETS = {
             "v_threshold": [1.5],
             "b": [1024],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
             "dims": [
+                [784, 512, 512, 512, 512, 512, 10],
+                [784, 512, 512, 512, 512, 10],
+                [784, 512, 512, 512, 10],
                 [784, 512, 512, 10],
-                [784, 512, 10],
-                [784, 256, 10],
+                # [784, 512, 10],
+                # [784, 256, 10],
             ],
         },
         "NMNIST": {
@@ -57,11 +63,13 @@ SEARCH_SPACE_PRESETS = {
             "v_threshold": [1.5],
             "b": [512],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
             "dims": [
+                [2 * 34 * 34, 512, 512, 512, 512, 10],
+                [2 * 34 * 34, 512, 512, 512, 10],
                 [2 * 34 * 34, 512, 512, 10],
-                [2 * 34 * 34, 512, 10],
-                [2 * 34 * 34, 256, 10],
+                # [2 * 34 * 34, 512, 10],
+                # [2 * 34 * 34, 256, 10],
             ],
         },
         "CIFAR10": {
@@ -69,11 +77,12 @@ SEARCH_SPACE_PRESETS = {
             "v_threshold": [1.5],
             "b": [512],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
             "dims": [
+                [3 * 32 * 32, 1024, 1024, 1024, 10],
                 [3 * 32 * 32, 1024, 512, 10],
-                [3 * 32 * 32, 1024, 10],
-                [3 * 32 * 32, 512, 10],
+                # [3 * 32 * 32, 1024, 10],
+                # [3 * 32 * 32, 512, 10],
             ],
         },
     },
@@ -81,9 +90,9 @@ SEARCH_SPACE_PRESETS = {
         "MNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [4096],
-            "T": [8,16],
-            "lr": [0.0078125, 0.0009765625],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125],
             "conv_cfg": [
                 [[1, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
                 [[1, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
@@ -98,9 +107,9 @@ SEARCH_SPACE_PRESETS = {
         "FashionMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [4096],
-            "T": [8,16],
-            "lr": [0.0078125, 0.0009765625],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125],
             "conv_cfg": [
                 [[1, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
                 [[1, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
@@ -115,9 +124,9 @@ SEARCH_SPACE_PRESETS = {
         "NMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [4096],
-            "T": [8,16],
-            "lr": [0.0078125, 0.0009765625],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125],
             "conv_cfg": [
                 [[2, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
                 [[2, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
@@ -132,9 +141,9 @@ SEARCH_SPACE_PRESETS = {
         "CIFAR10": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
-            "b": [4096],
-            "T": [8,16],
-            "lr": [0.0078125, 0.0009765625],
+            "b": [1024],
+            "T": [16],
+            "lr": [0.0078125],
             "conv_cfg": [
                 [[3, 16, 3, 1, 1], [16, 32, 3, 1, 1], [32, 64, 3, 1, 1]],
                 [[3, 32, 3, 1, 1], [32, 64, 3, 1, 1], [64, 128, 3, 1, 1]],
@@ -153,28 +162,28 @@ SEARCH_SPACE_PRESETS = {
             "v_threshold": [1.5],
             "b": [2048],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
         },
         "FashionMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
             "b": [2048],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
         },
         "NMNIST": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
             "b": [2048],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
         },
         "CIFAR10": {
             "loss_threshold": [0.4, 1.2, 2.0],
             "v_threshold": [1.5],
             "b": [2048],
             "T": [16],
-            "lr": [0.0078125, 0.0009765625],
+            "lr": [0.0078125],
         },
     },
 }
@@ -206,11 +215,84 @@ VALID_HIDDEN_LOSS_STRATEGIES = (
     "auto",
     "pairwise_goodness",
     "supervised_delta",
-    "scaled_supervised_delta",
 )
+VALID_SEARCH_STRATEGIES = ("grid", "random", "successive_halving", "bayes")
 
 CNN_FAMILY_MODELS = {"VGG6", "VGG8", "VGG11", "ResNet"}
 DEFAULT_UPDATE_SCHEDULE = "separate"
+
+
+def _first_nonempty(*values, default: str = "") -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return default
+
+
+def _artifact_stem(path: Path) -> str:
+    name = path.name
+    if name.endswith(".best.json"):
+        return name[: -len(".best.json")]
+    if name.endswith(".csv"):
+        return name[: -len(".csv")]
+    return path.stem
+
+
+def _metadata_from_artifact_name(path: Path) -> dict:
+    """Recover combo axes from HPO artifact names written by ff-snn_hpo.py."""
+    stem = _artifact_stem(path)
+    for learning_mode in VALID_LEARNING_MODES:
+        learning_prefix = f"{learning_mode}-"
+        if not stem.startswith(learning_prefix):
+            continue
+        rest = stem[len(learning_prefix) :]
+        for update_mode in VALID_UPDATE_MODES:
+            for update_schedule in VALID_UPDATE_SCHEDULES:
+                for neg_sample_strategy in VALID_NEG_SAMPLE_STRATEGIES:
+                    for goodness_strategy in VALID_GOODNESS_STRATEGIES:
+                        for hidden_loss_strategy in VALID_HIDDEN_LOSS_STRATEGIES:
+                            prefix = (
+                                f"{update_mode}-{update_schedule}-"
+                                f"{neg_sample_strategy}-{goodness_strategy}-"
+                                f"{hidden_loss_strategy}-"
+                            )
+                            if not rest.startswith(prefix):
+                                continue
+                            tail = rest[len(prefix) :]
+                            for model in VALID_MODELS:
+                                for search_strategy in VALID_SEARCH_STRATEGIES:
+                                    suffix = f"-{model}-{search_strategy}"
+                                    if not tail.endswith(suffix):
+                                        continue
+                                    dataset = tail[: -len(suffix)]
+                                    if dataset not in VALID_DATASETS:
+                                        continue
+                                    return {
+                                        "dataset": dataset,
+                                        "model": model,
+                                        "learning_mode": learning_mode,
+                                        "hidden_layer_update_mode": update_mode,
+                                        "update_schedule": update_schedule,
+                                        "neg_sample_strategy": neg_sample_strategy,
+                                        "goodness_strategy": goodness_strategy,
+                                        "hidden_loss_strategy": hidden_loss_strategy,
+                                    }
+    return {}
+
+
+def _metadata_from_run_name(run_name: str) -> dict:
+    metadata = {}
+    for part in run_name.split("_"):
+        if part in VALID_UPDATE_MODES:
+            metadata["hidden_layer_update_mode"] = part
+        elif part in VALID_UPDATE_SCHEDULES:
+            metadata["update_schedule"] = part
+    return metadata
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -221,7 +303,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--datasets", default="MNIST,FashionMNIST,NMNIST,CIFAR10")
     parser.add_argument("--exclude-datasets", default="")
-    parser.add_argument("--models", default="CNN")
+    parser.add_argument("--models", default="CNN,MLP")
     parser.add_argument("--exclude-models", default="")
     parser.add_argument("--learning-modes", default="unsupervised,supervised")
     parser.add_argument("--exclude-learning-modes", default="")
@@ -243,11 +325,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hidden-loss-strategy", default=None, help=argparse.SUPPRESS)
 
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument(
         "--search-strategy",
         choices=["grid", "random", "successive_halving", "bayes"],
-        default="successive_halving",
+        default="bayes",
     )
     parser.add_argument("--optimize-metric", default="val_acc_best")
     parser.add_argument("--random-seed", type=int, default=42)
@@ -448,13 +530,13 @@ def _combo_from_row(row: dict) -> Combo | None:
         model=model,
         learning_mode=learning_mode,
         hidden_layer_update_mode=hidden_layer_update_mode,
-        update_schedule=row.get(
-            "update_schedule",
-            DEFAULT_UPDATE_SCHEDULE,
+        update_schedule=_first_nonempty(
+            row.get("update_schedule"),
+            default=DEFAULT_UPDATE_SCHEDULE,
         ),
-        neg_sample_strategy=row.get("neg_sample_strategy", "auto"),
-        goodness_strategy=row.get("goodness_strategy", "auto"),
-        hidden_loss_strategy=row.get("hidden_loss_strategy", "auto"),
+        neg_sample_strategy=_first_nonempty(row.get("neg_sample_strategy"), default="auto"),
+        goodness_strategy=_first_nonempty(row.get("goodness_strategy"), default="auto"),
+        hidden_loss_strategy=_first_nonempty(row.get("hidden_loss_strategy"), default="auto"),
     )
 
 
@@ -465,10 +547,17 @@ def _remember_best_row(
     source: str,
     path: Path | None = None,
 ) -> None:
-    combo = _combo_from_row(row)
+    artifact_metadata = _metadata_from_artifact_name(path) if path is not None else {}
+    candidate = dict(row)
+    # Older HPO CSV/JSON files may miss newly introduced axes such as
+    # update_schedule. The artifact name is generated from the full combo, so it
+    # is the most reliable fallback when rebuilding reports from old outputs.
+    for key, value in artifact_metadata.items():
+        candidate[key] = _first_nonempty(candidate.get(key), value)
+
+    combo = _combo_from_row(candidate)
     if combo is None:
         return
-    candidate = dict(row)
     candidate["_source"] = source
     candidate["_best_json"] = str(path) if path is not None and source == "best_json" else ""
     current = best_by_key.get(combo.key)
@@ -509,17 +598,20 @@ def _load_best_results(out_dir: Path) -> dict[str, dict]:
                 metrics = json.load(mf)
         except (OSError, json.JSONDecodeError):
             continue
-        hidden_layer_update_mode = metrics.get("hidden_layer_update_mode")
-        if not hidden_layer_update_mode and "_" in run_name:
-            hidden_layer_update_mode = run_name.rsplit("_", 1)[-1]
+        run_name_metadata = _metadata_from_run_name(run_name)
+        hidden_layer_update_mode = _first_nonempty(
+            metrics.get("hidden_layer_update_mode"),
+            run_name_metadata.get("hidden_layer_update_mode"),
+        )
         row = {
             **metrics,
             "dataset": dataset,
             "model": model,
             "learning_mode": learning_mode,
             "hidden_layer_update_mode": hidden_layer_update_mode or "",
-            "update_schedule": metrics.get(
-                "update_schedule",
+            "update_schedule": _first_nonempty(
+                metrics.get("update_schedule"),
+                run_name_metadata.get("update_schedule"),
                 DEFAULT_UPDATE_SCHEDULE,
             ),
             "neg_sample_strategy": metrics.get("neg_sample_strategy", "auto"),
@@ -553,6 +645,12 @@ def _extract_args_metadata(args_text: str) -> dict:
         "lr": "lr",
         "loss_threshold": "loss_threshold",
         "v_threshold": "v_threshold",
+        "learning_mode": "learning_mode",
+        "hidden_layer_update_mode": "hidden_layer_update_mode",
+        "update_schedule": "update_schedule",
+        "neg_sample_strategy": "neg_sample_strategy",
+        "goodness_strategy": "goodness_strategy",
+        "hidden_loss_strategy": "hidden_loss_strategy",
     }
     for output_key, arg_key in simple_fields.items():
         token = f"{arg_key}="
@@ -796,7 +894,7 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
         VALID_UPDATE_MODES,
         "update_modes",
     )
-    manual_schedules = _select_axis_values(
+    update_schedules = _select_axis_values(
         args.update_schedules,
         args.exclude_update_schedules,
         VALID_UPDATE_SCHEDULES,
@@ -826,9 +924,10 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
         for model in models:
             for learning_mode in learning_modes:
                 for update_mode in update_modes:
-                    # The legacy parameter name is retained, but the schedule
-                    # controls update timing for manual and autograd modes.
-                    for update_schedule in manual_schedules:
+                    # update_schedule is an independent axis for both update
+                    # implementations: manual+separate and autograd+paired are
+                    # valid experiment combinations, not special cases.
+                    for update_schedule in update_schedules:
                         for neg_sample_strategy in neg_sample_strategies:
                             for goodness_strategy in goodness_strategies:
                                 for hidden_loss_strategy in hidden_loss_strategies:
@@ -845,6 +944,34 @@ def build_combos(args: argparse.Namespace) -> list[Combo]:
                                         )
                                     )
     return combos
+
+
+def _update_pair_counts(combos: list[Combo]) -> dict[tuple[str, str], int]:
+    counts = {
+        (update_mode, update_schedule): 0
+        for update_mode in VALID_UPDATE_MODES
+        for update_schedule in VALID_UPDATE_SCHEDULES
+    }
+    for combo in combos:
+        key = (combo.hidden_layer_update_mode, combo.update_schedule)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _print_update_schedule_coverage(combos: list[Combo]) -> None:
+    counts = _update_pair_counts(combos)
+    parts = [
+        f"{update_mode}+{update_schedule}={counts[(update_mode, update_schedule)]}"
+        for update_mode in VALID_UPDATE_MODES
+        for update_schedule in VALID_UPDATE_SCHEDULES
+    ]
+    print("[BATCH] update_schedule_coverage " + " ".join(parts))
+    missing = [part for part in parts if part.endswith("=0")]
+    if missing:
+        print(
+            "[BATCH] warning: selected batch has missing update/schedule pairs: "
+            + ", ".join(missing)
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -864,13 +991,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None:
         combos = combos[: args.limit]
 
+    print(f"[BATCH] combinations={len(combos)}")
+    _print_update_schedule_coverage(combos)
+
     if args.report_only:
         write_reports(args.out_dir, combos, records_path)
         print(f"[BATCH] report: {args.out_dir / 'batch_report.md'}")
         print(f"[BATCH] summary: {args.out_dir / 'batch_summary.csv'}")
         return 0
 
-    print(f"[BATCH] combinations={len(combos)}")
     for idx, combo in enumerate(combos, start=1):
         best_path = _expected_best_path(args.out_dir, combo, args.search_strategy)
         if best_path.exists() and not args.force:

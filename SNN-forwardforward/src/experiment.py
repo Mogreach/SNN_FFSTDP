@@ -77,14 +77,6 @@ class ExperimentModeConfig:
 
     @property
     def uses_separate_update_schedule(self) -> bool:
-        return self.uses_separate_update_schedule
-
-    @property
-    def uses_paired_update_schedule(self) -> bool:
-        return self.uses_paired_update_schedule
-
-    @property
-    def uses_separate_update_schedule(self) -> bool:
         return self.update_schedule == UPDATE_SCHEDULE_SEPARATE
 
     @property
@@ -93,7 +85,13 @@ class ExperimentModeConfig:
 
     @property
     def run_name(self) -> str:
-        return f"{self.learning_mode}_{self.hidden_layer_update_mode}"
+        # Keep every independent experiment axis in the run directory name so
+        # autograd/manual and separate/paired runs cannot overwrite each other.
+        return (
+            f"{self.learning_mode}_"
+            f"{self.hidden_layer_update_mode}_"
+            f"{self.update_schedule}"
+        )
 
     def to_dict(self) -> dict:
         return {

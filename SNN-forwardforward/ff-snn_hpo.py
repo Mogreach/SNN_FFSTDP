@@ -109,7 +109,7 @@ HIDDEN_LAYER_UPDATE_MODE = "manual"  # Hidden-layer update: "autograd" or "manua
 UPDATE_SCHEDULE = "paired"  # Hidden-layer update timing for manual/autograd: "separate" or "paired"
 NEG_SAMPLE_STRATEGY = "SCFF"  # Negative-sample generation strategy: "auto, embed_label_onehot, embed_zero_onehot, SCFF."
 GOODNESS_STRATEGY = "spike_square_mean"  # Hidden-layer goodness strategy: "auto, spike_square, spike_square_mean, freq_square, freq_square_mean, membrane_potential_square_mean". Legacy aliases: "square", "square_mean".
-HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta, scaled_supervised_delta."
+HIDDEN_LOSS_STRATEGY = "supervised_delta"  # Hidden-layer local loss strategy: "auto, pairwise_goodness, supervised_delta."
 DEVICE = None  # Optional explicit torch device forwarded to ff-snn.py.
 DATA_LOADER_WORKERS = 8  # DataLoader workers forwarded to ff-snn.py.
 

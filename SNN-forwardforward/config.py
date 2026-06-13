@@ -162,8 +162,7 @@ class ConfigParser:
             type=str,
             help=(
                 "Hidden-layer local loss strategy name. Built-ins include: "
-                "auto, pairwise_goodness, supervised_delta, "
-                "scaled_supervised_delta."
+                "auto, pairwise_goodness, supervised_delta."
             ),
         )
         self.parser.add_argument(

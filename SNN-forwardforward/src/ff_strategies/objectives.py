@@ -6,7 +6,6 @@ import torch
 
 from src.loss import (
     ff_pairwise_goodness_loss,
-    ff_scaled_supervised_delta_loss,
     ff_supervised_delta_loss,
 )
 
@@ -14,7 +13,6 @@ from src.loss import (
 HIDDEN_LOSS_AUTO = "auto"
 HIDDEN_LOSS_PAIRWISE = "pairwise_goodness"
 HIDDEN_LOSS_SUPERVISED_DELTA = "supervised_delta"
-HIDDEN_LOSS_SCALED_SUPERVISED_DELTA = "scaled_supervised_delta"
 
 HiddenLossFn = Callable[[torch.Tensor, torch.Tensor, float, object], torch.Tensor]
 
@@ -81,19 +79,5 @@ def _supervised_delta_loss(
     return ff_supervised_delta_loss(pos_goodness, neg_goodness, threshold)
 
 
-def _scaled_supervised_delta_loss(
-    pos_goodness: torch.Tensor,
-    neg_goodness: torch.Tensor,
-    threshold: float,
-    mode_config,
-) -> torch.Tensor:
-    del mode_config
-    return ff_scaled_supervised_delta_loss(pos_goodness, neg_goodness, threshold)
-
-
 register_hidden_loss_strategy(HIDDEN_LOSS_PAIRWISE, _pairwise_goodness_loss)
 register_hidden_loss_strategy(HIDDEN_LOSS_SUPERVISED_DELTA, _supervised_delta_loss)
-register_hidden_loss_strategy(
-    HIDDEN_LOSS_SCALED_SUPERVISED_DELTA,
-    _scaled_supervised_delta_loss,
-)
